@@ -1,0 +1,22 @@
+{
+  "name": "@geops/api-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {".": {"types": "./dist/index.d.ts", "default": "./dist/index.js"}},
+  "files": ["dist", "openapi.yaml"],
+  "scripts": {
+    "check": "node scripts/check-openapi.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test test/contracts.test.mjs"
+  },
+  "dependencies": {"yaml": "2.9.1"},
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
+    "openapi-typescript": "7.13.0"
+  },
+  "engines": {"node": ">=24.0.0"}
+}

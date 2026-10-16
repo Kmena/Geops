@@ -85,8 +85,11 @@ El ciclo de trabajo es **PRD → Specify → Plan → Tasks → Implement → Ve
 | Planificado | Agente Android, API, web, mapas, captación, rutas, visitas, alertas y reportes. |
 | Pendiente de validación | PRD v1.1, políticas MDM, permisos Android, horarios, retención, cadencia GPS, límites cartográficos y operación del piloto. |
 
-El siguiente paso es resolver las dependencias de [SPEC-00](specs/spec-00-technical-feasibility/README.md) e iniciar las validaciones de **Wave 0: Fundamentos y MDM** con los 2 dispositivos piloto, antes de inicializar las aplicaciones.
+El siguiente paso documental está en [SPEC-01](specs/spec-01-foundation-wave-0a/README.md). Las puertas de entrada permiten únicamente desarrollo sintético de Wave 0A; las validaciones Free y del piloto de [SPEC-00](specs/spec-00-technical-feasibility/README.md) permanecen pendientes.
 
 ## Seguimiento documental
 
 El [informe de cierre documental de SPEC-00](specs/spec-00-technical-feasibility/closure-report.md) registra las pruebas OAuth/API realizadas en MSP Trial y mantiene **BLOCKED** la viabilidad operativa hasta validar Free y dos Android.
+## SPEC-01 documental
+
+[Wave 0A — Foundation, Device Identity & MDM Integration](specs/spec-01-foundation-wave-0a/README.md) ya tiene especificación, arquitectura, contratos OpenAPI, plan, tareas, pruebas y criterios de entrada. Su estado es **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING** solo para datos y dispositivos sintéticos; pruebas de identidad, Free, piloto y producción mantienen las restricciones de [wave-readiness](specs/spec-01-foundation-wave-0a/wave-readiness.md). El diagnóstico OAuth existente en apps/api es una herramienta de desarrollo, no la API de producto; T01–T05 tienen implementación y pruebas locales documentadas; T02 espera validación CI remota.

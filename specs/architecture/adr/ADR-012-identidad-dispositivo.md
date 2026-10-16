@@ -1,6 +1,6 @@
 # ADR-012 — Identidad por dispositivo con clave Keystore e invitación temporal
 
-**Fecha:** 2026-10-16. **Estado: aceptado como decisión de diseño; validación de integración y piloto pendiente.** Complementa [ADR-007](ADR-007-mdm-externo.md), [ADR-008](ADR-008-buffer-offline.md) y [SPEC-00](../../spec-00-technical-feasibility/device-provisioning.md).
+**Fecha:** 2026-10-16. **Estado: aprobado provisionalmente para implementación de Wave 0A con datos sintéticos; pruebas automatizadas, revisión de seguridad final, integración y piloto pendientes.** Complementa [ADR-007](ADR-007-mdm-externo.md), [ADR-008](ADR-008-buffer-offline.md) y [SPEC-00](../../spec-00-technical-feasibility/device-provisioning.md).
 
 ## Contexto
 
@@ -24,3 +24,7 @@ Q-03 queda **cerrada como decisión documental del protocolo**, no como prueba o
 - Bearer de larga vida por teléfono: un token copiado permite suplantación hasta revocación.
 - Solo UDID/serial o variable MDM: identificadores copiables, sin prueba de posesión.
 - Activación automática al escanear QR: una invitación filtrada puede ganarle al equipo legítimo.
+
+## Alcance de la aprobación provisional de Wave 0A
+
+La autorización del 2026-10-16 permite implementar y probar la identidad GEOPS con claves, usuarios, dispositivos y MDM simulados. La revisión documental de amenazas está en [SPEC-01](../../spec-01-foundation-wave-0a/risks.md). Antes de cerrar identidad deben pasar las pruebas de expiración, replay, suplantación, rotación, revocación y recuperación de [P10–P17](../../spec-01-foundation-wave-0a/test-plan.md), además de una revisión de seguridad sobre la implementación. La aprobación no valida attestation en teléfonos reales, inscripción Fully Managed, API Free ni activación operativa. No autoriza datos reales ni producción.

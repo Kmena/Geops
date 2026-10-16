@@ -30,3 +30,6 @@ La **evaluación** permite planificar Wave 0A ahora. Para comenzar su implementa
 - Expansión a 25 equipos o uso de datos reales: pruebas físicas, privacidad y capacidad pendientes.
 
 **Regla:** un resultado PASS de pruebas unitarias/fakes solo cumple el contrato de Wave 0A; no cambia el estado BLOCKED de SPEC-00 ni reemplaza evidencia de proveedor/hardware.
+## Actualización de entrada 2026-10-16
+
+La decisión posterior está en [SPEC-01 wave-readiness](../spec-01-foundation-wave-0a/wave-readiness.md): W0A-E1 pasó revisión documental; ADR-012/W0A-E2 se aprobó **provisionalmente** para implementar con datos y dispositivos sintéticos, sujeto a P10–P17 y revisión de seguridad del código; W0A-E4 autoriza únicamente datos sintéticos; W0A-E5 registra responsables por rol, con ventanas externas pendientes. T01–T05 pueden comenzar sin Free ni teléfonos reales. Esta actualización no altera las pruebas M01–M10/A01–A06 pendientes ni el estado global **BLOCKED** de SPEC-00.

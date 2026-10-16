@@ -1,0 +1,82 @@
+name: geops-wave0a
+
+services:
+  geops-db:
+    image: postgis/postgis:18-3.6
+    container_name: geops-wave0a-db
+    environment:
+      POSTGRES_DB: geops_dev
+      POSTGRES_USER: geops_dev
+      POSTGRES_PASSWORD: ${GEOPS_DEV_DB_PASSWORD:?Generate local synthetic password first}
+    volumes:
+      - geops_wave0a_pgdata:/var/lib/postgresql
+    networks:
+      - geops_wave0a_internal
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U geops_dev -d geops_dev -tAc 'SELECT PostGIS_Version()' >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  geops-migrate:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    image: geops-wave0a-api:dev
+    container_name: geops-wave0a-migrate
+    command: ["node", "apps/api/dist/db/migrate.js"]
+    environment:
+      GEOPS_DATA_MODE: synthetic
+      DATABASE_URL: postgresql://geops_dev:${GEOPS_DEV_DB_PASSWORD}@geops-db:5432/geops_dev
+      LOG_LEVEL: silent
+    depends_on:
+      geops-db:
+        condition: service_healthy
+    networks:
+      - geops_wave0a_internal
+    restart: "on-failure:3"
+
+  geops-api:
+    image: geops-wave0a-api:dev
+    container_name: geops-wave0a-api
+    environment:
+      GEOPS_DATA_MODE: synthetic
+      DATABASE_URL: postgresql://geops_dev:${GEOPS_DEV_DB_PASSWORD}@geops-db:5432/geops_dev
+      HOST: 0.0.0.0
+      PORT: "3500"
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:3500:3500"
+    depends_on:
+      geops-migrate:
+        condition: service_completed_successfully
+    networks:
+      - geops_wave0a_internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3500/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  geops-web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+    image: geops-wave0a-web:dev
+    container_name: geops-wave0a-web
+    ports:
+      - "127.0.0.1:3501:8080"
+    depends_on:
+      geops-api:
+        condition: service_healthy
+    networks:
+      - geops_wave0a_internal
+
+volumes:
+  geops_wave0a_pgdata:
+    name: geops_wave0a_pgdata
+
+networks:
+  geops_wave0a_internal:
+    name: geops_wave0a_internal
+    driver: bridge

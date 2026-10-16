@@ -28,4 +28,7 @@ El [PRD v1.1](prd/GEOPS-PRD-v1.1.md) es la fuente principal de [SPEC-00 — Tech
 
 ## Corte documental de SPEC-00 y seguimiento
 
-El [informe de cierre de SPEC-00](spec-00-technical-feasibility/closure-report.md) completa la investigación y arquitectura para este corte, sin cerrar su viabilidad operativa: el estado global sigue **BLOCKED**. SPEC-01 puede comenzar como especificación de Wave 0A bajo los [criterios de entrada](spec-00-technical-feasibility/closure-report.md#8-criterios-de-entrada-de-spec-01); esto no constituye autorización de implementación.
+El [informe de cierre de SPEC-00](spec-00-technical-feasibility/closure-report.md) completa la investigación y arquitectura para este corte, sin cerrar su viabilidad operativa: el estado global sigue **BLOCKED**. SPEC-01 comenzó como especificación de Wave 0A bajo los [criterios de entrada](spec-00-technical-feasibility/closure-report.md#8-criterios-de-entrada-de-spec-01). La autorización posterior de implementación sintética y sus límites se registran en [wave-readiness de SPEC-01](spec-01-foundation-wave-0a/wave-readiness.md).
+## SPEC-01 — Wave 0A
+
+La [especificación de fundamentos, identidad y MDM](spec-01-foundation-wave-0a/README.md) contiene Specify → Plan → Tasks, [OpenAPI de diseño](spec-01-foundation-wave-0a/openapi.yaml), plan de pruebas y puertas de entrada. Estado: **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING** solo para datos y dispositivos sintéticos; ADR-012 tiene aprobación provisional y su implementación requiere pruebas y revisión de seguridad. SPEC-00 sigue **BLOCKED**.
