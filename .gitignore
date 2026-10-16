@@ -1,0 +1,71 @@
+# Dependencias y compilación
+node_modules/
+dist/
+build/
+out/
+tmp/
+temp/
+*.tsbuildinfo
+.gradle/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+.vite/
+
+# Android Studio y artefactos móviles
+.idea/
+*.iml
+local.properties
+captures/
+*.apk
+*.aab
+*.ap_
+*.hprof
+
+# Pruebas, CI y registros
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+artifacts/
+*.log
+logs/
+
+# Temporales de editores y sistema
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Entornos y configuración local con secretos
+**/.env
+**/.env.*
+!**/.env.example
+**/config.local.*
+**/*.local.yml
+**/*.local.yaml
+
+# Credenciales y firmas
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.asc
+id_rsa*
+id_ed25519*
+google-services.json
+GoogleService-Info.plist
+
+# Bases de datos y respaldos locales; no excluye migraciones SQL
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.sql.gz
+**/pgdata/
