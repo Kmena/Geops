@@ -1,0 +1,22 @@
+{
+	default_sni {$POC_PUBLIC_HOST}
+}
+
+{$POC_PUBLIC_HOST} {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+		}
+	}
+	encode zstd gzip
+	@backend path /api/* /health/*
+	handle @backend {
+		reverse_proxy poc-api:3600
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

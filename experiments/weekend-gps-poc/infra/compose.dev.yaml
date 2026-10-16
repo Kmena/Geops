@@ -1,0 +1,55 @@
+name: geops-weekend-poc
+services:
+  poc-db:
+    image: postgis/postgis:18-3.6
+    environment:
+      POSTGRES_DB: geops_poc
+      POSTGRES_USER: poc_user
+      POSTGRES_PASSWORD: ${POC_DB_PASSWORD:?create experimental password}
+    volumes: [poc_pgdata:/var/lib/postgresql]
+    networks: [poc_internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U poc_user -d geops_poc"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  poc-migrate:
+    image: postgis/postgis:18-3.6
+    environment:
+      PGPASSWORD: ${POC_DB_PASSWORD:?}
+    volumes: [../api/schema.sql:/schema.sql:ro]
+    command: ["psql","-h","poc-db","-U","poc_user","-d","geops_poc","-v","ON_ERROR_STOP=1","-f","/schema.sql"]
+    depends_on:
+      poc-db: { condition: service_healthy }
+    networks: [poc_internal]
+    restart: "no"
+  poc-api:
+    build: { context: .., dockerfile: infra/Dockerfile.api }
+    environment:
+      POC_ENV_ID: weekend-gps-poc-v1
+      POC_DATABASE_URL: postgresql://poc_user:${POC_DB_PASSWORD:?}@poc-db:5432/geops_poc
+      POC_ADMIN_PASSWORD_HASH: ${POC_ADMIN_PASSWORD_HASH:?}
+      POC_PUBLIC_ORIGIN: http://127.0.0.1:3601
+      POC_RETENTION_HOURS: ${POC_RETENTION_HOURS:-72}
+      POC_MAX_DEVICES: "1"
+      POC_PORT: "3600"
+      POC_SECURE_COOKIE: "false"
+      POC_CAPTURE_ENABLED: ${POC_CAPTURE_ENABLED:-false}
+    depends_on:
+      poc-migrate: { condition: service_completed_successfully }
+    networks: [poc_internal]
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://127.0.0.1:3600/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+  poc-web:
+    build: { context: .., dockerfile: infra/Dockerfile.web }
+    ports: ["127.0.0.1:3601:8080"]
+    depends_on:
+      poc-api: { condition: service_healthy }
+    networks: [poc_internal]
+volumes:
+  poc_pgdata: { name: geops_weekend_poc_pgdata }
+networks:
+  poc_internal: { name: geops_weekend_poc_internal, driver: bridge }

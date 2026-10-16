@@ -1,0 +1,7 @@
+node_modules
+dist-web
+android
+docs
+infra/.env*
+*.log
+*.apk

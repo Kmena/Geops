@@ -1,0 +1,104 @@
+name: POC-GPS-001 synthetic checks
+
+on:
+  push:
+    branches: [codex/poc-gps-weekend]
+    paths:
+      - "experiments/weekend-gps-poc/**"
+      - ".github/workflows/poc-gps.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experiments/weekend-gps-poc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: experiments/weekend-gps-poc/package-lock.json
+      - name: Install repository lint tool
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .
+      - name: Install PoC from lockfile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Node tests
+        run: npm test
+      - name: Lint
+        run: ../../node_modules/.bin/biome check api web infra/cloud-config-preflight.mjs infra/cloud-config-preflight.test.mjs infra/backup.mjs infra/verify-backup.mjs
+      - name: Node syntax
+        run: find api infra -name '*.mjs' -print0 | xargs -0 -n1 node --check
+      - name: Web build
+        run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experiments/weekend-gps-poc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - name: Create isolated synthetic CI environment
+        run: |
+          node --input-type=module <<'NODE'
+          import { randomBytes, scryptSync } from 'node:crypto';
+          import { writeFileSync } from 'node:fs';
+          const password = randomBytes(24).toString('hex');
+          const salt = randomBytes(16);
+          const hash = salt.toString('hex') + ':' + scryptSync(randomBytes(24), salt, 64).toString('hex');
+          writeFileSync('infra/.env.local', [
+            'POC_DB_PASSWORD=' + password,
+            'POC_ADMIN_PASSWORD_HASH=' + hash,
+            'POC_RETENTION_HOURS=72',
+            'POC_CAPTURE_ENABLED=false',
+            'POC_PUBLIC_HOST=18.209.159.208',
+            'POC_HTTP_BIND=0.0.0.0:80',
+            'POC_HTTPS_BIND=0.0.0.0:443',
+            '',
+          ].join('\n'), { mode: 0o600 });
+          NODE
+      - name: Validate Compose and cloud gates without deployment
+        run: |
+          node infra/cloud-config-preflight.mjs infra/.env.local
+          docker compose --env-file infra/.env.local -f infra/compose.dev.yaml config --quiet
+          docker compose --env-file infra/.env.local -f infra/compose.cloud.yaml config --quiet
+          bash -n infra/preflight-server.sh
+      - name: Build and validate HTTPS image offline
+        run: |
+          docker build -f infra/Dockerfile.caddy -t geops-weekend-poc-caddy-ci .
+          docker run --rm --network none -e POC_PUBLIC_HOST=18.209.159.208 geops-weekend-poc-caddy-ci caddy validate --config /etc/caddy/Caddyfile
+      - name: Start isolated synthetic PoC locally on runner
+        run: docker compose --env-file infra/.env.local -f infra/compose.dev.yaml up -d --build
+      - name: PostgreSQL/PostGIS integration
+        run: docker compose --env-file infra/.env.local -f infra/compose.dev.yaml run --rm --no-deps -e POC_TEST_MODE=synthetic poc-api node --test api/test/postgres.integration.mjs
+      - name: Stop only PoC containers
+        if: always()
+        run: |
+          if test -f infra/.env.local; then
+            docker compose --env-file infra/.env.local -f infra/compose.dev.yaml down
+          fi
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.13" }
+      - run: gradle -p experiments/weekend-gps-poc/android :app:testDebugUnitTest :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geops-weekend-poc-synthetic-debug-apk
+          path: experiments/weekend-gps-poc/android/app/build/outputs/apk/debug/*.apk
