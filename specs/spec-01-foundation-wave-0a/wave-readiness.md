@@ -1,6 +1,6 @@
 # Preparación de Wave 0A — decisión de entrada
 
-**Estado SPEC-01: READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING (2026-10-16).** La autorización es para implementar Wave 0A con datos y dispositivos **exclusivamente sintéticos**. No constituye cierre de SPEC-00, aprobación operativa de identidad, validación ManageEngine Free, aprobación del piloto Android ni permiso para producción. T01–T05 tienen implementación local y evidencia parcial al 2026-10-16; el estado de entrada se mantiene, sin declarar la wave completa.
+**Estado SPEC-01: READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING (2026-10-16).** La autorización es para implementar Wave 0A con datos y dispositivos **exclusivamente sintéticos**. No constituye cierre de SPEC-00, aprobación operativa de identidad, validación ManageEngine Free, aprobación del piloto Android ni permiso para producción. T01–T05 tienen evidencia de cierre de su alcance fundacional, incluido CI remoto de T02; el estado de entrada se mantiene, sin declarar la wave completa.
 
 ## Decisiones y gates
 
@@ -36,12 +36,12 @@ T06–T18 pueden implementarse posteriormente según [tasks.md](tasks.md), depen
 | Activación operativa de identidad y método manual | PENDING. | Tras P10–P17, revisión de seguridad y piloto; ninguna activación real en 0A. |
 | Despliegue y capacidad de 25 teléfonos | PENDING. | Wave 6 y validaciones VAL-08; producción prohibida ahora. |
 
-**SPEC-00 permanece BLOCKED.** Roles asignados no significan ventanas acordadas ni resultados PASS. T01–T05 se trabajaron con fixtures y puertos comprobados antes del arranque. El siguiente corte debe cerrar CI de T02 y continuar T06–T18 con datos sintéticos; el subcaso de revocación de P04 se valida en T12/T18.
+**SPEC-00 permanece BLOCKED.** Roles asignados no significan ventanas acordadas ni resultados PASS. T01–T05 se trabajaron con fixtures y puertos comprobados antes del arranque; T02 cerró su gate remoto. El siguiente corte puede continuar T06–T18 con datos sintéticos; el subcaso de revocación de P04 se valida en T12/T18.
 
 ## Readiness tras T01–T05
 
-El estado permanece **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING**. T01, T03 y T04 tienen evidencia local de cierre de su alcance; T05 cerró su alcance fundacional con P03 y pruebas de PostGIS/migración/restore; T02 tiene gate local verde pero CI remoto pendiente. P04 completo sigue pendiente hasta T12/T18. Ninguno de estos resultados cierra Free, el piloto de dos Android, ADR-012 operativo, privacidad ni producción. [Evidencia sanitizada](implementation-evidence-T01-T05.md).
+El estado permanece **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING**. T01, T03 y T04 tienen evidencia local de cierre de su alcance; T05 cerró su alcance fundacional con P03 y pruebas de PostGIS/migración/restore; T02 tiene gate local y [CI remoto](https://github.com/Kmena/Geops/actions/runs/38947799854) verdes en el commit c781faeec53ff4fcea3db609dc6b0486275a882e. P04 completo sigue pendiente hasta T12/T18. Ninguno de estos resultados cierra Free, el piloto de dos Android, ADR-012 operativo, privacidad ni producción. [Evidencia sanitizada](implementation-evidence-T01-T05.md).
 
-## Gate CI T02 — preparación 2026-10-16
+## Gate CI T02 — validado 2026-10-16
 
-Los controles locales de T02 pasaron de nuevo desde el lockfile; el workflow remoto todavía no se ha ejecutado. La autorización de desarrollo sintético y el estado `READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING` no cambian por un PASS local. T02 solo se cerrará al verificar el job remoto y registrar su SHA/run en [evidencia](implementation-evidence-T01-T05.md). SPEC-00 sigue BLOCKED.
+Los controles locales de T02 pasaron de nuevo desde el lockfile. GitHub Actions terminó COMPLETED/SUCCESS para `c781faeec53ff4fcea3db609dc6b0486275a882e`: [run 38947799854](https://github.com/Kmena/Geops/actions/runs/38947799854), job `foundation` y todos los pasos PASS. T02 queda DONE en su alcance. La autorización de desarrollo sintético y el estado `READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING` no cambian; SPEC-00 sigue BLOCKED.

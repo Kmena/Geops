@@ -1,6 +1,6 @@
 # Tasks — backlog implementable de Wave 0A
 
-**Estado:** T01/T03/T04/T05 implementadas y verificadas en su alcance fundacional; T02 espera ejecución de CI remoto. P04 completo conserva pendiente el caso de revocación de T09/T12. Evidencia: [implementation-evidence-T01-T05.md](implementation-evidence-T01-T05.md). Las referencias Pnn apuntan a [test-plan.md](test-plan.md). Un cierre exige evidencia real de implementación, no solo el texto de esta tabla. Una tarea puede ser paralela solo si sus dependencias terminan y no modifica los mismos archivos.
+**Estado:** T01–T05 implementadas y verificadas en su alcance fundacional; T02 cerró su gate de CI remoto. P04 completo conserva pendiente el caso de revocación de T09/T12. Evidencia: [implementation-evidence-T01-T05.md](implementation-evidence-T01-T05.md). Las referencias Pnn apuntan a [test-plan.md](test-plan.md). Un cierre exige evidencia real de implementación, no solo el texto de esta tabla. Una tarea puede ser paralela solo si sus dependencias terminan y no modifica los mismos archivos.
 
 | ID | Objetivo y archivos previstos | Depende de | Aceptación / pruebas | Riesgo | Evidencia de cierre |
 | --- | --- | --- | --- | --- | --- |
@@ -47,13 +47,13 @@ No se programa la fecha de Free o del piloto en esta tarea. Integrador MDM/QA y 
 | ID | Estado | Evidencia / dependencia restante |
 | --- | --- | --- |
 | T01 | DONE | Instalación limpia de 136 paquetes desde lockfile; workspaces y diagnóstico heredado verificados en P01. |
-| T02 | IMPLEMENTED / CI_PENDING | Lint y typecheck locales PASS; workflow creado; ejecución remota pendiente de publicar esta rama con autorización. |
+| T02 | DONE | P01 local y job remoto `foundation` PASS en el [run 38947799854](https://github.com/Kmena/Geops/actions/runs/38947799854), commit `c781faeec53ff4fcea3db609dc6b0486275a882e`. |
 | T03 | DONE | OpenAPI 3.1 validado contra SPEC-01 y 4 vectores sintéticos PASS; controladores pertenecen a T10–T12. |
 | T04 | DONE | 4 pruebas Fastify PASS; API sobrevive caída DB y ready 503/200 cumple P03. |
 | T05 | DONE | Compose, P03 y la porción fundacional de P04 (PostGIS, migración, checksum, persistencia y restore ficticio) PASS. El subcaso de revocación de P04 pertenece a T12/T18. |
 
-Ninguna tarea posterior T06–T18 se inició. T02 no se marca DONE hasta ejecutar CI remoto. P04 completo no se marca PASS hasta T12/T18: exigir ese subcaso para cerrar T05 crearía una dependencia circular T05→T06→T12→T05. El estado general de Wave 0A no es COMPLETE.
+Ninguna tarea posterior T06–T18 se inició. P04 completo no se marca PASS hasta T12/T18: exigir ese subcaso para cerrar T05 crearía una dependencia circular T05→T06→T12→T05. El estado general de Wave 0A no es COMPLETE.
 
-## Validación CI de T02 — preparación de publicación
+## Validación CI de T02 — 2026-10-16
 
-El 2026-10-16 se repitió P01 desde `npm ci --ignore-scripts --offline=false`: 136 paquetes, lint, typecheck, build, 26 pruebas y OpenAPI sin error. El workflow de rama `codex/spec-01-wave-0a` está revisado. T02 continúa `IMPLEMENTED / CI_PENDING` hasta que GitHub Actions termine en verde; ningún resultado local sustituye el job remoto. Véase [evidencia](implementation-evidence-T01-T05.md).
+El 2026-10-16 se repitió P01 desde `npm ci --ignore-scripts --offline=false`: 136 paquetes, lint, typecheck, build, 26 pruebas y OpenAPI sin error. GitHub Actions ejecutó el workflow de esta rama en el commit `c781faeec53ff4fcea3db609dc6b0486275a882e`: [run 38947799854](https://github.com/Kmena/Geops/actions/runs/38947799854), job `foundation` COMPLETED/SUCCESS y todos sus pasos PASS. T02 queda DONE en su alcance; véase [evidencia](implementation-evidence-T01-T05.md). El estado general de SPEC-01 no cambia.
