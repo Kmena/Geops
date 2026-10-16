@@ -26,7 +26,7 @@ android {
 }
 kotlin { compilerOptions { jvmTarget = JvmTarget.fromTarget("17") } }
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-ktx:1.12.0")
     implementation("androidx.room:room-runtime:2.8.5")
     implementation("androidx.room:room-ktx:2.8.5")
