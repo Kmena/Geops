@@ -53,3 +53,23 @@ Se implementaron los fundamentos administrativos, identidad, MDM fake/read-only 
 **Puertas que impiden cerrar Wave 0A:** P06–P17, P22–P25 y Q2–Q4 incompletos; Q5 medido solo con `app.inject`; revisión de seguridad de implementación W0A-E2 aún pendiente. El verificador de attestation real falla cerrado y la excepción solo vale para binding fake en la simulación. Una restauración de copia anterior a revocación requiere reconciliación antes de reabrir API. El nuevo corte no tiene CI remoto porque no se publicó la rama.
 
 **Puertas externas sin cambio:** SPEC-00 BLOCKED, M01–M10 Free pendientes, A01–A06 con dos Android pendientes, privacidad para datos reales y producción prohibida. Ningún resultado de `fake`, Trial previo o navegador local sustituye estas validaciones.
+## Estado tras estabilización local — 2026-10-16, base 59e5e140
+
+SPEC-01 conserva **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING** como autorización de trabajo sintético, no como aceptación de Wave 0A. La revisión interna y las suites nuevas reducen incertidumbre, pero T06–T12/T14–T18 siguen `IN_PROGRESS` o `BLOCKED`; solo T13 está `DONE_LOCAL`. No hay nueva tarea `DONE` ni CI remoto de este corte.
+
+Se reprodujo el riesgo de restaurar un backup anterior a la revocación y se probó una cuarentena que invalida todas las credenciales restauradas en una base sintética aislada. Para cerrar P04/T18 falta imponer que la API no pueda conectarse antes de terminar la cuarentena, probar la recuperación administrativa de doble control y ejecutar gates Q2–Q4 completos. La comprobación de conexiones del comando no reemplaza el aislamiento del servicio.
+
+P07, P14 y P16 tienen PASS_LOCAL en sus subcasos sintéticos; otros casos P06–P17/P22–P25 conservan trabajo o validación pendiente en [la matriz](test-plan.md). Q5 mantiene solo la medición previa con `app.inject`; no hay medición de red nueva ni SLO operativo. La revisión independiente de seguridad W0A-E2, Free M01–M10, Android A01–A06, privacidad y producción siguen pendientes. La siguiente PoC GPS solo puede diseñarse como experimento aislado con trayectorias generadas y dispositivos simulados; no se inicia captura real con este estado.
+
+La adenda de navegador local probó foco básico, error de red recuperable y logout fallido/reintentado; se corrigió el falso cierre visual ante API caída. P23–P25 siguen parciales por lector de pantalla, UI 403/429 y captura de tráfico browser. No cambia el estado de Wave 0A.
+
+P10 alcanzó PASS_LOCAL para el contrato de invitación sintético: vencimiento, un uso, concurrencia y reemisión/cancelación. T10 sigue IN_PROGRESS por P12/P13 integrales, attestation Android y revisión de seguridad. No altera las puertas externas ni el estado de Wave 0A.
+
+## Readiness tras Security Recovery Hardening — 2026-10-16
+
+SPEC-01 permanece **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING** únicamente para datos sintéticos; Wave 0A no está completa. ADR-013 fija un gate externo al backup y una secuencia de restore cerrada por defecto. P04 pasó localmente en copias pre y post revocación, fallos parciales, reinicio y reintento. P09 pasó en reglas técnicas de dos custodios sintéticos, pero T08 continúa BLOCKED para aprobación humana real. T18 continúa IN_PROGRESS por orquestación de parada/drenaje, Linux CI, revisión independiente y aceptación operativa. P12/attestation y matrices restantes tampoco se cierran. No se activan teléfonos, datos reales, OAuth MDM, GPS ni producción.
+
+La API de Compose se ejecuta con época externa inicializada en un volumen GEOPS distinto de PostgreSQL; `geops_dev` está vacío de administradores/dispositivos. El nuevo gate falla cerrado si se pierde o difiere su archivo. Las pruebas de restore se hicieron en bases `geops_verify_*` eliminadas al terminar. M01–M10 Free, A01–A06 Android, privacidad y validación de dos personas reales conservan su estado pendiente. El CI remoto de este corte no se ejecutó por ausencia de push.
+## Readiness tras Restore Orchestration & Migration Safety — 2026-10-16
+
+SPEC-01 sigue **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING** para datos sintéticos. El migrador ya no se dispara automáticamente con Compose y el restore exige dos fases: `prepare` deja el gate cerrado y `reopen` necesita evidencia y autorización exacta de destino/época. La suite simulada, la integración aislada de PostgreSQL y el rechazo de migración errónea pasaron localmente. T18 permanece IN_PROGRESS: no se ensayó el orquestador completo deteniendo la API de desarrollo, falta CI Linux/revisión independiente y varias puertas P06–P17/P22–P25. Wave 0A no está completa. SPEC-00 sigue BLOCKED; Free y dos Android reales pendientes. Sin autorización de producción ni de datos reales.

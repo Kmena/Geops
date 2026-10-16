@@ -64,3 +64,32 @@ Una prueba de caída reveló un error no manejado del pool `pg` que terminaba la
 - **R06 OPEN:** los fixtures y cuenta de navegador fueron ficticios y temporales. Falta política de retención/privacidad antes de datos reales.
 
 Esta revisión es preliminar del código propio; **no** equivale a aprobación de seguridad W0A-E2. No se cambia ningún riesgo a RESOLVED solo por tener un control implementado.
+## Riesgos tras estabilización local — 2026-10-16
+
+- **R03/R04: restauración anterior a revocación.** Se demostró que una copia antigua vuelve a permitir challenge con clave antes activa. La cuarentena sintética local revocó claves/sesiones y bloqueó admin en una transacción; el ensayo pasó. El riesgo sigue **OPEN** hasta que Operaciones imponga parada/aislamiento de API y recuperación controlada antes de conectar una base restaurada. Una comprobación puntual de conexiones tiene carrera con conexiones futuras.
+- **R03/R08: identidad.** P14/P16 pasan localmente y varias variantes P10/P12/P15 pasan; P11/P13/P15/P17 integrales, attestation Keystore y revisión independiente quedan **OPEN**. El verificador definitivo no se relajó.
+- **R05/R10: admin/proxy.** Se probaron 8 h/30 min, aislamiento CSRF y Origin, cookie Secure configurada y respuesta 500 sanitizada. El rate limit local no protege despliegue distribuido; los dos custodios de recuperación aún no son autenticados de forma independiente. TLS/proxy real y captura dinámica de logs pendientes. **OPEN**.
+- **R02/R09: MDM/OAuth.** Escaneo de 145 archivos elegibles PASS y credenciales locales ignoradas; el adaptador real permanece deshabilitado. Free sigue sin validar; no se transforman mocks/Trial en PASS. **OPEN**.
+- **R04/R07: Docker.** Tres servicios sanos en Windows Docker Desktop Linux amd64, migración completa, API/Web 200 y DB interna. Linux CI de este corte, TLS y repetición de carga por red pendientes. **OPEN**.
+- **R06: privacidad.** Solo fixtures sintéticos y bases eliminadas. Datos reales y producción prohibidos. **EXTERNAL_PENDING**.
+
+La cuarentena y el escáner son controles parciales medidos, no resolución formal de ningún riesgo.
+
+- **R05/R09 Web:** se corrigió un logout que antes aparentaba éxito visual cuando la API no había revocado la sesión. Retest de caída y reintento PASS_LOCAL en navegador sintético. El autocompletado del navegador volvió a poblar el formulario tras logout; no hay evidencia de persistencia OAuth en Web, pero el comportamiento de navegador y captura de tráfico siguen sujetos a revisión. R05 permanece OPEN.
+
+## Riesgos tras Security Recovery Hardening — 2026-10-16
+
+- **R03/R04 OPEN, restauración:** la copia previa a revocación reactivó una clave en PostgreSQL. El gate externo y la época distinta bloquearon HTTP; la cuarentena transaccional y la reapertura verificada pasaron localmente. Aún se requiere orquestación que detenga y drene todos los procesos, impida nuevas conexiones y proteja volumen/journal externos. Una restauración fuera del procedimiento que no avance la época puede eludir esta detección; no hay aprobación productiva.
+- **R05 OPEN, recuperación:** la ruta antigua de dos nombres quedó inutilizada. Contraseñas individuales, dos aprobaciones, expiración, revocación y autoaprobación rechazada pasaron con identidades sintéticas. El alta local de custodios es solo fixture; no autentica dos humanos ni resuelve pérdida de custodio de forma operativa.
+- **R08 OPEN, identidad:** el gate bloquea challenge, sesión, rotación y ruta futura de ingesta durante mantenimiento, y las credenciales restauradas fallan tras cuarentena. P11/P12/P13/P15/P17 completos y Android Keystore/attestation siguen pendientes.
+- **R10 OPEN, límites distribuidos:** pruebas de 429 locales no prueban proxy ni múltiples réplicas. No habilitar dispositivos reales.
+- **R04/R07 OPEN, despliegue:** Compose GEOPS mantiene DB sin host port y un volumen de seguridad separado. Docker Desktop Linux amd64 pasó; falta Linux CI, prueba de orquestación y TLS externo.
+
+Ningún riesgo se marca RESOLVED por estas pruebas locales. SPEC-00 sigue BLOCKED y la edición ManageEngine Free no recibe PASS.
+## Riesgos tras Restore Orchestration & Migration Safety — 2026-10-16
+
+- **R03/R04 OPEN:** el orquestador sintético cierra gate, retira API/Web, espera parada y cero conexiones, restaura en base aislada, cuarentena y verifica antes de autorizar reapertura. Una solicitud en vuelo puede terminar o ser cortada al vencer 30 s; la restauración espera a que desaparezcan sus conexiones. Falta ensayo Docker integral del orquestador y aislamiento de tráfico externo; si Docker falla al cerrar y detener tras una reapertura parcial, se requiere aislamiento manual. Un actor con acceso directo a DB/volumen sigue dentro del dominio de confianza.
+- **R04 OPEN, migraciones:** el destino triple y guardia de `geops_dev` se probaron localmente; el job automático se retiró. Hay riesgo de error humano al autorizar migración no descartable o modificar el volumen externo. Se necesita runbook operativo y prueba CI Linux.
+- **R05/R09 OPEN:** archivo de evidencia y dump están en `.local/` ignorado; son sensibles operativamente aunque no contengan tokens en el journal. Proteger acceso/retención fuera de Git. La autorización por época registra una decisión del operador, no autentica por sí sola a dos humanos.
+
+No se declara riesgo RESOLVED ni se alteran Free/Android/privacidad/producción.

@@ -243,102 +243,21 @@ export class AdminAuthService {
     });
   }
 
+  /** Legacy label-only recovery is disabled; use supervised approvals after an offline custodian ceremony. */
   async issueRecovery(
-    adminId: string,
-    issuer: string,
-    approver: string,
-    correlationId: string,
+    _adminId: string,
+    _issuer: string,
+    _approver: string,
+    _correlationId: string,
   ): Promise<string> {
-    if (!issuer.trim() || !approver.trim() || issuer.trim() === approver.trim()) {
-      throw new ApiError(400, 'dual_control_required', 'Dual control required');
-    }
-    const code = randomBytes(32).toString('base64url');
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SELECT id FROM admin_user WHERE id=$1 FOR UPDATE', [adminId]);
-      await client.query(
-        'UPDATE admin_recovery SET consumed_at=$2 WHERE admin_id=$1 AND consumed_at IS NULL',
-        [adminId, this.now()],
-      );
-      const id = randomUUID();
-      await client.query(
-        'INSERT INTO admin_recovery(id,admin_id,code_hash,expires_at,issued_by,approved_by,audit_ref) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        [
-          id,
-          adminId,
-          hmac(this.settings.sessionKey, code),
-          new Date(this.now().getTime() + 10 * 60_000),
-          issuer.trim(),
-          approver.trim(),
-          correlationId,
-        ],
-      );
-      await audit(client, {
-        actorId: adminId,
-        action: 'admin.recovery.issue',
-        outcome: 'success',
-        correlationId,
-      });
-      await client.query('COMMIT');
-      return code;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    throw new ApiError(403, 'supervised_recovery_required', 'Recovery unavailable');
   }
 
-  async consumeRecovery(code: string, newPassword: string, correlationId: string): Promise<void> {
-    if (newPassword.length < 16 || newPassword.length > 1024)
-      throw new ApiError(400, 'invalid_request', 'Invalid request');
-    const hash = hmac(this.settings.sessionKey, code);
-    const passwordHash = await argon2.hash(newPassword, HASH_OPTIONS);
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await client.query<{
-        id: string;
-        admin_id: string;
-        expires_at: Date;
-        consumed_at: Date | null;
-      }>(
-        'SELECT id,admin_id,expires_at,consumed_at FROM admin_recovery WHERE code_hash=$1 FOR UPDATE',
-        [hash],
-      );
-      const recovery = result.rows[0];
-      if (
-        !recovery ||
-        recovery.consumed_at ||
-        recovery.expires_at.getTime() <= this.now().getTime()
-      ) {
-        throw new ApiError(410, 'recovery_unavailable', 'Recovery unavailable');
-      }
-      await client.query('UPDATE admin_recovery SET consumed_at=$2 WHERE id=$1', [
-        recovery.id,
-        this.now(),
-      ]);
-      await client.query(
-        "UPDATE admin_user SET password_hash=$2,state='ACTIVE',version=version+1,updated_at=$3 WHERE id=$1",
-        [recovery.admin_id, passwordHash, this.now()],
-      );
-      await client.query(
-        'UPDATE admin_session SET revoked_at=$2 WHERE admin_id=$1 AND revoked_at IS NULL',
-        [recovery.admin_id, this.now()],
-      );
-      await audit(client, {
-        actorId: recovery.admin_id,
-        action: 'admin.recovery.consume',
-        outcome: 'success',
-        correlationId,
-      });
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+  async consumeRecovery(
+    _code: string,
+    _newPassword: string,
+    _correlationId: string,
+  ): Promise<void> {
+    throw new ApiError(403, 'supervised_recovery_required', 'Recovery unavailable');
   }
 }

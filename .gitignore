@@ -90,3 +90,6 @@ GoogleService-Info.plist
 *.backup
 *.sql.gz
 **/pgdata/
+
+# Evidencia y respaldos locales del orquestador de restore
+infrastructure/compose/.local/

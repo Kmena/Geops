@@ -22,6 +22,7 @@ COPY --from=build /work/apps/api/package.json ./apps/api/package.json
 COPY --from=build /work/apps/api/dist ./apps/api/dist
 COPY --from=build /work/packages/api-contracts/package.json ./packages/api-contracts/package.json
 COPY --from=build /work/packages/api-contracts/dist ./packages/api-contracts/dist
+RUN mkdir /geops-security && chown node:node /geops-security
 USER node
 EXPOSE 3500
 CMD ["node", "apps/api/dist/main.js"]

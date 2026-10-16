@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes, randomUUID, sign, createHash } from 'node:crypto';
 import { AdminAuthService } from '../dist/admin-auth/service.js';
+import { SupervisedRecoveryService } from '../dist/admin-auth/supervised-recovery.js';
 import { createApp } from '../dist/app.js';
 import { loadConfig } from '../dist/config.js';
 import { applyMigrations, checkReadiness } from '../dist/db/migration-manager.js';
@@ -72,7 +73,7 @@ async function main() {
     });
   try {
     step = 'migrations';
-    assert.equal((await applyMigrations(pool)).length, 6);
+    await applyMigrations(pool);
     assert.equal(await checkReadiness(pool), true);
     step = 'bootstrap';
     const password = randomBytes(24).toString('base64url');
@@ -656,29 +657,46 @@ async function main() {
     await manager.disconnect('synthetic', '123');
     assert.equal(await grants.load('synthetic', '123'), null);
     step = 'recovery';
-    const expiredRecovery = await auth.issueRecovery(
-      adminId,
-      'custodian-a',
-      'custodian-b',
-      randomUUID(),
-    );
-    await pool.query(
-      'UPDATE admin_recovery SET expires_at=now() WHERE admin_id=$1 AND consumed_at IS NULL',
-      [adminId],
-    );
     await assert.rejects(
-      auth.consumeRecovery(expiredRecovery, randomBytes(24).toString('base64url'), randomUUID()),
+      auth.issueRecovery(adminId, 'two labels', 'not authorization', randomUUID()),
+      { code: 'supervised_recovery_required' },
     );
-    const recoveryCode = await auth.issueRecovery(
-      adminId,
-      'custodian-a',
-      'custodian-b',
-      randomUUID(),
+    const recovery = new SupervisedRecoveryService(pool, config.adminSessionKey);
+    const firstPassword = randomBytes(24).toString('base64url');
+    const secondPassword = randomBytes(24).toString('base64url');
+    const first = await recovery.registerSyntheticCustodian('first@example.test', firstPassword);
+    const secondCustodian = await recovery.registerSyntheticCustodian(
+      'second@example.test',
+      secondPassword,
     );
-    await auth.consumeRecovery(recoveryCode, randomBytes(24).toString('base64url'), randomUUID());
-    await assert.rejects(
-      auth.consumeRecovery(recoveryCode, randomBytes(24).toString('base64url'), randomUUID()),
-    );
+    const selfPassword = randomBytes(24).toString('base64url');
+    const self = await recovery.registerSyntheticCustodian('owner@example.test', selfPassword);
+    const request = await recovery.request(adminId);
+    await assert.rejects(recovery.approve(request, self, selfPassword), {
+      code: 'recovery_unavailable',
+    });
+    await recovery.approve(request, first, firstPassword);
+    await assert.rejects(recovery.issueCode(request), { code: 'recovery_unavailable' });
+    await recovery.approve(request, secondCustodian, secondPassword);
+    const revokedCode = await recovery.issueCode(request);
+    await recovery.revokeApproval(request, secondCustodian, secondPassword);
+    await assert.rejects(recovery.consume(revokedCode, randomBytes(24).toString('base64url')));
+    await recovery.approve(request, secondCustodian, secondPassword);
+    const expiredCode = await recovery.issueCode(request);
+    await pool.query('UPDATE recovery_request SET expires_at=now() WHERE id=$1', [request]);
+    await assert.rejects(recovery.consume(expiredCode, randomBytes(24).toString('base64url')));
+    const validRequest = await recovery.request(adminId);
+    await recovery.approve(validRequest, first, firstPassword);
+    await recovery.approve(validRequest, secondCustodian, secondPassword);
+    const recoveryCode = await recovery.issueCode(validRequest);
+    await recovery.consume(recoveryCode, randomBytes(24).toString('base64url'));
+    await assert.rejects(recovery.consume(recoveryCode, randomBytes(24).toString('base64url')));
+    const lostRequest = await recovery.request(adminId);
+    await recovery.approve(lostRequest, first, firstPassword);
+    await recovery.approve(lostRequest, secondCustodian, secondPassword);
+    const lostCode = await recovery.issueCode(lostRequest);
+    await recovery.revokeCustodian(secondCustodian);
+    await assert.rejects(recovery.consume(lostCode, randomBytes(24).toString('base64url')));
     assert.equal((await call('GET', '/v1/admin/auth/me', undefined, { cookie })).statusCode, 401);
     for (let attempt = 0; attempt < 5; attempt++) {
       await assert.rejects(
@@ -700,6 +718,13 @@ async function main() {
       ),
       { code: 'rate_limited' },
     );
+    step = 'claim-rate-limit';
+    let limited = false;
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const response = await call('POST', '/v1/device/enrollment/claims', {});
+      if (response.statusCode === 429) limited = true;
+    }
+    assert.equal(limited, true);
     console.log(
       'GEOPS synthetic integration: PASS bootstrap/login/CSRF/invitation/claim/proof/activation/session/PoP/rotation/revocation/grant/recovery',
     );

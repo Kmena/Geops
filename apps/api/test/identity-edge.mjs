@@ -79,6 +79,24 @@ async function main() {
     const within = await enroll.claim(before.input);
     assert.ok(within.claim_id);
     await failCode(enroll.claim(before.input), 'invitation_consumed');
+    step = 'reissue-cancels-claim';
+    const renewed = await enroll.issueInvitation(
+      before.device.id,
+      before.device.mdm_binding_id,
+      'supervised_qr',
+      adminId,
+    );
+    assert.notEqual(renewed.invitation_id, before.invitation.invitation_id);
+    await failCode(enroll.claim(before.input), 'invitation_consumed');
+    await failCode(
+      enroll.prove(within.claim_id, within.challenge_id, b64(randomBytes(72))),
+      'claim_consumed',
+    );
+    assert.equal(
+      (await pool.query('SELECT status FROM enrollment_claim WHERE id=$1', [within.claim_id]))
+        .rows[0].status,
+      'CANCELLED',
+    );
     step = 'concurrent-claim';
     const race = await fixture();
     const other = pair();
@@ -102,6 +120,30 @@ async function main() {
         ])
       ).rows[0].n,
       1,
+    );
+    step = 'state-and-binding-uniqueness';
+    const firstBinding = await repo.createDraft('Synthetic binding first');
+    const duplicateBinding = await repo.createDraft('Synthetic binding second');
+    await pool.query(
+      "UPDATE mdm_binding SET state='ACTIVE',mdm_device_id='synthetic-shared-mdm' WHERE id=$1",
+      [firstBinding.mdm_binding_id],
+    );
+    await assert.rejects(
+      pool.query(
+        "UPDATE mdm_binding SET state='ACTIVE',mdm_device_id='synthetic-shared-mdm' WHERE id=$1",
+        [duplicateBinding.mdm_binding_id],
+      ),
+      (error) => error?.code === '23505',
+    );
+    await pool.query("UPDATE geops_device SET status='SUSPENDED' WHERE id=$1", [firstBinding.id]);
+    await failCode(
+      enroll.issueInvitation(
+        firstBinding.id,
+        firstBinding.mdm_binding_id,
+        'supervised_qr',
+        adminId,
+      ),
+      'device_state',
     );
     step = 'binding-impersonation';
     const mismatch = await fixture();
@@ -150,7 +192,7 @@ async function main() {
       'CANCELLED',
     );
     console.log(
-      'GEOPS synthetic identity edge: PASS invite boundary, concurrent claim, replay, binding mismatch, invalid attestation, invalid signature, no key activation',
+      'GEOPS synthetic identity edge: PASS invite boundary, reissue cancellation, concurrent claim, duplicate MDM binding, invalid state, replay, binding mismatch, invalid attestation, invalid signature, no key activation',
     );
   } finally {
     await pool.end();

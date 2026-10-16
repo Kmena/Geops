@@ -1,11 +1,34 @@
-# Backup y restauración sintéticos — GEOPS Wave 0A
+# Restauración sintética controlada — GEOPS Wave 0A
 
-Aplicable únicamente a la base GEOPS de desarrollo con datos ficticios. El backup contiene hashes, claves públicas, evidencia y tokens de prueba cifrados; conservarlo en almacenamiento local autorizado y no incorporarlo a Git.
+Solo para el proyecto Compose `geops-wave0a`, bases y dispositivos ficticios. No autoriza producción ni datos reales. El volumen `geops_wave0a_security` permanece separado del backup PostgreSQL y contiene el gate y su journal; su pérdida exige recuperación cerrada e investigación. Véase [ADR-013](../../specs/architecture/adr/ADR-013-restore-security-epoch.md).
 
-1. Detener la API GEOPS antes de restaurar. Confirmar la base de destino exacta, su carácter desechable y el checksum de migraciones.
-2. Tomar `pg_dump` del contenedor `geops-wave0a-db` y restaurar con `pg_restore` en una **base nueva**. No sobrescribir `geops_dev` durante pruebas. Comprobar PostGIS y las seis migraciones.
-3. Antes de permitir tráfico, consultar estado de dispositivos, claves y sesiones. Si el backup es posterior a una revocación, comprobar que el dispositivo continúa `REVOKED`, no existe clave activa y no hay sesión vigente; ejecutar `restore-check.mjs` con `GEOPS_TEST_DB` de la base restaurada.
-4. Si el backup puede ser anterior a una revocación, mantener la API detenida. Una restauración antigua no contiene necesariamente el evento de revocación: reconciliar con un registro externo confiable o invalidar todas las claves y sesiones y repetir ceremonias de enrolamiento. Este mecanismo operativo todavía no está implementado ni probado; **no** reabrir acceso de dispositivos con una copia antigua.
-5. Registrar fecha, entorno, migraciones, conteos y resultado sanitizado. Eliminar únicamente las bases y dumps desechables creados para la prueba tras guardar evidencia.
+## Preparación
 
-La prueba local del 2026-10-16 restauró una copia posterior a revocación y rechazó el challenge del dispositivo; no demostró recuperación segura desde una copia anterior ni validación en producción.
+1. Confirmar rama, estado de Git, que el backup es sintético y que el destino nuevo tiene forma `geops_verify_<número>_restore`. Guardar el dump custom de `pg_dump -Fc` bajo `infrastructure/compose/.local/backups/` (ignorado por Git). Registrar ticket, operador, fecha y origen fuera de los logs de la app; nunca credenciales ni tokens.
+2. Calcular SHA-256 del dump. En PowerShell: `Get-FileHash -Algorithm SHA256 <ruta-absoluta-del-dump>`. Confirmar que el Compose y los contenedores pertenecen a `geops-wave0a`. Asegurar que los puertos 3500/3501 no colisionarán al reabrir.
+3. Ejecutar `node scripts/restore-synthetic.mjs prepare --target geops_verify_<número>_restore --backup <ruta-absoluta-del-dump> --sha256 <hash-hexadecimal>`. El comando verifica proyecto, destino, ruta, archivo regular y hash; cierra el gate **antes** de detener la app; detiene Web/API y el job de migración; Fastify recibe SIGTERM y drena hasta 30 s; comprueba que solo DB sigue corriendo y que no hay conexiones de aplicación a origen/destino. Después crea el destino, copia y verifica el dump, ejecuta `pg_restore`, migración explícita, cuarentena y verificación. **Termina con gate cerrado y servicios detenidos.** No reabre automáticamente.
+4. El resultado `restore.verified` incluye la época externa UUID. La evidencia sin secretos se sincroniza en `infrastructure/compose/.local/restore-<destino>.jsonl` y queda ignorada por Git; el gate y cuarentena escriben su journal externo y el evento `restore.quarantine.synthetic` en PostgreSQL. Verificar que cuentas admin, custodios, claves, sesiones, invitaciones, claims y grants anteriores están inactivos. Las suites de regresión prueban rechazo de challenge/cookie/password/PoP viejos; el procedimiento no conserva credenciales previas para volver a enviarlas.
+
+## Reapertura separada
+
+1. Revisar manualmente evidencia, esquema, cuarentena, destino, hash, ausencia de conexiones y autorización operativa del ensayo. Registrar aprobación y responsable fuera del repositorio. El UUID de época no es secreto, pero debe coincidir exactamente con la verificación.
+2. Configurar `GEOPS_ACTIVE_DB=<destino>` en `infrastructure/compose/.env.local` (ignorado por Git); no imprimir el archivo ni agregarlo. La configuración debe apuntar al destino verificado.
+3. Solo entonces ejecutar `node scripts/restore-synthetic.mjs reopen --target <destino> --authorize-epoch <UUID-verificado>`. El comando comprueba la última evidencia, destino activo, gate y época otra vez; exige confirmación exacta al CLI y arranca solo API/Web. Comprueba readiness. Un fallo tras abrir vuelve a cerrar el gate y detiene los servicios. El operador no debe llamar directamente a `security-gate-cli open`: también exige destino y época, pero no sustituye la evidencia y autorización del orquestador.
+4. Comprobar HTTP ready/Web health y rechazo de accesos antiguos. La cuarentena bloquea administradores/custodios; la recuperación posterior requiere nueva ceremonia supervisada. Crear nuevas invitaciones únicamente para dispositivos simulados.
+
+## Fallos y reintentos
+
+- Si `prepare` falla, no iniciar API/Web. El gate queda cerrado desde que se cerró correctamente. Revisar el último evento local y el journal externo. Un fallo previo al cierre detiene el proceso sin restaurar; comprobar manualmente el gate antes de cualquier otra operación.
+- Si el destino existe por un intento parcial, el reintento requiere `--reset-target <mismo-destino>`. Solo se permite ese nombre descartable, con servicios parados, cero conexiones y gate cerrado. El comando elimina **únicamente esa base sintética** y restaura el dump de nuevo. No usar este parámetro para `geops_dev` ni para otra base. Un fallo antes/durante cuarentena conserva gate cerrado; la cuarentena SQL hace rollback y el reintento vuelve a empezar.
+- Un reinicio de API mientras el gate está cerrado o su época difiere responde 503. Si se pierde el volumen externo, no recrear una marca abierta desde el backup: el procedimiento de recuperación de ADR-013 solo crea gate cerrado para una base `*_restore` aislada, seguido de cuarentena, verificación y aprobación nueva.
+- Nunca ejecutar `docker compose up` para «arreglar» una restauración parcial. El migrador ya no es dependencia del arranque y está bajo el perfil `maintenance`.
+
+## Migraciones explícitas
+
+`geops-migrate` solo corre con `--profile maintenance` y `run --rm --no-deps`. Deben coincidir `DATABASE_URL` (construida por Compose desde `GEOPS_ACTIVE_DB`), `GEOPS_TEST_DB` si está presente, `GEOPS_MIGRATION_TARGET` y `GEOPS_CONFIRM_MIGRATION_TARGET`; el migrador **no** reescribe `DATABASE_URL`. Antes de SQL consulta `current_database()` y exige cero conexiones ajenas. Para `geops_dev` se requiere además `GEOPS_ALLOW_NONDISPOSABLE_MIGRATION=YES`; si ya hay esquema, el gate externo debe estar cerrado. Solo hacerlo en una ventana de mantenimiento y tras backup. El log muestra únicamente el nombre de destino y cantidad de versiones, jamás la URL ni la contraseña. El orquestador establece estas variables únicamente para el destino aislado.
+
+## Evidencia y límites de este corte
+
+El ensayo PostgreSQL aislado ejecutó migraciones 0001–0008 con destino explícito, rechazó un destino discordante antes de SQL y un segundo pase aplicó 0 versiones. La suite de gate/cuarentena en otra base aislada pasó cierre HTTP, reinicio, época discordante, fallo/reintento y rechazo de credenciales viejas. El orquestador se probó con ejecutor Docker simulado para secuencia, fallos en restore/cuarentena, reintento y reapertura autorizada; **no se ejecutó un restore Docker completo que detuviera la API compartida de desarrollo**. Ese ensayo operativo y revisión independiente siguen pendientes antes de cerrar P04/T18 o Wave 0A. El host de prueba es Windows con Docker Desktop Linux; falta CI Linux de este corte.
+
+El CLI toma un bloqueo exclusivo `infrastructure/compose/.local/restore-operation.lock` durante cada fase. Tras una interrupción abrupta puede quedar un lock huérfano: no borrarlo ni repetir a ciegas; comprobar proceso, gate cerrado, contenedores y conexiones antes de retirarlo manualmente. El rollback de una reapertura intenta tanto cerrar gate como detener servicios aunque falle uno; si fallan ambos, el operador debe aislar tráfico de inmediato y conservar evidencia. Esto no sustituye un orquestador de producción con control de acceso y fencing distribuido.

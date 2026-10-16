@@ -90,15 +90,18 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { profile, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [exitError, setExitError] = useState(false);
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
     main.current?.focus();
   }, []);
   async function exit() {
+    setExitError(false);
     try {
       await logout();
-    } finally {
       navigate('/login', { replace: true });
+    } catch {
+      setExitError(true);
     }
   }
   return (
@@ -133,6 +136,12 @@ function Shell({ children }: { children: React.ReactNode }) {
               <span className="eyebrow">Wave 0A · simulación</span>
               <span className="user-label">{profile?.email}</span>
             </div>
+            {exitError && (
+              <div role="alert" className="notice error">
+                No se pudo cerrar la sesión en el servidor. Comprueba la conexión y vuelve a
+                intentarlo.
+              </div>
+            )}
             {children}
           </main>
         </div>

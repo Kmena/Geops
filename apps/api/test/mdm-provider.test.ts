@@ -9,14 +9,14 @@ const syntheticToken = () => randomBytes(32).toString('base64url');
 
 test('fake inventory is labelled, empty is success and pagination preserves string IDs', async () => {
   const fake = new FakeMdmProvider([
-    { mdm_device_id: '244275000000125015', status: 'managed' },
-    { mdm_device_id: '244275000000125016', status: 'managed' },
+    { mdm_device_id: '900000000000000001', status: 'managed' },
+    { mdm_device_id: '900000000000000002', status: 'managed' },
   ]);
   const first = await fake.listDevices('synthetic', undefined, 1);
   assert.equal(first.source, 'fake');
-  assert.equal(first.items[0]?.mdm_device_id, '244275000000125015');
+  assert.equal(first.items[0]?.mdm_device_id, '900000000000000001');
   const next = await fake.listDevices('synthetic', first.next_cursor ?? undefined, 1);
-  assert.equal(next.items[0]?.mdm_device_id, '244275000000125016');
+  assert.equal(next.items[0]?.mdm_device_id, '900000000000000002');
   assert.equal(next.next_cursor, null);
   assert.deepEqual((await new FakeMdmProvider().listDevices('synthetic', undefined, 25)).items, []);
   assert.equal((await fake.integrationStatus()).connected, false);
@@ -34,13 +34,13 @@ test('real read-only mock uses GET, string X-CUSTOMER, Zoho auth and manual redi
       calls++;
       assert.equal(init?.method, 'GET');
       assert.equal(init?.redirect, 'manual');
-      assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), '244275000000125015');
+      assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), '900000000000000001');
       assert.equal(new Headers(init?.headers).get('Authorization'), `Zoho-oauthtoken ${token}`);
       assert.equal(new URL(String(url)).pathname, '/api/v1/mdm/devices');
       return new Response(JSON.stringify({ devices: [] }), { status: 200 });
     },
   });
-  const page = await client.listDevices('244275000000125015', undefined, 25);
+  const page = await client.listDevices('900000000000000001', undefined, 25);
   assert.deepEqual(page.items, []);
   assert.equal(page.source, 'manageengine_trial');
   assert.equal(calls, 1);

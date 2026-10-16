@@ -1,12 +1,28 @@
 import { applyMigrations } from './migration-manager.js';
+import { resolveMigrationTarget } from './migration-target.js';
 import { createPool } from './pool.js';
+import { readGate } from './restore-gate.js';
 
 async function main(): Promise<void> {
-  if (process.env.GEOPS_DATA_MODE !== 'synthetic' || !process.env.DATABASE_URL) {
-    throw new Error('Synthetic migration configuration required');
-  }
-  const pool = createPool(process.env.DATABASE_URL);
+  const target = resolveMigrationTarget(process.env);
+  const pool = createPool(target.url);
   try {
+    const observed = await pool.query<{ name: string; others: number }>(
+      'SELECT current_database() AS name,(SELECT count(*)::int FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()) AS others',
+    );
+    if (observed.rows[0]?.name !== target.name || observed.rows[0]?.others !== 0)
+      throw new Error('Migration destination is not isolated');
+    if (target.name === 'geops_dev') {
+      const state = await pool.query<{ existing: boolean }>(
+        "SELECT to_regclass('geops_schema_migrations') IS NOT NULL AS existing",
+      );
+      if (state.rows[0]?.existing) {
+        const gate = await readGate(process.env.GEOPS_SECURITY_GATE_PATH ?? '');
+        if (gate.phase !== 'closed')
+          throw new Error('Non-disposable migration requires closed gate');
+      }
+    }
+    process.stdout.write(`GEOPS migration destination verified: ${target.name}\n`);
     const applied = await applyMigrations(pool);
     process.stdout.write(`GEOPS migrations applied: ${applied.length}\n`);
   } finally {

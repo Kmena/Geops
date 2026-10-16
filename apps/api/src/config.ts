@@ -49,6 +49,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
     throw new Error('DATABASE_URL must use PostgreSQL');
   }
+  if (!/^\/(geops_dev|geops_verify_[0-9]+_restore)$/.test(parsed.pathname)) {
+    throw new Error('DATABASE_URL must name a GEOPS synthetic database');
+  }
   const port = Number(env.PORT ?? '3500');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT is invalid');
   const host = env.HOST ?? '127.0.0.1';

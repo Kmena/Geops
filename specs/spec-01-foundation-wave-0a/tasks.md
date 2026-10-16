@@ -77,3 +77,69 @@ El 2026-10-16 se repitió P01 desde `npm ci --ignore-scripts --offline=false`: 1
 | T18 | IN_PROGRESS | Restore sintético PASS_LOCAL; revisión de seguridad y gates Q2–Q5 pendientes. |
 
 Ninguna prueba fake ni un DONE_LOCAL constituye aprobación operativa. Hay commit local de este corte; no hay push ni CI remoto nuevo. Se necesita autorización antes de publicar la rama.
+## Corte de estabilización local — 2026-10-16, base 59e5e140
+
+Esta tabla es el estado vigente de T06–T18. `DONE_LOCAL` acredita el alcance sintético local; `DONE` exigiría todos los criterios y revisiones. Los cortes anteriores quedan como historial.
+
+| Tarea | Estado | Evidencia y criterio abierto |
+| --- | --- | --- |
+| T06 | IN_PROGRESS | Bootstrap único/Argon2id y P05 pasan; P08 redacción automatizada completa y revisión independiente pendientes. |
+| T07 | IN_PROGRESS | P06/P07: límites idle 30 min y absoluto 8 h, aislamiento CSRF, Origin y flag Secure pasan localmente; TLS extremo a extremo y proxy operativo pendientes. |
+| T08 | BLOCKED | Código expirado/usado rechazado y sesiones revocadas; dos custodios se registran, pero su autorización humana independiente no se verifica técnicamente. |
+| T09 | IN_PROGRESS | Restricciones y claim concurrente pasan; matriz completa de estados y carreras P11 pendiente. |
+| T10 | IN_PROGRESS | Invitación 256 bits, límite 10 min y rechazo de firma/attestation inválidas pasan; P12/P13 completo y attestation Android real pendientes. |
+| T11 | IN_PROGRESS | Sesión 15 min, challenge 2 min y replay concurrente pasan; matriz completa de alteraciones P15 pendiente. |
+| T12 | IN_PROGRESS | Rotación concurrente, clave vieja inválida y revocación pasan; reinstalación/reasignación P17 integral pendiente. |
+| T13 | DONE_LOCAL | P18–P21 con fake y fetch simulado, cliente real deshabilitado. Free pendiente en SPEC-00. |
+| T14 | IN_PROGRESS | AES-GCM y refresh single-flight pasan; P22 y revisión del diagnóstico heredado pendientes. |
+| T15 | IN_PROGRESS | Respuestas 500 sanitizadas y escaneo Git pasan; prueba dinámica de redacción de logs en modo info pendiente. |
+| T16 | IN_PROGRESS | Shell responsive inspeccionado antes; teclado/foco/accesibilidad P23 completos pendientes. |
+| T17 | IN_PROGRESS | Sesión y vistas fake probadas antes; tráfico de navegador y errores 403/429 P24/P25 pendientes. |
+| T18 | IN_PROGRESS | Restauración **anterior** a revocación reprodujo el riesgo y la cuarentena sintética lo mitigó localmente. Orquestación de API detenida, Q2–Q4 completos, CI remoto y revisión de seguridad independiente pendientes. |
+
+Ninguna tarea pasó a `DONE` en este corte. La cuarentena es una medida de recuperación sintética de T18, no una puerta de producción. El mecanismo requiere que Operaciones garantice la indisponibilidad de la API para la base restaurada hasta finalizar la invalidación; esa garantía y doble control administrativo siguen bloqueando el cierre. Los ensayos M01–M10 Free y A01–A06 Android no se modificaron.
+
+Adenda de P23–P25: el recorrido básico de teclado, caída y recuperación de red, y logout fallido/reintentado pasaron en navegador local. T16/T17 siguen `IN_PROGRESS` por lector/teclado completo, 403/429 y captura de tráfico.
+
+Adenda P10/P11/P13: reemisión/cancelación, vínculo MDM duplicado, estado SUSPENDED y límite HTTP 429 pasaron en dos bases sintéticas aisladas. T09/T10 conservan `IN_PROGRESS` por el resto de P11–P13 y revisión independiente.
+
+## Corte Security Recovery Hardening — 2026-10-16
+
+Estado vigente de T06–T18 tras este corte; no se declara ninguna tarea nueva DONE. La época externa y el procedimiento de restore pertenecen a T18; la recuperación con dos aprobaciones técnicas pertenece a T08. Véanse [ADR-013](../architecture/adr/ADR-013-restore-security-epoch.md) y [evidencia](implementation-evidence-T06-T18.md).
+
+| Tarea | Estado | Cambio y condición restante |
+| --- | --- | --- |
+| T06 | IN_PROGRESS | Bootstrap sintético sigue pasando; revisión independiente de auth pendiente. |
+| T07 | IN_PROGRESS | Sesiones, CSRF/Origin y gate HTTP probados; TLS/proxy operativo pendiente. |
+| T08 | BLOCKED | Se eliminó emisión con dos etiquetas; dos custodios sintéticos autentican aprobaciones, expiración, revocación y no autoaprobación. Alta/validación humana real y ceremonia por pérdida pendientes. |
+| T09 | IN_PROGRESS | Restricciones DB y estado restaurado probados; matriz P11 integral pendiente. |
+| T10 | IN_PROGRESS | Invitación/reutilización cubierta localmente; attestation real y P12/P13 integral pendientes. |
+| T11 | IN_PROGRESS | PoP/sesión previos y cierre HTTP durante restore pasan; P15 integral pendiente. |
+| T12 | IN_PROGRESS | Revocación y rotación previas; backup antiguo/reapertura ahora probados localmente, P17 y piloto pendientes. |
+| T13 | DONE_LOCAL | Fake/mocks solamente; Free no validada. |
+| T14 | IN_PROGRESS | Grants ficticios se invalidan en cuarentena; P22 y diagnóstico heredado pendientes. |
+| T15 | IN_PROGRESS | Captura de log info sin marcador sintético aprobada; revisión independiente/observabilidad pendiente. |
+| T16 | IN_PROGRESS | P23 accesibilidad integral pendiente. |
+| T17 | IN_PROGRESS | P24/P25 red y UI integrales pendientes. |
+| T18 | IN_PROGRESS | P04 backup pre/post revocación, gate externo, rollback/reintento y Compose pasan localmente; orquestación automática, Linux CI, seguridad independiente y recuperación humana pendientes. |
+
+La migración 0007 añade la época de seguridad y 0008 registra aprobaciones separadas. El comando de migración fue corregido para respetar `GEOPS_TEST_DB`. SPEC-00 continúa BLOCKED; Wave 0A no se cierra.
+## Restore Orchestration & Migration Safety — 2026-10-16
+
+| Tarea | Estado vigente | Resultado de este corte / pendiente |
+| --- | --- | --- |
+| T06 | IN_PROGRESS | Sin cambio: P08 y revisión independiente pendientes. |
+| T07 | IN_PROGRESS | SIGTERM ahora llama `app.close()` para drenar; TLS/proxy real y validación operativa del apagado pendientes. |
+| T08 | BLOCKED | Doble control humano y ceremonia real pendientes; sin cambio. |
+| T09 | IN_PROGRESS | Migrador exige destino explícito concordante y rechaza geops_dev sin autorización/gate cerrado; matriz P11 pendiente. |
+| T10 | IN_PROGRESS | Attestation Android real y P12/P13 integrales pendientes. |
+| T11 | IN_PROGRESS | P14 local; matriz P15 integral pendiente. |
+| T12 | IN_PROGRESS | P16 local; P17 integral pendiente. |
+| T13 | DONE_LOCAL | Fake/mocks; Free sigue pendiente. |
+| T14 | IN_PROGRESS | P22 y revisión de diagnóstico pendientes. |
+| T15 | IN_PROGRESS | Revisión de redacción independiente pendiente. |
+| T16 | IN_PROGRESS | Accesibilidad integral pendiente. |
+| T17 | IN_PROGRESS | Captura de tráfico/UI 403/429 pendientes. |
+| T18 | IN_PROGRESS | Orquestador de restore sintético implementado; secuencia simulada, gate/cuarentena en PostgreSQL aislado y migrador aislado PASS_LOCAL. Restore Docker completo con API compartida detenida, CI Linux y revisión independiente pendientes. |
+
+El perfil `maintenance` impide que Compose migre automáticamente al iniciar API. El cambio no cierra P04 ni Wave 0A. No se usaron datos, MDM ni dispositivos reales.
