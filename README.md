@@ -51,8 +51,9 @@ El uso de Overpass respetará sus condiciones de uso; una instancia pública no 
 | `infrastructure/docker/` | Futuras definiciones de imágenes. |
 | `infrastructure/compose/` | Futura configuración de servicios GEOPS. |
 | `infrastructure/nginx/` | Futura configuración del reverse proxy. |
-| `specs/prd/` | Versiones del PRD; el PRD v1.1 aún no se ha incorporado. |
+| `specs/prd/` | PRD v1.1, fuente principal de requisitos para SPEC-00. |
 | `specs/architecture/adr/` | Decisiones arquitectónicas iniciales. |
+| `specs/spec-00-technical-feasibility/` | Investigación, contratos y plan de validación previos a las waves. |
 | `specs/waves/` | Especificaciones, planes y tareas por wave. |
 | `specs/acceptance/` | Criterios y evidencias de aceptación. |
 | `docs/development/` | Guías futuras de desarrollo. |
@@ -80,7 +81,12 @@ El ciclo de trabajo es **PRD → Specify → Plan → Tasks → Implement → Ve
 | Estado | Alcance |
 | --- | --- |
 | Preparado | Estructura del monorepo, convenciones y ADR iniciales. |
+| En curso | SPEC-00 documentado; cierre BLOCKED por API Free y piloto físico pendientes. OAuth e inventario vacío pasaron solo en MSP Trial. |
 | Planificado | Agente Android, API, web, mapas, captación, rutas, visitas, alertas y reportes. |
 | Pendiente de validación | PRD v1.1, políticas MDM, permisos Android, horarios, retención, cadencia GPS, límites cartográficos y operación del piloto. |
 
-El siguiente paso es iniciar **Wave 0: Fundamentos y MDM**: incorporar y revisar el PRD v1.1, definir criterios de aceptación, validar el aprovisionamiento y las políticas de los 2 dispositivos piloto, y especificar contratos y requisitos de privacidad antes de inicializar las aplicaciones.
+El siguiente paso es resolver las dependencias de [SPEC-00](specs/spec-00-technical-feasibility/README.md) e iniciar las validaciones de **Wave 0: Fundamentos y MDM** con los 2 dispositivos piloto, antes de inicializar las aplicaciones.
+
+## Seguimiento documental
+
+El [informe de cierre documental de SPEC-00](specs/spec-00-technical-feasibility/closure-report.md) registra las pruebas OAuth/API realizadas en MSP Trial y mantiene **BLOCKED** la viabilidad operativa hasta validar Free y dos Android.

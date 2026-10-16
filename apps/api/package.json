@@ -1,0 +1,9 @@
+{
+  "name": "@geops/api-diagnostics",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "mdm:dev": "node mdm-oauth-dev.mjs",
+    "test": "node --test --test-isolation=none"
+  }
+}

@@ -24,4 +24,8 @@ Este directorio organiza el desarrollo **Spec-Driven Development (SDD)**. Antes 
 | 5 | Dashboard y reportes | Prevista |
 | 6 | Integración, validación y despliegue | Prevista |
 
-El PRD v1.1 se incorporará posteriormente a `prd/`. Cada wave tendrá su propia especificación, plan, tareas y verificación; ninguna está implementada ni declarada completa. Los ADR iniciales registran decisiones de partida que podrán revisarse con evidencia del piloto.
+El [PRD v1.1](prd/GEOPS-PRD-v1.1.md) es la fuente principal de [SPEC-00 — Technical Feasibility & Architecture Readiness](spec-00-technical-feasibility/README.md). SPEC-00 está documentado pero su cierre figura como BLOCKED por dependencias pendientes. Cada wave tendrá su propia especificación, plan, tareas y verificación; ninguna está implementada ni declarada completa. Los ADR registran decisiones revisables con evidencia del piloto.
+
+## Corte documental de SPEC-00 y seguimiento
+
+El [informe de cierre de SPEC-00](spec-00-technical-feasibility/closure-report.md) completa la investigación y arquitectura para este corte, sin cerrar su viabilidad operativa: el estado global sigue **BLOCKED**. SPEC-01 puede comenzar como especificación de Wave 0A bajo los [criterios de entrada](spec-00-technical-feasibility/closure-report.md#8-criterios-de-entrada-de-spec-01); esto no constituye autorización de implementación.

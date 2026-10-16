@@ -44,12 +44,33 @@ Thumbs.db
 **/.env
 **/.env.*
 !**/.env.example
+!**/.env.*.example
 **/config.local.*
 **/*.local.yml
 **/*.local.yaml
 
-# Credenciales y firmas
+# Credenciales OAuth locales, tokens y firmas
+**/secrets
+**/secrets.txt
+**/secrets.*
+**/*oauth*credential*.json
+**/*oauth*credential*.txt
+**/*oauth*credential*.local.*
+**/*oauth*token*.json
+**/*oauth*token*.txt
+**/*oauth*token*.local.*
+**/*access*token*.json
+**/*access*token*.txt
+**/*access*token*.local.*
+**/*refresh*token*.json
+**/*refresh*token*.txt
+**/*refresh*token*.local.*
+**/*client*secret*.json
+**/*client*secret*.txt
 *.pem
+*.key
+*.p8
+*.pk8
 *.p12
 *.pfx
 *.jks
