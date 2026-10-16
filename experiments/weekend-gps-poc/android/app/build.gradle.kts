@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -21,8 +23,8 @@ android {
     buildFeatures { buildConfig = true }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
 }
+kotlin { compilerOptions { jvmTarget = JvmTarget.fromTarget("17") } }
 dependencies {
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-ktx:1.12.0")
