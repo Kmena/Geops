@@ -143,3 +143,7 @@ La migración 0007 añade la época de seguridad y 0008 registra aprobaciones se
 | T18 | IN_PROGRESS | Orquestador de restore sintético implementado; secuencia simulada, gate/cuarentena en PostgreSQL aislado y migrador aislado PASS_LOCAL. Restore Docker completo con API compartida detenida, CI Linux y revisión independiente pendientes. |
 
 El perfil `maintenance` impide que Compose migre automáticamente al iniciar API. El cambio no cierra P04 ni Wave 0A. No se usaron datos, MDM ni dispositivos reales.
+
+## Consolidación Git y CI remoto — 2026-10-16
+
+El commit `544934df0d66f168dfa1f9228f9d601f42644861` consolidó T06–T18 y el hardening de restauración/migraciones en `codex/spec-01-wave-0a`. El [run 38967057446](https://github.com/Kmena/Geops/actions/runs/38967057446), disparado por push de ese SHA, terminó `completed/success`; job único `foundation` y todos sus pasos completaron con éxito. Esta evidencia remota acredita el workflow definido (lockfile, OpenAPI, lint, escaneo, typecheck, tests y build), no las puertas PostgreSQL/restore operativas, Android, Free ni despliegue. T06–T12 y T14–T18 conservan `IN_PROGRESS` o `BLOCKED` según la tabla vigente; T13 conserva `DONE_LOCAL`. T02 sigue `DONE` por su validación remota anterior. Wave 0A permanece IN_PROGRESS.

@@ -147,3 +147,7 @@ Adenda P10/P11/P13: reemisión cancela invitación y claim anteriores; claim vie
 | P04 pérdida de época externa | PASS_LOCAL previo; IN_PROGRESS operativo | Gate ausente/discordante rechaza tráfico en suite aislada; recuperación crea solo marca cerrada. Respaldo/journal externos y procedimiento de operador pendientes. |
 
 P06–P17/P22–P25 conservan los estados de la matriz anterior. M01–M10 Free y A01–A06 Android permanecen externos, sin PASS por estas pruebas.
+
+## Evidencia CI de consolidación — 2026-10-16
+
+Para `544934df0d66f168dfa1f9228f9d601f42644861`, el [workflow Wave 0A foundation, run 38967057446](https://github.com/Kmena/Geops/actions/runs/38967057446) terminó `completed/success`. `foundation` pasó `npm ci --ignore-scripts`, OpenAPI, lint, escaneo de secretos, typecheck, `npm test` y build. No contiene job de despliegue ni referencias a secretos. P01/Q1 reciben PASS_REMOTE para este SHA. Las cuatro suites PostgreSQL y la migración aislada se ejecutaron localmente; no son pasos del workflow remoto. P04/T18 continúan IN_PROGRESS por la falta de ensayo Docker completo del orquestador y revisión independiente. P06–P17/P22–P25 conservan los estados de su matriz; M01–M10 Free y A01–A06 Android siguen pendientes.

@@ -93,3 +93,7 @@ Ningún riesgo se marca RESOLVED por estas pruebas locales. SPEC-00 sigue BLOCKE
 - **R05/R09 OPEN:** archivo de evidencia y dump están en `.local/` ignorado; son sensibles operativamente aunque no contengan tokens en el journal. Proteger acceso/retención fuera de Git. La autorización por época registra una decisión del operador, no autentica por sí sola a dos humanos.
 
 No se declara riesgo RESOLVED ni se alteran Free/Android/privacidad/producción.
+
+## Riesgos tras consolidación Git/CI — 2026-10-16
+
+R03/R04 y R05 permanecen OPEN: el workflow remoto valida código y pruebas unitarias/mock, pero no reproduce PostgreSQL, restore operativo, reinicio/concurrencia de Compose ni revisión independiente. Esas pruebas solo tienen evidencia local sintética. Se reemplazó en el HEAD un fixture de ID MDM basado en un identificador real por valores ficticios; el commit anterior permanece en el historial remoto y no se reescribió. No era una credencial OAuth ni un token. Evaluar su clasificación/retención si el identificador se considera sensible. Ningún riesgo se marca RESOLVED por el CI; Free, Android y producción mantienen sus barreras.
