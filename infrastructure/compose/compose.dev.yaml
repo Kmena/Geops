@@ -42,6 +42,11 @@ services:
     environment:
       GEOPS_DATA_MODE: synthetic
       DATABASE_URL: postgresql://geops_dev:${GEOPS_DEV_DB_PASSWORD}@geops-db:5432/geops_dev
+      GEOPS_ADMIN_SESSION_KEY: ${GEOPS_ADMIN_SESSION_KEY:?Generate local synthetic keys first}
+      GEOPS_ADMIN_CSRF_KEY: ${GEOPS_ADMIN_CSRF_KEY:?Generate local synthetic keys first}
+      GEOPS_INVITATION_HMAC_KEY: ${GEOPS_INVITATION_HMAC_KEY:?Generate local synthetic keys first}
+      GEOPS_MDM_GRANT_KEY: ${GEOPS_MDM_GRANT_KEY:?Generate local synthetic keys first}
+      GEOPS_INSECURE_LOCAL_COOKIE: "1"
       HOST: 0.0.0.0
       PORT: "3500"
       LOG_LEVEL: info

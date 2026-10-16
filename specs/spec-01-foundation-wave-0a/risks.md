@@ -53,3 +53,14 @@ La recuperación administrativa autoservicio y la aceptación del modo manual de
 - **R01/R03/R06/R09/R10** conservan sus puertas externas y de implementación; ninguna prueba local los resuelve.
 
 Una prueba de caída reveló un error no manejado del pool `pg` que terminaba la API. Se corrigió y P03 se repitió con 503/200. Se conserva el fallo inicial en [evidencia](implementation-evidence-T01-T05.md); no se interpreta la corrección como cierre de riesgos operativos.
+
+## Revisión de implementación sintética T06–T18 — 2026-10-16
+
+- **R03/R08 OPEN:** los vectores byte a byte y varias pruebas negativas de PoP pasan, incluida carrera de nonce. La attestation real se rechaza por defecto; falta verificación de cadena/raíz/revocación con Android y revisión de seguridad independiente. Las excepciones de prueba solo admiten binding `fake`. P10–P17 no están completos.
+- **R03/R04 OPEN:** revocación preservada al restaurar un backup posterior a ella. Una copia anterior podría resucitar claves/sesiones si se reanuda la API sin reconciliación; el runbook exige mantenerla detenida e invalidar accesos antes de abrir servicio. Falta probar esta ruta de recuperación.
+- **R05 OPEN:** Argon2id, CSRF, Origin y recuperación de un uso existen; dos nombres de custodios son referencias auditables, no autenticación independiente de ambos. La aprobación humana y la redacción automática requieren revisión.
+- **R02/R09 OPEN:** el cliente real solo existe como adaptador opt-in probado con mocks, y `main.ts` usa únicamente `FakeMdmProvider`. La UI señala fake y Free sin validar. Free y piloto no ganan PASS.
+- **R10 OPEN:** limitadores en memoria por proceso y la IP visible tras Nginx no constituyen defensa distribuida ni prueba de identidad del cliente. No habilitar el flujo para teléfonos reales.
+- **R06 OPEN:** los fixtures y cuenta de navegador fueron ficticios y temporales. Falta política de retención/privacidad antes de datos reales.
+
+Esta revisión es preliminar del código propio; **no** equivale a aprobación de seguridad W0A-E2. No se cambia ningún riesgo a RESOLVED solo por tener un control implementado.

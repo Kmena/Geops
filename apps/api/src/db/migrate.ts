@@ -1,10 +1,11 @@
-import { loadConfig } from '../config.js';
 import { applyMigrations } from './migration-manager.js';
 import { createPool } from './pool.js';
 
 async function main(): Promise<void> {
-  const config = loadConfig(process.env);
-  const pool = createPool(config.databaseUrl);
+  if (process.env.GEOPS_DATA_MODE !== 'synthetic' || !process.env.DATABASE_URL) {
+    throw new Error('Synthetic migration configuration required');
+  }
+  const pool = createPool(process.env.DATABASE_URL);
   try {
     const applied = await applyMigrations(pool);
     process.stdout.write(`GEOPS migrations applied: ${applied.length}\n`);

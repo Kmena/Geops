@@ -3,12 +3,12 @@ info:
   title: GEOPS Wave 0A API
   version: 0.1.0-draft
   description: >
-    Contrato Wave 0A: solo health implementado en T04; el resto previsto. Para identidad prevalece
+    Contrato Wave 0A sint閠ico; activaci髇 solo con binding fake y evidencia simulada. Para identidad prevalece
     specs/spec-00-technical-feasibility/identity-api-contract.md.
-    Las respuestas del proveedor MDM real no est谩n validadas en Free.
+    Las respuestas del proveedor MDM real no est醤 validadas en Free.
 servers:
   - url: http://localhost:3500
-    description: Desarrollo local; producci贸n requiere HTTPS.
+    description: Desarrollo local; producci髇 requiere HTTPS.
 tags:
   - name: Health
   - name: AdminAuth
@@ -54,7 +54,7 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Sesi贸n creada; Set-Cookie no contiene token MDM.
+          description: Sesi髇 creada; Set-Cookie no contiene token MDM.
           headers:
             Set-Cookie:
               schema:
@@ -75,7 +75,7 @@ paths:
         - adminCookie: []
       responses:
         '200':
-          description: Perfil administrativo m铆nimo.
+          description: Perfil administrativo m韓imo.
           content:
             application/json:
               schema:
@@ -91,7 +91,7 @@ paths:
           csrfHeader: []
       responses:
         '204':
-          description: Sesi贸n revocada.
+          description: Sesi髇 revocada.
         '401':
           $ref: '#/components/responses/AdminError'
         '403':
@@ -183,7 +183,7 @@ paths:
               $ref: '#/components/schemas/ClaimRequest'
       responses:
         '201':
-          description: Challenge de posesi贸n.
+          description: Challenge de posesi髇.
           content:
             application/json:
               schema:
@@ -208,7 +208,7 @@ paths:
               $ref: '#/components/schemas/ProofRequest'
       responses:
         '200':
-          description: Pendiente de confirmaci贸n f铆sica.
+          description: Pendiente de confirmaci髇 f韘ica.
           content:
             application/json:
               schema:
@@ -217,11 +217,47 @@ paths:
           $ref: '#/components/responses/IdentityError'
         '409':
           $ref: '#/components/responses/IdentityError'
+  /v1/admin/devices/{device_id}/synthetic-evidence:
+    post:
+      tags: [Identity]
+      operationId: recordSyntheticEvidence
+      description: Solo desarrollo con binding fake; nunca acredita verificaci髇 f韘ica ni MDM real.
+      security:
+        - adminCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [claim_id, physical_confirmed, attestation_exception]
+              properties:
+                claim_id: {$ref: '#/components/schemas/Uuid'}
+                physical_confirmed: {const: true}
+                attestation_exception: {type: boolean}
+      responses:
+        '200':
+          description: Referencia inmutable de simulaci髇, ligada a claim, binding y operador.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [evidence_ref, source]
+                properties:
+                  evidence_ref: {$ref: '#/components/schemas/Uuid'}
+                  source: {const: fake}
+        '403':
+          $ref: '#/components/responses/IdentityError'
   /v1/admin/devices/{device_id}/activate:
     post:
       tags: [Identity]
       operationId: activateDevice
-      description: Requiere confirmaci贸n f铆sica y verificaci贸n MDM independiente. Deshabilitado para dispositivos reales en 0A.
+      description: Requiere confirmaci髇 f韘ica y verificaci髇 MDM independiente. Deshabilitado para dispositivos reales en 0A.
       security:
         - adminCookie: []
           csrfHeader: []
@@ -256,7 +292,7 @@ paths:
               $ref: '#/components/schemas/SessionChallengeRequest'
       responses:
         '200':
-          description: Challenge de sesi贸n de un uso.
+          description: Challenge de sesi髇 de un uso.
           content:
             application/json:
               schema:
@@ -275,7 +311,7 @@ paths:
               $ref: '#/components/schemas/SessionRequest'
       responses:
         '201':
-          description: Token opaco v谩lido 15 minutos.
+          description: Token opaco v醠ido 15 minutos.
           content:
             application/json:
               schema:
@@ -293,7 +329,7 @@ paths:
           deviceProof: []
       responses:
         '200':
-          description: Challenge de rotaci贸n.
+          description: Challenge de rotaci髇.
           content:
             application/json:
               schema:
@@ -443,7 +479,7 @@ components:
       in: header
       name: X-GEOPS-Signature
       description: >
-        Tambi茅n requiere X-GEOPS-Key-Id, X-GEOPS-Timestamp y X-GEOPS-Nonce.
+        Tambi閚 requiere X-GEOPS-Key-Id, X-GEOPS-Timestamp y X-GEOPS-Nonce.
         La cadena firmada y la ventana temporal se definen en SPEC-00.
   responses:
     AdminError:
@@ -528,6 +564,7 @@ components:
       properties:
         id: {$ref: '#/components/schemas/Uuid'}
         display_label: {type: string}
+        mdm_binding_id: {$ref: '#/components/schemas/Uuid'}
         status:
           type: string
           enum: [DRAFT, INVITED, PENDING_CONFIRMATION, ACTIVE, SUSPENDED, REVOKED, RETIRED]
@@ -673,7 +710,7 @@ components:
         attestation_chain:
           type: array
           items: {type: string}
-          description: Certificados de la nueva clave; inv谩lidos se rechazan, ausencia exige excepci贸n antes de uso real.
+          description: Certificados de la nueva clave; inv醠idos se rechazan, ausencia exige excepci髇 antes de uso real.
     RotateResponse:
       type: object
       additionalProperties: false

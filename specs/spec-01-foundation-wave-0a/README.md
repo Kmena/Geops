@@ -1,8 +1,8 @@
 # SPEC-01 — Foundation, Device Identity & MDM Integration (Wave 0A)
 
-**Estado:** READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING (2026-10-16), solo con datos y dispositivos sintéticos. Specify → Plan → Tasks están documentados. T01–T05 tienen implementación y pruebas locales parciales; no hay pruebas físicas ni despliegue de Wave 0A.
+**Estado:** READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING (2026-10-16), solo con datos y dispositivos sintéticos. Specify → Plan → Tasks están documentados. T01–T05 están cerradas en su alcance fundacional. T06–T18 tienen un corte de implementación sintética con pruebas parciales; Wave 0A no está completa y no hay pruebas físicas ni despliegue.
 
-SPEC-00 permanece **BLOCKED**. T01–T05 se ejecutaron localmente con datos sintéticos según [wave-readiness.md](wave-readiness.md); la cuenta ManageEngine Free y el piloto Android no se consideran validados.
+SPEC-00 permanece **BLOCKED**. T01–T18 se ejecutaron localmente con datos sintéticos según [wave-readiness.md](wave-readiness.md); la cuenta ManageEngine Free y el piloto Android no se consideran validados.
 
 ## Documentos
 
@@ -17,6 +17,7 @@ SPEC-00 permanece **BLOCKED**. T01–T05 se ejecutaron localmente con datos sint
 | Tasks | [tasks.md](tasks.md) | Tareas verificables y paralelismo. |
 | Verify | [test-plan.md](test-plan.md) | Evidencia y puertas de calidad. |
 | Verify | [implementation-evidence-T01-T05.md](implementation-evidence-T01-T05.md) | Resultados reales y límites de T01–T05. |
+| Verify | [implementation-evidence-T06-T18.md](implementation-evidence-T06-T18.md) | Implementación sintética, pruebas locales y límites de T06–T18. |
 | Riesgos | [risks.md](risks.md) | Amenazas, decisiones y dependencias. |
 | Entrada | [wave-readiness.md](wave-readiness.md) | Estado y criterios para empezar. |
 

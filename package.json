@@ -8,7 +8,7 @@
     "packages/api-contracts"
   ],
   "scripts": {
-    "lint": "biome check apps/api/src apps/api/test/foundation.test.ts apps/api/scripts apps/web/src apps/web/vite.config.ts scripts/create-local-compose-env.mjs packages/api-contracts/src packages/api-contracts/scripts packages/api-contracts/test",
+    "lint": "biome check apps/api/src apps/api/test/foundation.test.ts apps/api/test/mdm-provider.test.ts apps/api/test/integration-smoke.mjs apps/api/test/identity-edge.mjs apps/api/test/load-smoke.mjs apps/api/test/restore-check.mjs apps/api/scripts apps/web/src apps/web/vite.config.ts scripts/create-local-compose-env.mjs packages/api-contracts/src packages/api-contracts/scripts packages/api-contracts/test",
     "typecheck": "npm run build --workspace @geops/api-contracts && npm run typecheck --workspaces --if-present",
     "test": "npm run build --workspace @geops/api-contracts && npm run test --workspaces --if-present",
     "build": "npm run build --workspace @geops/api-contracts && npm run build --workspace @geops/api && npm run build --workspace @geops/web",
@@ -17,8 +17,8 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "24.19.2",
-    "typescript": "6.0.3",
-    "tsx": "4.23.15"
+    "tsx": "4.23.15",
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=24.0.0"

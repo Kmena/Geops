@@ -1,6 +1,6 @@
 # Test plan — validación futura de Wave 0A
 
-**Estado:** P01–P04 ejecutadas parcialmente para T01–T05 con datos sintéticos el 2026-10-16; P05–P25 no ejecutadas. Ver [implementation-evidence-T01-T05.md](implementation-evidence-T01-T05.md). Toda evidencia debe identificar commit, entorno, fecha, configuración no sensible y resultado PASS/FAIL/BLOCKED. Los casos con fake solo prueban GEOPS.
+**Estado:** P01–P04 tienen evidencia fundacional/CI anterior. P05–P25 se ejecutaron total o parcialmente con datos sintéticos el 2026-10-16; ningún caso parcial se declara PASS integral. Ver [evidencia T01–T05](implementation-evidence-T01-T05.md) y [evidencia T06–T18](implementation-evidence-T06-T18.md). Toda evidencia debe identificar commit, entorno, fecha, configuración no sensible y resultado PASS/FAIL/BLOCKED. Los casos con fake solo prueban GEOPS.
 
 | ID | Historia | Capa y caso | Oráculo de aceptación |
 | --- | --- | --- | --- |
@@ -71,4 +71,23 @@ Las pruebas usan secretos y claves generados para test, nunca apps/api/.env.loca
 | P03 | PASS_LOCAL_WINDOWS_AMD64 | 3500/3501 libres al inicio; 3 servicios sanos + job 0; DB caída → ready 503 en 3452 ms; DB restaurada → 200 en 2508 ms; volumen conservó fixture. |
 | P04 | PARTIAL | PostGIS, migración idempotente, rechazo de checksum y backup/restore ficticio pasaron. Revocación conservada espera T09/T12; plataforma Linux CI pendiente. |
 
-Los 18 tests OAuth heredados usan mocks y no cuentan como validación Free. No se asigna PASS a P05–P25, M01–M10 ni A01–A06 por este corte.
+Los 18 tests OAuth heredados usan mocks y no cuentan como validación Free. Ese corte T01–T05 no asignó PASS a P05–P25, M01–M10 ni A01–A06.
+
+## Resultados del corte T06–T18 — 2026-10-16
+
+| Caso | Resultado observado | Pendiente antes de PASS integral |
+| --- | --- | --- |
+| P04 | PASS_LOCAL para `pg_dump`/`pg_restore` de copia posterior a revocación; identidad restaurada no logra challenge. | Reconciliación de copias anteriores a revocación y política operativa. |
+| P05 | PASS_LOCAL: bootstrap único y segundo intento rechazado; sin registro HTTP. | Revisión de seguridad de implementación. |
+| P06–P07 | PARTIAL: cookie HttpOnly/SameSite, login/logout, sesión revocada, Origin y CSRF. | Límites 8 h/30 min y HTTPS/Secure de extremo a extremo. |
+| P08–P09 | PARTIAL: Argon2id, recovery de un uso y sesiones revocadas. | Bloqueo y expiración probados; faltan redacción automática y doble control humano. |
+| P10 | PARTIAL: secreto de 32 bytes, claim a 9:59 aceptado, a 10:00 rechazado, carrera con un ganador. | Más variantes de cancelación/reemisión. |
+| P11–P13 | PARTIAL: binding ajeno, firma y cadena inválidas rechazados; activación sin evidencia falla. | Tenant ajeno, todos los estados/races, rate limit y verificador real de attestation. |
+| P14–P15 | PARTIAL: challenge un uso, PoP sin firma/query/timestamp/key id inválidos y nonce concurrente 200/409. | Límites exactos probados; falta matriz completa de alteraciones. |
+| P16–P17 | PARTIAL: rotación positiva, clave vieja rechazada, revocación y restore posterior. | Reemplazo/rotación concurrente probados; faltan reinstalación/reasignación completa y backup anterior. |
+| P18–P21 | PASS_LOCAL con fake y `fetch` mock: inventario vacío etiquetado, cursor/limit, Customer ID string, 401 single-flight, 403/429/3xx/timeout. | No equivalen a ManageEngine Free ni habilitan el cliente real. |
+| P22 | PARTIAL: config rechaza OAuth, archivos locales ignorados, logs estructurados sin cuerpos/headers. | Escaneo automático de secretos y revisión de frontend/snapshots. |
+| P23–P25 | PARTIAL: browser local con login, rutas protegidas, carga/vacío, estado fake, logout y viewport 390×844 sin overflow. | Teclado/accesibilidad, errores 403/429 y captura de tráfico browser. |
+
+**CI remoto del corte nuevo:** NO EJECUTADO. Los 34 tests unitarios/mock y los dos scripts de integración en DB aislada son evidencia local. M01–M10 Free y A01–A06 Android no se ejecutaron.
+**Q5 componente local:** 25 registros GEOPS/fake con `app.inject` en contenedor Linux amd64: p95 login 128.6 ms, GEOPS 8.5 ms y fake 9.7 ms (25 muestras de cada una). PASS_LOCAL para ese método; la puerta Q5 de red/plataforma objetivo no se declara completa.

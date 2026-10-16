@@ -45,3 +45,11 @@ El estado permanece **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING
 ## Gate CI T02 — validado 2026-10-16
 
 Los controles locales de T02 pasaron de nuevo desde el lockfile. GitHub Actions terminó COMPLETED/SUCCESS para `c781faeec53ff4fcea3db609dc6b0486275a882e`: [run 38947799854](https://github.com/Kmena/Geops/actions/runs/38947799854), job `foundation` y todos los pasos PASS. T02 queda DONE en su alcance. La autorización de desarrollo sintético y el estado `READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING` no cambian; SPEC-00 sigue BLOCKED.
+
+## Corte T06–T18 — implementación sintética local
+
+Se implementaron los fundamentos administrativos, identidad, MDM fake/read-only opt-in, consola y auditoría. [La evidencia T06–T18](implementation-evidence-T06-T18.md) registra 34 pruebas automatizadas locales, suites integradas en DB desechable, navegador y restore posterior a revocación. T13 cumple su alcance mock local; T06–T12 y T14–T17 requieren completar sus pruebas; T18 sigue IN_PROGRESS. El estado **READY_FOR_IMPLEMENTATION_WITH_EXTERNAL_VALIDATIONS_PENDING** se conserva para continuar el trabajo, no expresa cierre de Wave 0A.
+
+**Puertas que impiden cerrar Wave 0A:** P06–P17, P22–P25 y Q2–Q4 incompletos; Q5 medido solo con `app.inject`; revisión de seguridad de implementación W0A-E2 aún pendiente. El verificador de attestation real falla cerrado y la excepción solo vale para binding fake en la simulación. Una restauración de copia anterior a revocación requiere reconciliación antes de reabrir API. El nuevo corte no tiene CI remoto porque no se publicó la rama.
+
+**Puertas externas sin cambio:** SPEC-00 BLOCKED, M01–M10 Free pendientes, A01–A06 con dos Android pendientes, privacidad para datos reales y producción prohibida. Ningún resultado de `fake`, Trial previo o navegador local sustituye estas validaciones.

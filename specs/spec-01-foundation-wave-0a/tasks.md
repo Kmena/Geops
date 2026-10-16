@@ -1,6 +1,6 @@
 # Tasks — backlog implementable de Wave 0A
 
-**Estado:** T01–T05 implementadas y verificadas en su alcance fundacional; T02 cerró su gate de CI remoto. P04 completo conserva pendiente el caso de revocación de T09/T12. Evidencia: [implementation-evidence-T01-T05.md](implementation-evidence-T01-T05.md). Las referencias Pnn apuntan a [test-plan.md](test-plan.md). Un cierre exige evidencia real de implementación, no solo el texto de esta tabla. Una tarea puede ser paralela solo si sus dependencias terminan y no modifica los mismos archivos.
+**Estado:** T01–T05 completadas en su alcance fundacional; T02 cerró CI remoto. T06–T18 tienen implementación sintética local con aceptación parcial salvo T13 DONE_LOCAL. P04 restauración de revocación pasó para copia posterior a revocación; T18 y la wave permanecen abiertos. Evidencias: [T01–T05](implementation-evidence-T01-T05.md) y [T06–T18](implementation-evidence-T06-T18.md). Las referencias Pnn apuntan a [test-plan.md](test-plan.md). Un cierre exige evidencia real de implementación, no solo el texto de esta tabla. Una tarea puede ser paralela solo si sus dependencias terminan y no modifica los mismos archivos.
 
 | ID | Objetivo y archivos previstos | Depende de | Aceptación / pruebas | Riesgo | Evidencia de cierre |
 | --- | --- | --- | --- | --- | --- |
@@ -57,3 +57,23 @@ Ninguna tarea posterior T06–T18 se inició. P04 completo no se marca PASS hast
 ## Validación CI de T02 — 2026-10-16
 
 El 2026-10-16 se repitió P01 desde `npm ci --ignore-scripts --offline=false`: 136 paquetes, lint, typecheck, build, 26 pruebas y OpenAPI sin error. GitHub Actions ejecutó el workflow de esta rama en el commit `c781faeec53ff4fcea3db609dc6b0486275a882e`: [run 38947799854](https://github.com/Kmena/Geops/actions/runs/38947799854), job `foundation` COMPLETED/SUCCESS y todos sus pasos PASS. T02 queda DONE en su alcance; véase [evidencia](implementation-evidence-T01-T05.md). El estado general de SPEC-01 no cambia.
+
+## Corte de implementación T06–T18 — 2026-10-16
+
+| Tarea | Estado | Prueba y condición que falta |
+| --- | --- | --- |
+| T06 | IMPLEMENTED / VERIFYING | P05 PASS_LOCAL; completar P08 y revisión de auth. |
+| T07 | IMPLEMENTED / VERIFYING | Login/logout, CSRF y Origin probados; P06–P07 límites de tiempo/TLS pendientes. |
+| T08 | IMPLEMENTED / VERIFYING | Recovery de un uso y sesiones revocadas; P09 expiración probada; control humano independiente pendiente. |
+| T09 | IMPLEMENTED / VERIFYING | Migraciones y claim concurrente pasan; matriz de estados P11 pendiente. |
+| T10 | IMPLEMENTED / VERIFYING | Firma/attestation inválidas rechazadas; verificador de attestation real ausente por diseño sintético. P10–P13 parcial. |
+| T11 | IMPLEMENTED / VERIFYING | PoP concurrente y replay pasan; P14 límites temporales probados; P15 alteraciones completas pendientes. |
+| T12 | IMPLEMENTED / VERIFYING | Rotación/revocación y restore posterior pasan; P16 carrera de rotación y reemplazo sintético probados; P17 reasignación completa y backup antiguo pendientes. |
+| T13 | DONE_LOCAL | P18–P21 con fake/fetch simulado; cliente real deshabilitado. |
+| T14 | IMPLEMENTED / VERIFYING | Cifrado y refresh single-flight pasan; P22/migración de diagnóstico pendientes. |
+| T15 | IMPLEMENTED / VERIFYING | Auditoría y muestra de log sanitizada; test automático de redacción pendiente. |
+| T16 | IMPLEMENTED / VERIFYING | Browser escritorio/móvil inspeccionado; accesibilidad completa P23 pendiente. |
+| T17 | IMPLEMENTED / VERIFYING | Login, logout, inventario y estado fake en navegador; errores/red P24–P25 pendientes. |
+| T18 | IN_PROGRESS | Restore sintético PASS_LOCAL; revisión de seguridad y gates Q2–Q5 pendientes. |
+
+Ninguna prueba fake ni un DONE_LOCAL constituye aprobación operativa. Hay commit local de este corte; no hay push ni CI remoto nuevo. Se necesita autorización antes de publicar la rama.

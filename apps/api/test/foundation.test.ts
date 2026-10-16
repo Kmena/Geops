@@ -42,6 +42,10 @@ test('configuration requires synthetic mode and refuses OAuth variables', () => 
   const base = {
     GEOPS_DATA_MODE: 'synthetic',
     DATABASE_URL: 'postgresql://fake:fake@localhost:5432/geops',
+    GEOPS_ADMIN_SESSION_KEY: Buffer.alloc(32, 1).toString('base64url'),
+    GEOPS_ADMIN_CSRF_KEY: Buffer.alloc(32, 2).toString('base64url'),
+    GEOPS_INVITATION_HMAC_KEY: Buffer.alloc(32, 3).toString('base64url'),
+    GEOPS_MDM_GRANT_KEY: Buffer.alloc(32, 4).toString('base64url'),
   };
   assert.equal(loadConfig(base).port, 3500);
   assert.throws(() => loadConfig({ ...base, GEOPS_DATA_MODE: 'real' }));

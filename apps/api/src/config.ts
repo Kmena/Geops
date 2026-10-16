@@ -4,6 +4,12 @@ export interface AppConfig {
   databaseUrl: string;
   logLevel: 'silent' | 'info';
   dataMode: 'synthetic';
+  adminSessionKey: Buffer;
+  adminCsrfKey: Buffer;
+  invitationHmacKey: Buffer;
+  mdmGrantKey: Buffer;
+  allowedOrigins: string[];
+  secureCookie: boolean;
 }
 
 const oauthVariables = [
@@ -14,6 +20,18 @@ const oauthVariables = [
   'MDM_REFRESH_TOKEN',
 ] as const;
 
+function localKey(env: NodeJS.ProcessEnv, name: string): Buffer {
+  const value = env[name];
+  if (!value || !/^[A-Za-z0-9_-]{43}$/.test(value)) {
+    throw new Error(`${name} must be a 32-byte synthetic key`);
+  }
+  const bytes = Buffer.from(value, 'base64url');
+  if (bytes.length !== 32 || bytes.toString('base64url') !== value) {
+    throw new Error(`${name} is invalid`);
+  }
+  return bytes;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (env.GEOPS_DATA_MODE !== 'synthetic') {
     throw new Error('GEOPS_DATA_MODE must be synthetic for Wave 0A');
@@ -21,9 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (oauthVariables.some((name) => env[name])) {
     throw new Error('OAuth credentials are not accepted by the Wave 0A API');
   }
-  if (!env.DATABASE_URL) {
-    throw new Error('DATABASE_URL is required');
-  }
+  if (!env.DATABASE_URL) throw new Error('DATABASE_URL is required');
   let parsed: URL;
   try {
     parsed = new URL(env.DATABASE_URL);
@@ -34,12 +50,23 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error('DATABASE_URL must use PostgreSQL');
   }
   const port = Number(env.PORT ?? '3500');
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error('PORT is invalid');
-  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT is invalid');
   const host = env.HOST ?? '127.0.0.1';
-  if (host !== '127.0.0.1' && host !== '0.0.0.0') {
-    throw new Error('HOST is invalid');
+  if (host !== '127.0.0.1' && host !== '0.0.0.0') throw new Error('HOST is invalid');
+  const origins = (env.GEOPS_ALLOWED_ORIGINS ?? 'http://localhost:3501,http://127.0.0.1:3501')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (origins.length === 0 || origins.some((origin) => !/^https?:\/\/[^/]+$/.test(origin))) {
+    throw new Error('GEOPS_ALLOWED_ORIGINS is invalid');
+  }
+  const secureCookie = env.GEOPS_INSECURE_LOCAL_COOKIE !== '1';
+  if (
+    !secureCookie &&
+    (env.GEOPS_DATA_MODE !== 'synthetic' ||
+      origins.some((origin) => !/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)))
+  ) {
+    throw new Error('Insecure cookie only allowed on synthetic localhost');
   }
   return {
     host,
@@ -47,5 +74,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     databaseUrl: env.DATABASE_URL,
     logLevel: env.LOG_LEVEL === 'silent' ? 'silent' : 'info',
     dataMode: 'synthetic',
+    adminSessionKey: localKey(env, 'GEOPS_ADMIN_SESSION_KEY'),
+    adminCsrfKey: localKey(env, 'GEOPS_ADMIN_CSRF_KEY'),
+    invitationHmacKey: localKey(env, 'GEOPS_INVITATION_HMAC_KEY'),
+    mdmGrantKey: localKey(env, 'GEOPS_MDM_GRANT_KEY'),
+    allowedOrigins: origins,
+    secureCookie,
   };
 }

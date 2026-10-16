@@ -24,7 +24,8 @@ El archivo [openapi.yaml](openapi.yaml) define OpenAPI 3.1 para health, autentic
 | POST /v1/admin/devices/{device_id}/invitations | admin+CSRF | Contrato SPEC-00; 201. |
 | POST /v1/device/enrollment/claims | invitación | Contrato SPEC-00; 201. |
 | POST /v1/device/enrollment/claims/{claim_id}/proof | invitación reservada | Contrato SPEC-00; 200. |
-| POST /v1/admin/devices/{device_id}/activate | admin+CSRF | Requiere verificación física real; bloqueado por defecto en 0A. |
+| POST /v1/admin/devices/{device_id}/synthetic-evidence | admin+CSRF | Registra referencia ficticia ligada a claim/binding fake; nunca acredita un teléfono real. |
+| POST /v1/admin/devices/{device_id}/activate | admin+CSRF | En 0A solo activa identidad sintética con evidencia fake explícita; activación real falla cerrada. |
 | POST /v1/device/sessions/challenge | dispositivo | Challenge de un uso; 200. |
 | POST /v1/device/sessions | dispositivo | Token PoP 15 min; 201. |
 | POST /v1/device/keys/rotate/challenge | sesión+PoP | 200. |
@@ -33,7 +34,7 @@ El archivo [openapi.yaml](openapi.yaml) define OpenAPI 3.1 para health, autentic
 | GET /v1/admin/mdm/status | admin | Estado sanitizado; nunca token. |
 | GET /v1/admin/mdm/devices | admin | Solo lectura fake en 0A; cliente real queda deshabilitado hasta validación externa. |
 
-Los endpoints GPS de [SPEC-00](../spec-00-technical-feasibility/api-contracts.md) son candidatos futuros y no figuran como operativos en 0A. El diagnóstico OAuth actual bajo /api/integrations/mdm/oauth es herramienta local, no superficie contractual del producto. Antes de implementar, decidir si se aísla en dev-only separado para evitar colisión del puerto 3500.
+Los endpoints GPS de [SPEC-00](../spec-00-technical-feasibility/api-contracts.md) son candidatos futuros y no figuran como operativos en 0A. El diagnóstico OAuth actual bajo /api/integrations/mdm/oauth es herramienta local, no superficie contractual del producto. Se mantiene en un proceso dev-only separado; no se carga desde la API Wave 0A ni se usa durante sus pruebas.
 
 ## Reglas de contrato MDM
 
