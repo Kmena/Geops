@@ -88,6 +88,7 @@ class TrackingService : Service() {
     override fun onCreate() {
         super.onCreate()
         state.edit().putLong("startedAt", System.currentTimeMillis()).putBoolean("running", true)
+            .remove("captureError")
             .putLong("offlineTotal", 0).putLong("offlineSince", 0)
             .putInt("invalidFixes", 0).putInt("writeFailures", 0)
             .putInt("capturedCount", 0).putInt("ackCount", 0).putInt("duplicateCount", 0)
@@ -102,9 +103,13 @@ class TrackingService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") { stopSelf(); return START_NOT_STICKY }
-        if (!BuildConfig.REAL_CAPTURE_ENABLED ||
+        val credentials = PocCredentials(this)
+        val tokenAvailable = runCatching { credentials.token.isNotBlank() }.getOrDefault(false)
+        if (!captureReady(BuildConfig.REAL_CAPTURE_ENABLED, credentials.deviceId, credentials.apiBase,
+                BuildConfig.POC_API_ORIGIN, tokenAvailable) ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
             (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
+            state.edit().putString("captureError", "Permiso o identidad no disponible para iniciar.").apply()
             stopSelf(); return START_NOT_STICKY
         }
         if (trackingStarted) return START_NOT_STICKY
@@ -115,16 +120,35 @@ class TrackingService : Service() {
             .setContentTitle("GEOPS GPS PoC activo")
             .setContentText("La ubicación se captura hasta que la detengas.")
             .setOngoing(true).setContentIntent(open).build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(11, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        else startForeground(11, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= 29) startForeground(11, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            else startForeground(11, notification)
+        } catch (_: SecurityException) {
+            state.edit().putString("captureError", "Android rechazó el servicio de ubicación.").apply()
+            stopSelf(); return START_NOT_STICKY
+        } catch (_: IllegalStateException) {
+            state.edit().putString("captureError", "Android no permitió iniciar el servicio.").apply()
+            stopSelf(); return START_NOT_STICKY
+        }
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 60_000L)
             .setMinUpdateIntervalMillis(60_000L).build()
-        try { fused.requestLocationUpdates(request, callback, Looper.getMainLooper()); trackingStarted = true }
-        catch (_: SecurityException) { stopSelf() }
+        try {
+            trackingStarted = true
+            fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
+                .addOnFailureListener {
+                    trackingStarted = false
+                    state.edit().putString("captureError", "El proveedor rechazó las actualizaciones de ubicación.").apply()
+                    stopSelf()
+                }
+        } catch (_: SecurityException) {
+            trackingStarted = false
+            state.edit().putString("captureError", "Permiso de ubicación rechazado.").apply()
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
     override fun onDestroy() {
-        fused.removeLocationUpdates(callback)
+        try { fused.removeLocationUpdates(callback) } catch (_: Exception) {}
         try { connectivity.unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}
         val now = System.currentTimeMillis()
         val started = state.getLong("startedAt", now)

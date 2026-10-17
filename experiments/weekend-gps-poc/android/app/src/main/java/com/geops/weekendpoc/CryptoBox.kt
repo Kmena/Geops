@@ -40,14 +40,15 @@ class CryptoBox {
 class PocCredentials(context: Context) {
     private val prefs = context.getSharedPreferences("poc-identity", Context.MODE_PRIVATE)
     private val crypto = CryptoBox()
-    var apiBase: String
-        get() = prefs.getString("base", "") ?: ""
-        set(value) { require(value.startsWith("https://")); prefs.edit().putString("base", value).apply() }
-    var token: String
-        get() = prefs.getString("token", null)?.let { crypto.decrypt(it) } ?: ""
-        set(value) { prefs.edit().putString("token", crypto.encrypt(value)).apply() }
-    var deviceId: String
-        get() = prefs.getString("device", "") ?: ""
-        set(value) { prefs.edit().putString("device", value).apply() }
+    val apiBase: String get() = prefs.getString("base", "") ?: ""
+    val token: String get() = prefs.getString("token", null)?.let { crypto.decrypt(it) } ?: ""
+    val deviceId: String get() = prefs.getString("device", "") ?: ""
+
+    internal fun saveEnrollment(base: String, device: EnrolledDevice) {
+        require(base.startsWith("https://"))
+        val encryptedToken = crypto.encrypt(device.token)
+        check(prefs.edit().putString("base", base).putString("device", device.deviceId)
+            .putString("token", encryptedToken).commit())
+    }
     fun clear() { prefs.edit().clear().apply() }
 }

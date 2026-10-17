@@ -1,5 +1,9 @@
 # Evidencia de validación local — POC-GPS-001
 
+## APK de campo — 2026-10-16
+
+Compilación local con `-PpocApiOrigin=https://18.209.159.208 -PpocRealCapture=true`, sin instalar ni activar seguimiento. `:app:testDebugUnitTest` pasó (14 pruebas, 0 fallos), `:app:lintDebug` y `:app:assembleDebug` pasaron. `apksigner` validó la firma y `dexdump` leyó en el APK `REAL_CAPTURE_ENABLED=true` y el origen HTTPS exacto. Archivo y hash en [field-apk-reinstall.md](field-apk-reinstall.md). Node: 17 pruebas PASS; Biome PASS; Web build PASS; Compose dev/cloud `config --quiet` PASS; `git diff --check` PASS. Prueba física, envío real y CI remoto: PENDING.
+
 Fecha: 2026-10-16. Rama: codex/poc-gps-weekend. Todo dato usado fue sintético. Ninguna prueba Android física, TLS público, backup cloud ni despliegue remoto se ejecutó.
 
 | Control | Resultado | Evidencia / límite |

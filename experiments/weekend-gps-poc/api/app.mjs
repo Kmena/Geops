@@ -18,6 +18,7 @@ export function createApp({
   retentionHours = 72,
   secureCookie = true,
   captureEnabled = false,
+  enrollmentAudit = () => {},
 }) {
   let parsedOrigin;
   try {
@@ -36,6 +37,18 @@ export function createApp({
   )
     throw new Error('Invalid POC origin');
   const app = Fastify({ logger: false, bodyLimit: MAX_BODY });
+  app.addHook('onRequest', async (request) => {
+    if (request.url === '/api/device/enroll')
+      enrollmentAudit({ event: 'enrollment_request_started', request_id: request.id });
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    if (request.url === '/api/device/enroll')
+      enrollmentAudit({
+        event: 'enrollment_response',
+        request_id: request.id,
+        status: reply.statusCode,
+      });
+  });
   app.addHook('onSend', async (_request, reply) => {
     reply
       .header('Cache-Control', 'no-store')

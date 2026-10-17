@@ -97,8 +97,14 @@ jobs:
       - run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.13" }
-      - run: gradle -p experiments/weekend-gps-poc/android :app:testDebugUnitTest :app:assembleDebug
+      - name: JUnit, Android Lint and manual field APK
+        run: gradle -p experiments/weekend-gps-poc/android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug -PpocApiOrigin=https://18.209.159.208 -PpocRealCapture=true
+      - name: Verify embedded origin and manual capture flag
+        run: |
+          generated=experiments/weekend-gps-poc/android/app/build/generated/source/buildConfig/debug/com/geops/weekendpoc/BuildConfig.java
+          grep -F 'POC_API_ORIGIN = "https://18.209.159.208"' "$generated"
+          grep -F 'REAL_CAPTURE_ENABLED = true' "$generated"
       - uses: actions/upload-artifact@v4
         with:
-          name: geops-weekend-poc-synthetic-debug-apk
+          name: geops-weekend-poc-field-debug-apk
           path: experiments/weekend-gps-poc/android/app/build/outputs/apk/debug/*.apk

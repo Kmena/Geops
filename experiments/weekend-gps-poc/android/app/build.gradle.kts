@@ -28,6 +28,7 @@ kotlin { compilerOptions { jvmTarget = JvmTarget.fromTarget("17") } }
 dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-ktx:1.12.0")
+    implementation("androidx.fragment:fragment:1.8.9")
     implementation("androidx.room:room-runtime:2.8.5")
     implementation("androidx.room:room-ktx:2.8.5")
     kapt("androidx.room:room-compiler:2.8.5")
@@ -35,4 +36,5 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.4.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

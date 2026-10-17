@@ -1,6 +1,6 @@
 # POC-GPS-001 — experimento aislado de fin de semana
 
-**Estado:** en desarrollo; sin APK compilada, sin despliegue cloud y sin prueba física aprobada. Este módulo no modifica la autenticación, época de seguridad, cuarentena ni base de Wave 0A. SPEC-00 sigue BLOCKED y Wave 0A sigue IN_PROGRESS.
+**Estado:** en desarrollo; el operador reportó inscripción QR con HTTP 201 y dispositivo activo sin posiciones. Se prepara una APK de campo con inicio manual de GPS, sujeta a reinstalación limpia y validación física. Este módulo no modifica la autenticación, época de seguridad, cuarentena ni base de Wave 0A. SPEC-00 sigue BLOCKED y Wave 0A sigue IN_PROGRESS.
 
 ## Arquitectura
 
@@ -21,7 +21,7 @@ Requiere Node 24, npm y Docker Linux accesible. En este directorio:
 5. La web local queda en http://127.0.0.1:3601. Ingesta permanece apagada salvo que se establezca POC_CAPTURE_ENABLED=true **solo para datos generados**. Android exige HTTPS y no se inscribe contra HTTP local.
 6. Parar con docker compose --env-file infra/.env.local -f infra/compose.dev.yaml down sin -v para conservar la base.
 
-El build Android requiere SDK API 36, JDK 17, Android Studio/Gradle 8.13 y dependencias Maven de Google. Abrir android/ en Android Studio; la variante por defecto bloquea GPS físico. El proyecto no incluye wrapper ni APK firmada. Compilar con -PpocApiOrigin=https://DOMINIO_VERIFICADO y -PpocRealCapture=true **únicamente después** de la aprobación de la prueba. El dominio queda fijado dentro de la APK; una invitación QR de otro origen se rechaza. Usar firma de debug solo para el teléfono autorizado; registrar hash SHA-256 de la APK fuera de Git.
+El build Android requiere SDK API 36, JDK 17, Android Studio/Gradle 8.13 y dependencias Maven de Google. Abrir android/ en Android Studio; la variante por defecto bloquea GPS físico. El proyecto no incluye wrapper ni APK firmada. Para la APK de campo autorizada del único teléfono, compilar con `-PpocApiOrigin=https://18.209.159.208 -PpocRealCapture=true`. El origen queda fijado dentro de la APK; una invitación QR de otro origen se rechaza. La captura solo comienza con el botón manual y los permisos. Usar firma debug solo para el teléfono autorizado; registrar hash SHA-256 de la APK fuera de Git. Los builds de CI y locales pueden usar firmas debug distintas.
 
 ## Endpoints
 
@@ -46,5 +46,7 @@ El lote acepta 1–50 eventos y como máximo 64 KiB. El servidor asigna identida
 - [Evidencia local](docs/evidence.md): controles ejecutados y límites.
 - [Despliegue cloud](docs/deployment.md): el operador confirmó acceso entrante por 18.209.159.208. La plantilla Caddy usa un certificado público IP de corta duración y publica solo 80/443; EC2 Public IPv4, Elastic IP y TLS real siguen pendientes. Incluye preflight de solo lectura.
 - [Aprobación y privacidad](docs/approval.md): identificar teléfono autorizado, persona operadora, fecha límite de borrado, aviso y acceso al mapa.
-- [Prueba física](docs/field-checklist.md): todos los resultados siguen PENDING hasta ejecución.
+- [Diagnóstico de inscripción QR](docs/qr-enrollment-diagnostics.md): compilación con origen HTTPS, instalación y eventos sanitizados.
+- [APK de campo y reinstalación](docs/field-apk-reinstall.md): comprobación de cola, firma, reinscripción y prueba manual.
+- [Prueba física](docs/field-checklist.md): la corrección QR aún requiere repetición en el teléfono.
 - No publicar, desplegar, inscribir ni capturar ubicaciones reales sin aprobación explícita. No equiparar esta identidad bearer con la identidad definitiva ADR-012.

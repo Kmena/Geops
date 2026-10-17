@@ -31,6 +31,7 @@ const app = createApp({
   retentionHours,
   secureCookie,
   captureEnabled: env.POC_CAPTURE_ENABLED === 'true',
+  enrollmentAudit: (entry) => process.stdout.write(JSON.stringify(entry) + '\n'),
 });
 const timer = setInterval(() => {
   void store.purge(retentionHours).catch(async () => {

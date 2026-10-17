@@ -1,11 +1,11 @@
 # Checklist físico y métricas — un teléfono autorizado
 
-**Estado global: PENDING_PHYSICAL_VALIDATION.** Registrar fecha, teléfono alias, Android/Play Services, red, batería, condiciones de GPS, APK hash y evidencia sanitizada. Ningún resultado siguiente es PASS aún.
+**Estado global: PENDING_PHYSICAL_VALIDATION.** El operador informó HTTP 201 y dispositivo activo sin posiciones; también confirmó cero pendientes, cero capturas guardadas y ningún dato local que conservar. Autorizó reinstalación limpia y reinscripción del único teléfono. Repetir la comprobación de contadores inmediatamente antes de borrar datos. Registrar fecha, alias, Android/Play Services, red, hash de APK y evidencia sanitizada. Ningún caso de campo completo es PASS aún.
 
 | ID | Prueba | Resultado |
 | --- | --- | --- |
 | F01 | Instalar APK aprobada y verificar firma/versión | PENDING |
-| F02 | QR temporal, inscripción de un uso, inventario | PENDING |
+| F02 | QR temporal, inscripción de un uso, inventario | HTTP 201 e inventario activo reportados; reutilización y credencial tras reinicio PENDING |
 | F03 | Inicio manual, notificación visible y botón detener | PENDING |
 | F04 | 15 min con pantalla activa y luego bloqueada; medir cadencia objetivo 60 s | PENDING |
 | F05 | Cortar Internet manteniendo GPS; contar eventos en Room | PENDING |

@@ -100,7 +100,7 @@ class MemoryStore {
     return count;
   }
 }
-function fresh(captureEnabled = true) {
+function fresh(captureEnabled = true, enrollmentAudit = () => {}) {
   const store = new MemoryStore();
   const app = createApp({
     store,
@@ -108,6 +108,7 @@ function fresh(captureEnabled = true) {
     passwordHash,
     secureCookie: false,
     captureEnabled,
+    enrollmentAudit,
   });
   return { store, app };
 }
@@ -157,6 +158,13 @@ test('inscripción válida; QR de entorno y token individual', async () => {
     const result = await enrolled(app);
     assert.equal(result.device.environment_id, ENV_ID);
     assert.equal(result.device.device_token.length, 43);
+    const status = await app.inject({
+      method: 'GET',
+      url: '/api/device/status',
+      headers: { authorization: 'Bearer ' + result.device.device_token },
+    });
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.json().capture_enabled, true);
   } finally {
     await app.close();
   }
@@ -386,5 +394,149 @@ test('límite de lote, tiempo y cuerpo grande se rechazan sin persistencia', asy
     assert.equal(store.events.size, 0);
   } finally {
     await app.close();
+  }
+});
+
+test('contrato QR y POST de inscripción coincide con Android', async () => {
+  const { app } = fresh(false);
+  try {
+    const auth = await admin(app);
+    const invitation = await app.inject({
+      method: 'POST',
+      url: '/api/admin/invitations',
+      headers: { origin: ORIGIN, cookie: auth.cookie, 'x-poc-csrf': auth.csrf },
+    });
+    assert.equal(invitation.statusCode, 200);
+    const qr = JSON.parse(invitation.json().qr_payload);
+    assert.deepEqual(Object.keys(qr).sort(), [
+      'api_base',
+      'environment_id',
+      'invitation_id',
+      'invitation_secret',
+    ]);
+    assert.equal(qr.api_base, ORIGIN);
+    assert.equal(qr.environment_id, ENV_ID);
+    const body = {
+      environment_id: qr.environment_id,
+      invitation_id: qr.invitation_id,
+      invitation_secret: qr.invitation_secret,
+    };
+    const result = await app.inject({
+      method: 'POST',
+      url: '/api/device/enroll',
+      headers: { 'content-type': 'application/json; charset=utf-8', accept: 'application/json' },
+      payload: body,
+    });
+    assert.equal(result.statusCode, 201);
+    assert.deepEqual(Object.keys(result.json()).sort(), [
+      'device_id',
+      'device_token',
+      'environment_id',
+    ]);
+    assert.equal(result.json().environment_id, ENV_ID);
+    assert.equal(result.json().device_token.length, 43);
+    const reused = await app.inject({ method: 'POST', url: '/api/device/enroll', payload: body });
+    assert.equal(reused.statusCode, 409);
+    assert.equal(reused.json().error, 'invitation_used');
+    assert.ok(!reused.body.includes(qr.invitation_secret));
+  } finally {
+    await app.close();
+  }
+});
+
+test('trazas de inscripción incluyen solo evento, request_id y HTTP', async () => {
+  const entries = [];
+  const { app } = fresh(false, (entry) => entries.push(entry));
+  try {
+    const auth = await admin(app);
+    const invite = await app.inject({
+      method: 'POST',
+      url: '/api/admin/invitations',
+      headers: { origin: ORIGIN, cookie: auth.cookie, 'x-poc-csrf': auth.csrf },
+    });
+    const qr = JSON.parse(invite.json().qr_payload);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/device/enroll',
+      payload: {
+        environment_id: qr.environment_id,
+        invitation_id: qr.invitation_id,
+        invitation_secret: qr.invitation_secret,
+      },
+    });
+    assert.equal(response.statusCode, 201);
+    assert.deepEqual(
+      entries.map((entry) => entry.event),
+      ['enrollment_request_started', 'enrollment_response'],
+    );
+    assert.equal(entries[1].status, 201);
+    assert.deepEqual(Object.keys(entries[1]).sort(), ['event', 'request_id', 'status']);
+    assert.ok(!JSON.stringify(entries).includes(qr.invitation_secret));
+    assert.ok(!JSON.stringify(entries).includes(response.json().device_token));
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET de estado autentica sin posiciones y sobrevive a reinicio de API con store persistente', async () => {
+  const { app, store } = fresh(false);
+  let restarted;
+  try {
+    const { auth, device } = await enrolled(app);
+    const headers = { authorization: 'Bearer ' + device.device_token };
+    const first = await app.inject({ method: 'GET', url: '/api/device/status', headers });
+    assert.equal(first.statusCode, 200);
+    assert.deepEqual(first.json(), {
+      environment_id: ENV_ID,
+      device_id: device.device_id,
+      capture_enabled: false,
+    });
+    assert.equal(store.events.size, 0);
+    assert.equal((await app.inject({ method: 'GET', url: '/api/device/status' })).statusCode, 401);
+    await app.close();
+    restarted = createApp({ store, origin: ORIGIN, passwordHash, secureCookie: false });
+    const afterRestart = await restarted.inject({
+      method: 'GET',
+      url: '/api/device/status',
+      headers,
+    });
+    assert.equal(afterRestart.statusCode, 200);
+    assert.equal(afterRestart.json().device_id, device.device_id);
+    assert.equal(store.events.size, 0);
+    assert.equal(
+      (
+        await restarted.inject({
+          method: 'GET',
+          url: '/api/device/status',
+          headers: { authorization: 'Bearer ' + secret() },
+        })
+      ).statusCode,
+      401,
+    );
+    assert.equal(
+      (
+        await restarted.inject({
+          method: 'GET',
+          url: '/api/admin/me',
+          headers: { cookie: auth.cookie },
+        })
+      ).statusCode,
+      401,
+    );
+    assert.ok(!afterRestart.body.includes(device.device_token));
+    const nextAdmin = await admin(restarted);
+    const revoked = await restarted.inject({
+      method: 'POST',
+      url: '/api/admin/devices/' + device.device_id + '/revoke',
+      headers: { origin: ORIGIN, cookie: nextAdmin.cookie, 'x-poc-csrf': nextAdmin.csrf },
+    });
+    assert.equal(revoked.statusCode, 200);
+    assert.equal(
+      (await restarted.inject({ method: 'GET', url: '/api/device/status', headers })).statusCode,
+      403,
+    );
+  } finally {
+    if (restarted) await restarted.close();
+    else await app.close();
   }
 });
