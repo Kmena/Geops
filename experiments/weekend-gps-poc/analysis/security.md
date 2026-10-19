@@ -1,0 +1,9 @@
+# Seguridad y privacidad de la extracción GPS
+
+La extracción se ejecuta únicamente después de autorización explícita para consultar datos reales. Usa `docker compose exec -T poc-db psql` con proyecto y base `geops-weekend-poc/geops_poc` fijos. Verifica `current_database()` y las columnas esperadas antes de leer. Ambas consultas empiezan con `BEGIN READ ONLY`; no hay DDL, DML, migraciones ni acceso a Inventori o Billing. No se modifican credenciales ni el servidor.
+
+El directorio `.private-gps-analysis/` está ignorado por Git. El proceso aplica `umask 077`, exige permisos privados al directorio preexistente y crea carpetas 700 y archivos 600 en Ubuntu. No usar `sudo` si no es necesario. No copiar extractos, capturas de consola, trazas SQL ni informes con horarios precisos a issues, PR, CI, tickets o carpetas compartidas. Antes de compartir un informe, revisar también horarios y seudónimos, pues pueden revelar hábitos aunque no incluya coordenadas.
+
+Compose obtiene secretos de `infra/.env.local`; no se ejecuta `docker compose config` sin `--quiet`, no se muestran variables ni stderr de las consultas. El CSV/JSON omite tokens, hashes, UUID del dispositivo y `event_id`. La ruta impresa no contiene coordenadas. El usuario debe limitar acceso al servidor y eliminar extractos conforme al plazo aprobado; borrar archivos locales no sustituye la política separada de DB y backups. Las copias de seguridad tienen su propia retención, descrita en `docs/deployment.md`.
+
+La API purga posiciones por `received_at`; una captura tardíamente sincronizada puede sobrevivir después del fin del período de captura, y una fila del fin de semana puede haber sido purgada ya. No cambiar la retención para completar el análisis. Si la validación de esquema falla, revisar el despliegue autorizado antes de continuar.

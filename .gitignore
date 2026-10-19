@@ -93,3 +93,6 @@ GoogleService-Info.plist
 
 # Evidencia y respaldos locales del orquestador de restore
 infrastructure/compose/.local/
+
+# Extractos privados de la PoC GPS
+experiments/weekend-gps-poc/.private-gps-analysis/

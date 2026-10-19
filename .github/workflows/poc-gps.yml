@@ -32,9 +32,9 @@ jobs:
       - name: Node tests
         run: npm test
       - name: Lint
-        run: ../../node_modules/.bin/biome check api web infra/cloud-config-preflight.mjs infra/cloud-config-preflight.test.mjs infra/backup.mjs infra/verify-backup.mjs
+        run: ../../node_modules/.bin/biome check api web analysis infra/cloud-config-preflight.mjs infra/cloud-config-preflight.test.mjs infra/backup.mjs infra/verify-backup.mjs
       - name: Node syntax
-        run: find api infra -name '*.mjs' -print0 | xargs -0 -n1 node --check
+        run: find api infra analysis -name '*.mjs' -print0 | xargs -0 -n1 node --check
       - name: Web build
         run: npm run build
 
