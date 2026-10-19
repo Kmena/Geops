@@ -34,3 +34,7 @@
 5. El protocolo de identidad usa claves Android Keystore y PoP; managed configuration/UDID ayudan a vincular, pero no bastan para autenticar. La disponibilidad real de ese canal en Free sigue pendiente. [R18–R19]
 
 La búsqueda documental no equivale a haber probado un tenant ManageEngine ni teléfonos reales. Esas dependencias siguen en [risks.md](risks.md) y [open-questions.md](open-questions.md).
+
+## Addendum de fuentes MDM — 2026-10-19
+
+El [estudio MDM](mdm-business-decision.md) actualiza la consulta oficial sobre Fully Managed, Work Profile, COPE, ManageEngine/ADB sin reset, Knox, DPC propio, migración, costes y avisos. **Matiz a R01/R04:** QR, Zero-touch y KME siguen requiriendo configuración inicial para equipos ya usados, pero ManageEngine documenta una ruta **ADB sin reset** con retiro de cuentas Google/contraseña y limitaciones operativas. Esta ruta no tiene evidencia física ni preservación íntegra de datos en GEOPS; no cambia ningún resultado `PENDING` o `BLOCKED` anterior.

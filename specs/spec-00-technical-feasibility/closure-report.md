@@ -92,3 +92,7 @@ SPEC-01 puede **iniciarse como trabajo de especificación** si declara su alcanc
 ## 10. Recomendación de continuidad
 
 Abrir SPEC-01 para concretar Wave 0A y asignar responsables/ventanas a Free y piloto. Mantener SPEC-00 BLOCKED hasta cumplir [sus criterios vigentes](wave-readiness.md); registrar nueva evidencia en M01–M10 y P01–P20 sin trasladar PASS de Trial a Free.
+
+## Addendum de viabilidad MDM — 2026-10-19
+
+Este cierre histórico del 2026-10-16 no se reinterpreta como aprobación del nuevo requisito de conservar apps y datos sin reset. El [estudio MDM y documento de decisión](mdm-business-decision.md) identifica que el flujo Fully Managed ordinario para equipos usados entra en conflicto con MDM-003, mientras que la ruta ADB sin reset documentada por ManageEngine está pendiente de soporte y prueba física por modelo. Work Profile/COPE tampoco acreditan MDM-002 global. [ADR-014](../architecture/adr/ADR-014-mdm-flota-existente-propuesto.md) permanece propuesto sin elección. Se agregan Q-20–Q-24, RSK-13–17 y la puerta MDM en [wave-readiness.md](wave-readiness.md). **SPEC-00 sigue BLOCKED; no hay PASS MDM nuevo.**

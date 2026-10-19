@@ -25,3 +25,13 @@
 | Q-19 | ¿Puede la cuenta Free entregar managed configuration individual y verificar por API el vínculo GEOPS↔MDM, o se aprobará la vía presencial manual auditada? | M08, M09 y A01–A06 en A/B; revisión de seguridad del procedimiento manual si aplica. | **Bloquea READY** de activación operativa, sin reabrir el protocolo Q-03. |
 
 **Aclaraciones resueltas por PRD y solicitud:** agente GPS propio; MDM administra y no es canal primario de GPS; 2→25 dispositivos; una captura por minuto como objetivo; 90 días de posiciones; usuarios autorizados administradores; IA de rutas diferida a etapa 2; independencia de Inventori/Billing. Ninguna de estas aclaraciones implica que el comportamiento Android/MDM esté probado.
+
+## Preguntas MDM agregadas — 2026-10-19
+
+| ID | Pregunta / dependencia | Evidencia necesaria | Efecto |
+| --- | --- | --- | --- |
+| Q-20 | ¿Qué opción A–E del [documento de decisión](mdm-business-decision.md) aprueba negocio para conservar o cambiar formalmente MDM-001–006? | Registro de decisión, patrocinador, presupuesto, riesgos y versión de requisitos aprobada; [ADR-014 propuesto](../architecture/adr/ADR-014-mdm-flota-existente-propuesto.md). | **Bloquea cierre MDM**; ninguna opción está seleccionada. |
+| Q-21 | ¿Cuáles son los 25 modelos/Android, modos MDM actuales, cuentas, apps/datos y restaurabilidad? ¿Cuáles dos representan familias distintas? | Inventario autorizado y redacted, F01. | Determina cobertura multimarca, preservación y coste. |
+| Q-22 | ¿Soporta ManageEngine MSP Cloud/Free el alta ADB como Device Owner sin reset en cada modelo, sin pérdida de apps/datos ni degradación inaceptable? | Respuesta escrita del proveedor y F02–F05 en laboratorio; no ejecutar en teléfonos productivos bajo este encargo. | Ruta B continúa `UNKNOWN`; MDM-001/002/003/004. |
+| Q-23 | ¿Puede GEOPS Web leer y, si se aprueba, administrar perfiles/políticas con la licencia real, y cómo prueba el estado aplicado? | Scopes/contrato de licencia, API en Free o plan pagado, F07; trazabilidad Q-02/Q-19. | MDM-005 y presupuesto. |
+| Q-24 | ¿Debe quedar la configuración global de ubicación siempre activa o poder volver a control del usuario fuera de turno? ¿Qué revisión laboral/privacidad aplica? | Decisión de producto y dictamen local; F05–F08. | MDM-002, MDM-006 y RN-07; el horario de captura no autoriza captura fuera de turno. |

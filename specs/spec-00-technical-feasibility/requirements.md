@@ -37,3 +37,16 @@ HTTPS/TLS, credenciales individuales revocables, auditoría, datos separados de 
 ## Parámetros que no se deben inventar
 
 Radios y permanencia por pin, precisión mínima, tolerancia de huecos GPS, umbral de desconexión, calendario laboral, semántica exacta de recurrencia, formato de cédula, columnas de importación, SLA, políticas de retención de backups, modelos Android y edición/tenant MDM. Se registran en [open-questions.md](open-questions.md).
+
+## Requisitos MDM de decisión de negocio — 2026-10-19
+
+Los requisitos originales de esta solicitud permanecen **vigentes sin cambio** hasta aprobación formal de negocio. Su [matriz y evidencias](mdm-business-decision.md) no sustituyen RF-01–RF-03 ni RN-07 del PRD.
+
+| ID | Requisito original | Estado de viabilidad al corte |
+| --- | --- | --- |
+| MDM-001 | GEOPS no puede ser desinstalado por un usuario estándar. | DOCUMENTADO_CONDICIONAL según modo y distribución; pendiente en A/B. |
+| MDM-002 | El usuario no puede desactivar la ubicación durante el horario laboral. | DOCUMENTADO_CONDICIONAL en Device Owner; Work Profile/COPE no acreditan el control global; pendiente en A/B. |
+| MDM-003 | Conservar las aplicaciones y los datos existentes sin restablecimiento de fábrica. | `NO_CUMPLE` con alta ordinaria Fully Managed en equipos usados; ADB sin reset `UNKNOWN` para preservación íntegra. |
+| MDM-004 | Compatibilidad con 25 teléfonos Android multimarca. | `UNKNOWN` hasta inventario de 25 y pruebas por familias; Knox no cubre por sí solo otras marcas. |
+| MDM-005 | Administración centralizada desde GEOPS Web. | `UNKNOWN`: API Free, scopes de escritura y estado aplicado no validados. |
+| MDM-006 | Respetar indicadores y notificaciones obligatorios de Android y las políticas de privacidad aplicables. | Requisito vigente; revisión de avisos, seguridad y privacidad pendiente. |

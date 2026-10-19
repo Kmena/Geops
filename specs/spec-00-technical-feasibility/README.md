@@ -40,3 +40,7 @@ Los ADR existentes [001–006](../architecture/adr/) se mantienen como decisione
 ## Cierre documental del corte 2026-10-16
 
 El [informe de cierre documental](closure-report.md) registra investigación y arquitectura completadas para este corte, evidencia Trial y dependencias trasladadas. **SPEC-00 sigue BLOCKED**: no se han ejecutado las validaciones obligatorias en Free ni el piloto Android. El informe no cambia los criterios originales de [wave-readiness.md](wave-readiness.md) ni autoriza implementación o producción.
+
+## Addendum MDM y decisión de negocio — 2026-10-19
+
+El [estudio de factibilidad y decisión MDM](mdm-business-decision.md) evalúa MDM-001–006, costes, una excepción ADB sin restablecimiento documentada por ManageEngine, límites de Work Profile/COPE y un plan físico A/B. [ADR-014](../architecture/adr/ADR-014-mdm-flota-existente-propuesto.md) queda **propuesto**, sin alternativa seleccionada. No hay PASS nuevo; Free, políticas, conservación de datos y equipos siguen sin validar. Los requisitos originales y `BLOCKED` se conservan.
