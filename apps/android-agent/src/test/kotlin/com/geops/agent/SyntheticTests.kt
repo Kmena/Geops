@@ -253,4 +253,95 @@ fun main() {
         check(store.read().pending.single().id == id && store.read().pending.single().attempts == 1)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY)
     }
+    test("enrollment ticket rejects foreign origin and proof signs canonical bytes") {
+        val now = Instant.parse("2026-10-19T12:00:00Z")
+        val enc = java.util.Base64.getUrlEncoder().withoutPadding()
+        val secret = enc.encodeToString(ByteArray(32) { 7 })
+        val ticketJson = JSONObject().put("format", "geops-enrollment-v1")
+            .put("origin", "https://geops-staging.duckdns.org")
+            .put("geops_device_id", device).put("mdm_device_id", "fake-$device")
+            .put("invitation_id", scheduled).put("invitation_secret", secret)
+            .put("expires_at", "2026-10-19T12:10:00Z")
+        check(runCatching { EnrollmentTicket.parse(ticketJson.put("origin", "https://evil.invalid").toString()) }.isFailure)
+        ticketJson.put("origin", "https://geops-staging.duckdns.org")
+        val ticket = EnrollmentTicket.parse(ticketJson.toString())
+        val pair = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val signer = object : EnrollmentSigner {
+            override val publicSpki = pair.public.encoded
+            override fun sign(message: ByteArray) = java.security.Signature.getInstance("SHA256withECDSA").run {
+                initSign(pair.private); update(message); sign()
+            }
+        }
+        var sentClaim: JSONObject? = null
+        val transport = object : EnrollmentTransport {
+            override fun post(path: String, body: String): HttpResult {
+                val value = JSONObject(body)
+                return when (path) {
+                    "/v1/device/enrollment/claims" -> {
+                        sentClaim = value
+                        HttpResult(201, JSONObject().put("claim_id", policyId)
+                            .put("challenge_id", anchor).put("challenge", secret)
+                            .put("expires_at", "2026-10-19T12:02:00Z").toString(), null)
+                    }
+                    "/v1/device/enrollment/claims/$policyId/proof" -> {
+                        val nonce = sentClaim!!.getString("client_nonce")
+                        val fingerprint = enc.encodeToString(MessageDigest.getInstance("SHA-256").digest(signer.publicSpki))
+                        val proof = listOf("GEOPS-ENROLL-V1", policyId, anchor, secret, device,
+                            "fake-$device", fingerprint, nonce).joinToString("\n").toByteArray()
+                        check(java.security.Signature.getInstance("SHA256withECDSA").run {
+                            initVerify(pair.public); update(proof)
+                            verify(java.util.Base64.getUrlDecoder().decode(value.getString("signature")))
+                        })
+                        HttpResult(200, JSONObject().put("status", "PENDING_CONFIRMATION")
+                            .put("pairing_code", "12345678")
+                            .put("expires_at", "2026-10-19T12:10:00Z").toString(), null)
+                    }
+                    else -> error("unexpected_path")
+                }
+            }
+        }
+        val client = EnrollmentClient(transport) { now }
+        val claim = client.claim(ticket, signer)
+        check(sentClaim!!.getString("geops_device_id") == device)
+        check(client.prove(ticket, claim, signer).pairingCode == "12345678")
+        check(runCatching { EnrollmentClient(transport) { now.plusSeconds(601) }.claim(ticket, signer) }.isFailure)
+    }
+    test("session bootstrap signs SPEC-01 challenge and keeps bearer in memory") {
+        val pair = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val signer = object : EnrollmentSigner {
+            override val publicSpki = pair.public.encoded
+            override fun sign(message: ByteArray) = java.security.Signature.getInstance("SHA256withECDSA").run {
+                initSign(pair.private); update(message); sign()
+            }
+        }
+        val challenge = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 5 })
+        val token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 6 })
+        var calls = 0
+        val transport = object : EnrollmentTransport {
+            override fun post(path: String, body: String): HttpResult {
+                calls++
+                return when (path) {
+                    "/v1/device/sessions/challenge" -> HttpResult(200,
+                        JSONObject().put("challenge_id", anchor).put("challenge", challenge)
+                            .put("expires_at", "2026-10-19T12:02:00Z").toString(), null)
+                    "/v1/device/sessions" -> {
+                        val proof = listOf("GEOPS-SESSION-V1", anchor, challenge, policyId, device)
+                            .joinToString("\n").toByteArray()
+                        check(java.security.Signature.getInstance("SHA256withECDSA").run {
+                            initVerify(pair.public); update(proof)
+                            verify(java.util.Base64.getUrlDecoder().decode(JSONObject(body).getString("signature")))
+                        })
+                        HttpResult(201, JSONObject().put("access_token", token)
+                            .put("key_id", policyId).put("expires_at", "2026-10-19T12:15:00Z").toString(), null)
+                    }
+                    else -> error("unexpected_path")
+                }
+            }
+        }
+        val provider = RefreshingSessionProvider(device, policyId, signer, transport) {
+            Instant.parse("2026-10-19T12:00:00Z")
+        }
+        check(provider.currentToken() == token)
+        check(provider.currentToken() == token && calls == 2)
+    }
 }

@@ -75,6 +75,7 @@ Thumbs.db
 *.pfx
 *.jks
 *.keystore
+apps/android-app/.local-signing/
 *.asc
 id_rsa*
 id_ed25519*

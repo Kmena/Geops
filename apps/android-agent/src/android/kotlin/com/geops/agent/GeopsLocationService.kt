@@ -23,16 +23,21 @@ class GeopsLocationService : Service() {
     inner class LocalBinder : Binder() { fun service(): GeopsLocationService = this@GeopsLocationService }
     override fun onBind(intent: Intent?): IBinder = binder
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(NotificationChannel("geops-tracking", "GEOPS tracking",
-            NotificationManager.IMPORTANCE_LOW))
-        val notification = Notification.Builder(this, "geops-tracking")
-            .setContentTitle("GEOPS: ubicación laboral activa")
-            .setContentText("Seguimiento durante horario autorizado")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(701, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        else startForeground(701, notification)
-        promoted = true
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(NotificationChannel("geops-tracking", "GEOPS tracking",
+                NotificationManager.IMPORTANCE_LOW))
+            val notification = Notification.Builder(this, "geops-tracking")
+                .setContentTitle("GEOPS: verificando política")
+                .setContentText("Sin captura hasta confirmar horario autorizado")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).build()
+            if (Build.VERSION.SDK_INT >= 29) startForeground(701, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            else startForeground(701, notification)
+            promoted = true
+        } catch (_: RuntimeException) {
+            promoted = false
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
     fun runtime(onFix: (Location) -> Unit): TrackingRuntime = object : TrackingRuntime {
@@ -41,9 +46,17 @@ class GeopsLocationService : Service() {
             val location = getSystemService(Context.LOCATION_SERVICE) as LocationManager
             if (!location.isProviderEnabled(LocationManager.GPS_PROVIDER)) return false
             val next = LocationListener { fix -> onFix(fix) }
-            location.requestLocationUpdates(LocationManager.GPS_PROVIDER, intervalSeconds * 1000L,
-                0f, next, Looper.getMainLooper())
+            try {
+                location.requestLocationUpdates(LocationManager.GPS_PROVIDER, intervalSeconds * 1000L,
+                    0f, next, Looper.getMainLooper())
+            } catch (_: SecurityException) { return false }
+              catch (_: IllegalArgumentException) { return false }
             listener = next
+            val active = Notification.Builder(this@GeopsLocationService, "geops-tracking")
+                .setContentTitle("GEOPS: ubicación laboral activa")
+                .setContentText("Seguimiento durante horario autorizado")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).build()
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(701, active)
             return true
         }
         override fun stopAndUnregister() { unregister(); stopForeground(STOP_FOREGROUND_REMOVE); promoted = false; stopSelf() }

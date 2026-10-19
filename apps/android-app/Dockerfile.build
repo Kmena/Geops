@@ -1,0 +1,6 @@
+FROM gradle:8.14-jdk17 AS gradle
+FROM ghcr.io/cirruslabs/android-sdk:36
+COPY --from=gradle /opt/gradle /opt/gradle
+ENV PATH="/opt/gradle/bin:${PATH}"
+ENV ANDROID_HOME=/opt/android-sdk-linux
+WORKDIR /workspace/apps/android-app

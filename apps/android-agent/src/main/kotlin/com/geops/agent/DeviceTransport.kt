@@ -158,6 +158,6 @@ object ConfigParser {
     }
     private fun at(value: String) = Instant.parse(value).toEpochMilli()
     private fun keys(o: JSONObject, allowed: Set<String>) {
-        require(o.keySet().all { it in allowed }) { "unexpected_field" }
+        require(o.keys().asSequence().all { it in allowed }) { "unexpected_field" }
     }
 }
