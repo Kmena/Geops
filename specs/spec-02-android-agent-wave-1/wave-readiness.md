@@ -1,5 +1,7 @@
 # Readiness — SPEC-02 después de la revisión W1-A
 
+**Acceso Staging bajo `/staging/` (2026-10-19):** [addendum Caddy](staging-path-readiness-2026-10-19.md) y [revisión de seguridad](staging-path-security-review-2026-10-19.md). Configuración, Kotlin/PoP canónico y rutas locales probadas sin servidor ni despliegue. `ACCEPTABLE_WITH_MITIGATIONS` solo para preparar Staging sintético; el mismo origen con la PoC conserva riesgo lateral de XSS y exige aceptación explícita. E2E HTTPS, certificado real y revisión independiente siguen pendientes; despliegue aún no autorizado.
+
 **Preparación Staging (2026-10-19):** [consolidación y checklist](staging-readiness-2026-10-19.md). Infraestructura independiente y validación estática listas para revisión; no se desplegó. `READY_WITH_CONDITIONS` se limita a los artefactos locales. Ejecución Staging, E2E de navegador, carga sostenida, Kotlin fresco, restore operativo y revisión independiente siguen `BLOCKED`; W1-E1/E2 no cambian de estado.
 
 **Actualización W1-E1 Corte 3 (2026-10-19):** [scheduler, activación y Web sintéticos](w1-e1-c3-scheduler-activation-web-2026-10-19.md) implementados con migraciones 0013–0014, PostgreSQL desechable, prueba de 25 dispositivos y restauración local. El cliente Web ejerció API autenticada, pero no hubo E2E de navegador ni revisión de seguridad independiente. ADR-018 y capacidades nuevas son propuestas; retención y restore operativos siguen pendientes. **W1-E1 continúa BLOCKED** para cierre/operación; W1-E2 no se habilita. Las notas previas abajo son evidencia histórica.

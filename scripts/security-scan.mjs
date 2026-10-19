@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 const paths = execFileSync(
   'git',
@@ -16,8 +16,10 @@ const privateKey = /-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----
 const credentialLiteral =
   /(?:client_secret|refresh_token|access_token)\s*[:=]\s*['"][A-Za-z0-9_-]{30,}['"]/i;
 let failures = 0;
+let inspected = 0;
 for (const path of paths) {
   const normalized = path.replaceAll('\\', '/');
+  if (!existsSync(path)) continue; // tracked deletion in the current worktree
   if (normalized.endsWith('.example')) continue;
   if (sensitivePath.test(normalized)) {
     process.stderr.write(`Sensitive path is eligible for Git: ${normalized}\n`);
@@ -25,6 +27,7 @@ for (const path of paths) {
     continue;
   }
   if (!statSync(path).isFile()) continue;
+  inspected++;
   const source = readFileSync(path);
   if (source.includes(0)) continue;
   const content = source.toString('utf8');
@@ -38,6 +41,6 @@ if (failures) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `GEOPS secret scan: PASS, ${paths.length} eligible files inspected; values withheld\n`,
+    `GEOPS secret scan: PASS, ${inspected} eligible files inspected; values withheld\n`,
   );
 }

@@ -1,4 +1,5 @@
 import { ApiClientError, type AdminProfile } from '../api/client.js';
+import { apiPath } from '../api/base.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -66,8 +67,12 @@ export interface RemotePosition {
 export class GpsRemote {
   constructor(private readonly send: typeof fetch = fetch) {}
 
-  private async get<T>(path: string, headers?: HeadersInit, signal?: AbortSignal): Promise<T> {
-    const response = await this.send(path, {
+  private async get<T>(
+    path: `/v1/${string}`,
+    headers?: HeadersInit,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const response = await this.send(apiPath(path), {
       method: 'GET',
       credentials: 'same-origin',
       cache: 'no-store',

@@ -26,6 +26,7 @@ async function main(): Promise<void> {
     sessionKey: config.adminSessionKey,
     csrfKey: config.adminCsrfKey,
     allowedOrigins: config.allowedOrigins,
+    cookieName: config.adminCookieName,
   });
   const devices = new DeviceRepository(pool);
   const gpsPolicies = new GpsPolicyService(pool);
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
     deviceLifecycle: new DeviceLifecycleService(pool, devices),
     mdm: new FakeMdmProvider(),
     secureCookie: config.secureCookie,
+    adminCookiePath: config.adminCookiePath,
   });
   app.addHook('onClose', async () => pool.end());
   let ticking = false;

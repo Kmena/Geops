@@ -11,6 +11,8 @@ export interface AppConfig {
   gpsQuarantineKey: Buffer;
   allowedOrigins: string[];
   secureCookie: boolean;
+  adminCookieName: 'geops_admin' | 'geops_stage_admin';
+  adminCookiePath: '/' | '/staging';
 }
 
 const oauthVariables = [
@@ -65,6 +67,15 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error('GEOPS_ALLOWED_ORIGINS is invalid');
   }
   const secureCookie = env.GEOPS_INSECURE_LOCAL_COOKIE !== '1';
+  const cookiePath = env.GEOPS_ADMIN_COOKIE_PATH ?? '/';
+  const cookieName = env.GEOPS_ADMIN_COOKIE_NAME ?? 'geops_admin';
+  if (
+    !(
+      (cookiePath === '/' && cookieName === 'geops_admin') ||
+      (cookiePath === '/staging' && cookieName === 'geops_stage_admin' && secureCookie)
+    )
+  )
+    throw new Error('GEOPS admin cookie scope is invalid');
   if (
     !secureCookie &&
     (env.GEOPS_DATA_MODE !== 'synthetic' ||
@@ -85,5 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     gpsQuarantineKey: localKey(env, 'GEOPS_GPS_QUARANTINE_KEY'),
     allowedOrigins: origins,
     secureCookie,
+    adminCookieName: cookieName,
+    adminCookiePath: cookiePath,
   };
 }

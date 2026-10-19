@@ -104,6 +104,27 @@ fun main() {
             initVerify(pair.public); update(proof.toByteArray()); verify(sig)
         })
     }
+    test("Staging public URL uses prefix but PoP remains canonical") {
+        val vector = JSONObject(Thread.currentThread().contextClassLoader
+            .getResourceAsStream("staging-pop-vector.json")!!.bufferedReader().use { it.readText() })
+        val root = DeviceRequestTarget("https://18.209.159.208/")
+        val stage = DeviceRequestTarget(vector.getString("base_url"))
+        val path = vector.getString("canonical_path")
+        check(root.publicUrl(path).path == path)
+        check(stage.publicUrl(path).path == vector.getString("public_path"))
+        val proof = PopProof.bytes(vector.getString("method"), path,
+            vector.getString("body").toByteArray(Charsets.UTF_8), vector.getString("token"),
+            vector.getString("timestamp"), vector.getString("nonce"), vector.getString("key_id"))
+        check(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(proof) ==
+            vector.getString("proof_base64url"))
+        check(!String(proof, Charsets.UTF_8).contains("/staging/"))
+        for (badBase in listOf("http://18.209.159.208/staging/", "https://18.209.159.208/other/",
+            "https://18.209.159.208/staging/?q=1", "https://18.209.159.208/staging/#x"))
+            check(runCatching { DeviceRequestTarget(badBase) }.isFailure)
+        for (badPath in listOf("/staging/v1/device/config", "/v1/device/../config",
+            "/v1/device//config", "/v1/device/config?x=1", "/v1/device/%63onfig"))
+            check(runCatching { stage.publicUrl(badPath) }.isFailure)
+    }
     test("FGS failure is MISSED_START, not STARTED; health survives no GPS") {
         val clock = FakeClock(); val (p, store) = engine(clock); p.load(snap())
         val runtime = FakeRuntime(false)

@@ -25,6 +25,8 @@
 | [w1-e1-c2-sessions-positions-2026-10-19.md](w1-e1-c2-sessions-positions-2026-10-19.md) | Corte 2: ingesta/reconciliación sintética de sesiones y posiciones, evidencia PostGIS/Kotlin y gates abiertos |
 | [w1-e1-c3-scheduler-activation-web-2026-10-19.md](w1-e1-c3-scheduler-activation-web-2026-10-19.md) | Corte 3: scheduler, activación, concesiones y lectura Web autenticada sintéticas; gates de cierre abiertos |
 | [staging-readiness-2026-10-19.md](staging-readiness-2026-10-19.md) | Consolidación Git, Compose Staging aislado, resultados y procedimientos propuestos sin desplegar |
+| [staging-path-readiness-2026-10-19.md](staging-path-readiness-2026-10-19.md) | Addendum de acceso Staging bajo `/staging/` con Caddy y certificado de la PoC, sin despliegue |
+| [staging-path-security-review-2026-10-19.md](staging-path-security-review-2026-10-19.md) | Revisión de origen compartido, Kotlin/PoP, pruebas sintéticas y decisión condicional |
 
 Decisiones W1-A: [ADR-015 capacidades administrativas](../architecture/adr/ADR-015-capacidades-administrativas-gps.md), [ADR-016 sesión canónica](../architecture/adr/ADR-016-identidad-sesiones-gps.md) y [ADR-017 política temporal/offline](../architecture/adr/ADR-017-politicas-gps-temporales-offline.md). No sustituyen ADR-012/013 ni levantan sus gates.
 

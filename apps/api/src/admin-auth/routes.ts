@@ -2,13 +2,13 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ApiError } from '../errors.js';
 import type { AdminAuthService, AdminIdentity } from './service.js';
 
-function cookieToken(header: string | undefined): string | undefined {
+function cookieToken(header: string | undefined, name: string): string | undefined {
   if (!header) return undefined;
   const pair = header
     .split(';')
     .map((item) => item.trim())
-    .find((item) => item.startsWith('geops_admin='));
-  return pair?.slice('geops_admin='.length);
+    .find((item) => item.startsWith(`${name}=`));
+  return pair?.slice(name.length + 1);
 }
 
 function csrfHeader(request: FastifyRequest): string | undefined {
@@ -21,7 +21,7 @@ export async function requireAdmin(
   auth: AdminAuthService,
   mutation = false,
 ): Promise<AdminIdentity> {
-  const identity = await auth.authenticate(cookieToken(request.headers.cookie));
+  const identity = await auth.authenticate(cookieToken(request.headers.cookie, auth.cookieName));
   if (mutation) {
     if (!auth.isAllowedOrigin(request.headers.origin))
       throw new ApiError(403, 'origin_rejected', 'Forbidden');
@@ -34,6 +34,7 @@ export function registerAdminRoutes(
   app: FastifyInstance,
   auth: AdminAuthService,
   secureCookie: boolean,
+  cookiePath = '/',
 ): void {
   app.post<{ Body: { email: string; password: string } }>(
     '/v1/admin/auth/sessions',
@@ -59,8 +60,8 @@ export function registerAdminRoutes(
         request.ip,
         request.id,
       );
-      const flags = `; Path=/; HttpOnly; SameSite=Lax${secureCookie ? '; Secure' : ''}`;
-      reply.header('set-cookie', `geops_admin=${session.token}${flags}`);
+      const flags = `; Path=${cookiePath}; HttpOnly; SameSite=Lax${secureCookie ? '; Secure' : ''}`;
+      reply.header('set-cookie', `${auth.cookieName}=${session.token}${flags}`);
       return { admin_id: session.id, csrf_token: session.csrfToken, expires_at: session.expiresAt };
     },
   );
@@ -75,7 +76,7 @@ export function registerAdminRoutes(
     await auth.logout(identity, request.id);
     reply.header(
       'set-cookie',
-      `geops_admin=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie ? '; Secure' : ''}`,
+      `${auth.cookieName}=; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie ? '; Secure' : ''}`,
     );
     reply.code(204).send();
   });

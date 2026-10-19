@@ -8,7 +8,7 @@
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test --test-isolation=none test/mdm-oauth.test.mjs && tsx --test test/foundation.test.ts test/mdm-provider.test.ts",
+    "test": "node --test --test-isolation=none test/mdm-oauth.test.mjs && tsx --test test/foundation.test.ts test/mdm-provider.test.ts && node --import tsx --test test/staging-cookie.test.mjs",
     "migrate": "node dist/db/migrate.js",
     "migration:test": "tsx --test test/migration-target.test.ts",
     "gps:integration": "node --import tsx test/gps-policy.integration.mjs",

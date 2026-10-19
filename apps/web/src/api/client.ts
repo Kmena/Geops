@@ -1,3 +1,5 @@
+import { apiPath } from './base.js';
+
 export interface AdminProfile {
   id: string;
   email: string;
@@ -42,8 +44,12 @@ export class ApiClientError extends Error {
   }
 }
 
-async function read<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...init });
+async function read<T>(path: `/v1/${string}`, init?: RequestInit): Promise<T> {
+  const response = await fetch(apiPath(path), {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    ...init,
+  });
   if (response.status === 204) return undefined as T;
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {

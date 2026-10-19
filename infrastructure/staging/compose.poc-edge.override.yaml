@@ -1,0 +1,19 @@
+# Proposed overlay for the existing PoC Compose. Apply only after deployment approval.
+# Compose resolves the bind path relative to the first -f file; use an absolute env value.
+services:
+  poc-https:
+    volumes:
+      - type: bind
+        source: ${GEOPS_STAGE_CADDYFILE:?Set absolute reviewed Caddyfile path}
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      poc_internal: {}
+      geops_stage_edge: {}
+
+networks:
+  geops_stage_edge:
+    external: true
+    name: geops_spec02_stage_edge

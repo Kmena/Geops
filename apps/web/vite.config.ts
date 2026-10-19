@@ -1,8 +1,12 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+const webBase = process.env.GEOPS_WEB_BASE ?? '/';
+if (webBase !== '/' && webBase !== '/staging/') throw new Error('Unsupported GEOPS Web base');
+
 export default defineConfig({
   plugins: [react()],
+  base: webBase,
   server: {
     host: '0.0.0.0',
     port: 3501,

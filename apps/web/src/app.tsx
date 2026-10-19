@@ -9,6 +9,7 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { api, ApiClientError, type Device, type MdmDevice, type MdmStatus } from './api/client.js';
+import { webBase } from './api/base.js';
 import { AuthProvider, useAuth } from './auth.js';
 import { GpsWorkspace, type GpsSection } from './gps/GpsWorkspace.js';
 import './styles.css';
@@ -301,6 +302,7 @@ function Status() {
 function AppRoutes() {
   return (
     <Routes>
+      <Route path="/" element={<Navigate to="/inventory" replace />} />
       <Route path="/login" element={<Login />} />
       <Route
         path="/inventory"
@@ -331,14 +333,25 @@ function AppRoutes() {
           }
         />
       ))}
-      <Route path="*" element={<Navigate to="/inventory" replace />} />
+      <Route
+        path="*"
+        element={
+          <main id="content" className="center-state">
+            <div>
+              <h1>Página no encontrada</h1>
+              <p>La dirección solicitada no existe en GEOPS Staging.</p>
+              <Link to="/inventory">Ir al inicio</Link>
+            </div>
+          </main>
+        }
+      />
     </Routes>
   );
 }
 
 export function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={webBase === '/' ? '/' : webBase.slice(0, -1)}>
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>

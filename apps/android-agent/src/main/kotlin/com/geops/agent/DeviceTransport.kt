@@ -37,15 +37,12 @@ class PopHttpClient(
     baseUrl: String, private val tokenProvider: SessionTokenProvider,
     private val signer: DeviceSigner, private val clock: AgentClock
 ) {
-    private val base = URL(baseUrl.trimEnd('/'))
-    init { require(base.protocol == "https" && base.query == null && base.ref == null &&
-        base.userInfo == null && uuid(signer.keyId) && signer.keyId == signer.keyId.lowercase()) }
+    private val target = DeviceRequestTarget(baseUrl)
+    init { require(uuid(signer.keyId) && signer.keyId == signer.keyId.lowercase()) }
 
     fun request(method: String, path: String, body: String = ""): HttpResult {
         require(method == "GET" || method == "POST")
-        require(path.startsWith("/v1/device/") && !path.contains('?') && !path.contains('#'))
-        val url = URL(base, path)
-        require(url.host == base.host && url.protocol == "https")
+        val url = target.publicUrl(path)
         val token = tokenProvider.currentToken()
         require(token.isNotBlank() && token.length <= 4096)
         val nonce = ByteArray(16).also(java.security.SecureRandom()::nextBytes)
@@ -78,6 +75,32 @@ class PopHttpClient(
             return HttpResult(status, String(bytes, Charsets.UTF_8),
                 connection.getHeaderField("Retry-After")?.toIntOrNull())
         } finally { connection.disconnect() }
+    }
+}
+
+/** The proxy strips /staging before Fastify verifies the canonical PoP path. */
+internal class DeviceRequestTarget(baseUrl: String) {
+    private val base = URL(baseUrl)
+    private val prefix: String
+    private val canonicalRoute = Regex("^/v1/device/[A-Za-z0-9_/-]+$")
+
+    init {
+        require(base.protocol == "https" && base.query == null && base.ref == null &&
+            base.userInfo == null && base.host.isNotBlank())
+        prefix = when (base.path) {
+            "", "/" -> ""
+            "/staging", "/staging/" -> "/staging"
+            else -> throw IllegalArgumentException("unsupported_device_base_path")
+        }
+    }
+
+    fun publicUrl(canonicalPath: String): URL {
+        require(canonicalRoute.matches(canonicalPath) && !canonicalPath.contains("//"))
+        val publicPath = prefix + canonicalPath
+        val url = URL(base, publicPath)
+        require(url.protocol == "https" && url.host == base.host && url.port == base.port &&
+            url.path == publicPath && url.query == null && url.ref == null)
+        return url
     }
 }
 

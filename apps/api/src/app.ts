@@ -38,6 +38,7 @@ export interface AppOptions {
   deviceSessions?: DeviceSessionService;
   deviceLifecycle?: DeviceLifecycleService;
   secureCookie?: boolean;
+  adminCookiePath?: '/' | '/staging';
   gpsPolicies?: GpsPolicyService;
   gpsHealth?: GpsHealthService;
   gpsDeviceConfig?: GpsDeviceConfigService;
@@ -66,7 +67,12 @@ export function createApp(options: AppOptions): FastifyInstance {
   registerDeviceBodyCapture(app);
   registerHealth(app, options.readinessProbe);
   if (options.adminAuth) {
-    registerAdminRoutes(app, options.adminAuth, options.secureCookie ?? true);
+    registerAdminRoutes(
+      app,
+      options.adminAuth,
+      options.secureCookie ?? true,
+      options.adminCookiePath,
+    );
     if (options.gpsPolicies) registerGpsPolicyRoutes(app, options.adminAuth, options.gpsPolicies);
     if (options.gpsHealth && options.deviceSessions)
       registerGpsHealthRoutes(app, options.adminAuth, options.deviceSessions, options.gpsHealth);

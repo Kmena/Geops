@@ -7,6 +7,8 @@ COPY packages/api-contracts/package.json packages/api-contracts/package.json
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY apps/web/tsconfig.json apps/web/vite.config.ts apps/web/index.html apps/web/
 COPY apps/web/src apps/web/src
+ARG GEOPS_WEB_BASE=/
+ENV GEOPS_WEB_BASE=${GEOPS_WEB_BASE}
 RUN npm run build --workspace @geops/web
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine

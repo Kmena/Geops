@@ -11,7 +11,7 @@
     "check": "node scripts/check-openapi.mjs",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test test/contracts.test.mjs"
+    "test": "node --test test/contracts.test.mjs test/staging-pop.test.mjs"
   },
   "dependencies": {"yaml": "2.9.1"},
   "devDependencies": {
