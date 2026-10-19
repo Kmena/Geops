@@ -9,6 +9,7 @@ const names = [
   'GEOPS_ADMIN_CSRF_KEY',
   'GEOPS_INVITATION_HMAC_KEY',
   'GEOPS_MDM_GRANT_KEY',
+  'GEOPS_GPS_QUARANTINE_KEY',
 ];
 let existing = '';
 try {

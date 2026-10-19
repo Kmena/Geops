@@ -8,6 +8,7 @@ export interface AppConfig {
   adminCsrfKey: Buffer;
   invitationHmacKey: Buffer;
   mdmGrantKey: Buffer;
+  gpsQuarantineKey: Buffer;
   allowedOrigins: string[];
   secureCookie: boolean;
 }
@@ -81,6 +82,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     adminCsrfKey: localKey(env, 'GEOPS_ADMIN_CSRF_KEY'),
     invitationHmacKey: localKey(env, 'GEOPS_INVITATION_HMAC_KEY'),
     mdmGrantKey: localKey(env, 'GEOPS_MDM_GRANT_KEY'),
+    gpsQuarantineKey: localKey(env, 'GEOPS_GPS_QUARANTINE_KEY'),
     allowedOrigins: origins,
     secureCookie,
   };

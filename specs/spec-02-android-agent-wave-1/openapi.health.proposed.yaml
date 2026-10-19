@@ -1,0 +1,161 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "GEOPS GPS-HEALTH-001 synthetic backend contract — not deployed",
+    "version": "0.1.0-synthetic"
+  },
+  "paths": {
+    "/v1/device/health/batches": {
+      "post": {
+        "operationId": "postDeviceHealthBatch",
+        "description": "Requires active device identity, short bearer and GEOPS-REQ-V1 PoP. ACK only after COMMIT. Health has no STARTED dependency and never returns 202.",
+        "security": [{ "deviceBearer": [], "deviceProof": [] }],
+        "parameters": [],
+        "requestBody": { "required": true, "content": { "application/json": {
+          "schema": { "$ref": "#/components/schemas/HealthBatch" }
+        } } },
+        "responses": {
+          "200": { "description": "Persisted or duplicate IDs after commit", "content": { "application/json": {
+            "schema": { "$ref": "#/components/schemas/HealthBatchAck" }
+          } } },
+          "401": { "description": "Invalid bearer or proof" },
+          "403": { "description": "Revoked or foreign device" },
+          "409": { "description": "Same event ID with different content" },
+          "413": { "description": "Batch too large" },
+          "422": { "description": "Atomic payload validation failure" },
+          "429": { "description": "Quota; Retry-After" },
+          "503": { "description": "Identity or safety gate unavailable" }
+        }
+      }
+    },
+    "/v1/admin/devices/{id}/health": {
+      "get": {
+        "operationId": "getDeviceHealth",
+        "description": "Requires gps.session.read and audited access; server NO_COMMUNICATION is inference, not device observation.",
+        "security": [{ "adminCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "X-GEOPS-Access-Reason", "in": "header", "required": true,
+            "schema": { "type": "string", "minLength": 8, "maxLength": 240 } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 } }
+        ],
+        "responses": {
+          "200": { "description": "Latest observed state and server inference", "content": { "application/json": {
+            "schema": { "$ref": "#/components/schemas/HealthStatus" }
+          } } },
+          "403": { "description": "Missing capability" },
+          "404": { "description": "Unknown device or no tenant grant" },
+          "422": { "description": "Invalid reason or cursor" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "deviceBearer": { "type": "http", "scheme": "bearer" },
+      "deviceProof": { "type": "apiKey", "in": "header", "name": "X-GEOPS-Signature", "description": "Also requires key ID, timestamp and nonce headers per SPEC-00" },
+      "adminCookie": { "type": "apiKey", "in": "cookie", "name": "geops_admin" }
+    },
+    "schemas": {
+      "PolicyHealthExtension": {
+        "type": "object", "additionalProperties": false,
+        "required": ["health_interval_s"],
+        "properties": { "health_interval_s": { "type": "integer", "minimum": 60, "maximum": 3600, "default": 300 } }
+      },
+      "HealthEvent": {
+        "type": "object", "additionalProperties": false,
+        "required": ["event_id", "device_id", "installation_id", "assignment_version", "policy_revision",
+          "due_at", "observed_at", "boot_id", "capture_anchor_id", "anchor_elapsed_realtime_ms",
+          "elapsed_realtime_ms", "battery_percent", "charging", "plugged", "power_save",
+          "provider_available", "network_available", "tracking_state", "observed_states"],
+        "properties": {
+          "event_id": { "type": "string", "format": "uuid" },
+          "device_id": { "type": "string", "format": "uuid" },
+          "installation_id": { "type": "string", "format": "uuid" },
+          "assignment_version": { "type": "integer", "minimum": 0 },
+          "policy_revision": { "type": "integer", "minimum": 1 },
+          "due_at": { "type": "string", "format": "date-time" },
+          "observed_at": { "type": "string", "format": "date-time" },
+          "boot_id": { "type": "string", "format": "uuid" },
+          "capture_anchor_id": { "type": "string", "format": "uuid" },
+          "anchor_elapsed_realtime_ms": { "type": "integer", "minimum": 0 },
+          "elapsed_realtime_ms": { "type": "integer", "minimum": 0 },
+          "battery_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+          "charging": { "type": ["boolean", "null"] },
+          "plugged": { "type": ["boolean", "null"] },
+          "power_save": { "type": ["boolean", "null"] },
+          "provider_available": { "type": ["boolean", "null"] },
+          "network_available": { "type": ["boolean", "null"] },
+          "tracking_state": { "type": "string", "enum": ["RUNNING", "STOPPED"] },
+          "observed_states": { "type": "array", "minItems": 1, "maxItems": 6,
+            "uniqueItems": true, "items": { "type": "string", "enum": [
+            "ONLINE", "GPS_UNAVAILABLE", "NETWORK_UNAVAILABLE", "BATTERY_LOW", "BATTERY_CRITICAL",
+            "POWER_SAVE_ENABLED", "UNKNOWN"
+          ] } }
+        }
+      },
+      "HealthBatch": {
+        "type": "object", "additionalProperties": false,
+        "required": ["schema_version", "batch_id", "device_id", "installation_id", "events"],
+        "properties": {
+          "schema_version": { "const": 1 },
+          "batch_id": { "type": "string", "format": "uuid" },
+          "device_id": { "type": "string", "format": "uuid" },
+          "installation_id": { "type": "string", "format": "uuid" },
+          "events": { "type": "array", "minItems": 1, "maxItems": 100,
+            "items": { "$ref": "#/components/schemas/HealthEvent" } }
+        }
+      },
+      "HealthBatchAck": {
+        "type": "object", "additionalProperties": false,
+        "required": ["batch_id", "persisted_at", "accepted_event_ids", "duplicate_event_ids"],
+        "properties": {
+          "batch_id": { "type": "string", "format": "uuid" },
+          "persisted_at": { "type": "string", "format": "date-time" },
+          "accepted_event_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+          "duplicate_event_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+        }
+      },
+      "HealthView": {
+        "type": "object", "additionalProperties": false,
+        "required": ["event_id", "assignment_version", "policy_revision", "due_at", "observed_at",
+          "received_at", "battery_percent", "charging", "plugged", "power_save", "provider_available",
+          "network_available", "tracking_state", "observed_states"],
+        "properties": {
+          "event_id": { "type": "string", "format": "uuid" },
+          "assignment_version": { "type": "integer", "minimum": 0 },
+          "policy_revision": { "type": "integer", "minimum": 1 },
+          "due_at": { "type": "string", "format": "date-time" },
+          "observed_at": { "type": "string", "format": "date-time" },
+          "received_at": { "type": "string", "format": "date-time" },
+          "battery_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+          "charging": { "type": ["boolean", "null"] },
+          "plugged": { "type": ["boolean", "null"] },
+          "power_save": { "type": ["boolean", "null"] },
+          "provider_available": { "type": ["boolean", "null"] },
+          "network_available": { "type": ["boolean", "null"] },
+          "tracking_state": { "type": "string", "enum": ["RUNNING", "STOPPED"] },
+          "observed_states": { "$ref": "#/components/schemas/HealthEvent/properties/observed_states" }
+        }
+      },
+      "HealthStatus": {
+        "type": "object", "additionalProperties": false,
+        "required": ["device_id", "state", "source", "observed_at", "possible_battery_depletion",
+          "latest", "items", "next_cursor"],
+        "properties": {
+          "device_id": { "type": "string", "format": "uuid" },
+          "state": { "type": "string", "enum": ["ONLINE", "GPS_UNAVAILABLE", "NETWORK_UNAVAILABLE",
+            "BATTERY_LOW", "BATTERY_CRITICAL", "POWER_SAVE_ENABLED", "NO_COMMUNICATION", "UNKNOWN"] },
+          "source": { "type": "string", "enum": ["DEVICE_OBSERVATION", "SERVER_INFERENCE"] },
+          "observed_at": { "type": ["string", "null"], "format": "date-time" },
+          "possible_battery_depletion": { "type": "boolean", "description": "Inference only; never a confirmed cause" },
+          "latest": { "oneOf": [{ "$ref": "#/components/schemas/HealthView" }, { "type": "null" }] },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/HealthView" } },
+          "next_cursor": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

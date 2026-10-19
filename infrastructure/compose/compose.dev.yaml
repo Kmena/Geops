@@ -58,6 +58,7 @@ services:
       GEOPS_ADMIN_CSRF_KEY: ${GEOPS_ADMIN_CSRF_KEY:?Generate local synthetic keys first}
       GEOPS_INVITATION_HMAC_KEY: ${GEOPS_INVITATION_HMAC_KEY:?Generate local synthetic keys first}
       GEOPS_MDM_GRANT_KEY: ${GEOPS_MDM_GRANT_KEY:?Generate local synthetic keys first}
+      GEOPS_GPS_QUARANTINE_KEY: ${GEOPS_GPS_QUARANTINE_KEY:?Generate local synthetic keys first}
       GEOPS_INSECURE_LOCAL_COOKIE: "1"
       HOST: 0.0.0.0
       PORT: "3500"

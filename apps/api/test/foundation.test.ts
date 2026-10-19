@@ -46,6 +46,7 @@ test('configuration requires synthetic mode and refuses OAuth variables', () => 
     GEOPS_ADMIN_CSRF_KEY: Buffer.alloc(32, 2).toString('base64url'),
     GEOPS_INVITATION_HMAC_KEY: Buffer.alloc(32, 3).toString('base64url'),
     GEOPS_MDM_GRANT_KEY: Buffer.alloc(32, 4).toString('base64url'),
+    GEOPS_GPS_QUARANTINE_KEY: Buffer.alloc(32, 5).toString('base64url'),
   };
   assert.equal(loadConfig(base).port, 3500);
   assert.throws(() => loadConfig({ ...base, GEOPS_DATA_MODE: 'real' }));

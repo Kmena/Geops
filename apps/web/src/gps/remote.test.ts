@@ -1,0 +1,95 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { ApiClientError } from '../api/client.js';
+import { GpsRemote } from './remote.js';
+
+const id = '11111111-1111-4111-8111-111111111111';
+
+test('read-only remote carries session cookie, reason, cursor, and cancellation', async () => {
+  const calls: Array<{ path: string; init: RequestInit }> = [];
+  const transport: typeof fetch = async (path, init) => {
+    calls.push({ path: String(path), init: init ?? {} });
+    return new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 });
+  };
+  const remote = new GpsRemote(transport);
+  const controller = new AbortController();
+  await remote.session(controller.signal);
+  await remote.policies('a+/=');
+  await remote.health(id, 'Synthetic review', 'page+/=', controller.signal);
+  assert.equal(calls[0]?.path, '/v1/admin/auth/me');
+  assert.equal(calls[1]?.path, '/v1/admin/gps-policies?cursor=a%2B%2F%3D');
+  assert.equal(calls[2]?.path, `/v1/admin/devices/${id}/health?cursor=page%2B%2F%3D`);
+  const healthCall = calls[2];
+  assert.ok(healthCall);
+  assert.equal(healthCall.init.credentials, 'same-origin');
+  assert.equal(healthCall.init.cache, 'no-store');
+  assert.equal(
+    (healthCall.init.headers as Record<string, string>)['x-geops-access-reason'],
+    'Synthetic review',
+  );
+  assert.equal(healthCall.init.signal, controller.signal);
+  assert.equal(
+    calls.every((call) => call.init.method === 'GET'),
+    true,
+  );
+});
+
+test('read-only remote preserves 401/403/409/429 and rejects invalid reason locally', async () => {
+  let status = 401;
+  const remote = new GpsRemote(
+    async () =>
+      new Response(JSON.stringify({ error: { code: `synthetic_${status}` } }), { status }),
+  );
+  for (const code of [401, 403, 409, 429]) {
+    status = code;
+    await assert.rejects(
+      remote.health(id, 'Synthetic review'),
+      (error: unknown) =>
+        error instanceof ApiClientError &&
+        error.status === code &&
+        error.code === `synthetic_${code}`,
+    );
+  }
+  assert.throws(
+    () => remote.health(id, 'short'),
+    (error: unknown) => error instanceof ApiClientError && error.status === 422,
+  );
+  assert.throws(
+    () => remote.health('not-an-id', 'Synthetic review'),
+    (error: unknown) => error instanceof ApiClientError && error.status === 422,
+  );
+});
+
+test('Corte 3 remote uses authorized device, session and bounded position routes', async () => {
+  const paths: string[] = [];
+  const headers: HeadersInit[] = [];
+  const remote = new GpsRemote(async (path, init) => {
+    paths.push(String(path));
+    headers.push(init?.headers ?? {});
+    return new Response(JSON.stringify({ items: [], next_cursor: null, capabilities: [] }), {
+      status: 200,
+    });
+  });
+  await remote.capabilities();
+  await remote.devices();
+  await remote.sessions(id, 'cursor+/=');
+  await remote.positions(
+    id,
+    'Synthetic review',
+    '2026-10-19T00:00:00.000Z',
+    '2026-10-19T12:00:00.000Z',
+    'more+/=',
+    undefined,
+    id,
+  );
+  assert.equal(paths[0], '/v1/admin/gps-capabilities');
+  assert.equal(paths[1], '/v1/admin/gps-devices');
+  assert.equal(paths[2], `/v1/admin/devices/${id}/gps-sessions?cursor=cursor%2B%2F%3D`);
+  assert.match(paths[3] ?? '', /from=2026-10-19T00%3A00%3A00.000Z/);
+  assert.match(paths[3] ?? '', /session_id=11111111-1111-4111-8111-111111111111/);
+  assert.equal((headers[3] as Record<string, string>)['x-geops-access-reason'], 'Synthetic review');
+  assert.throws(
+    () => remote.positions(id, 'Synthetic review', '2026-10-19T00:00:00Z', '2026-10-21T00:00:00Z'),
+    (error: unknown) => error instanceof ApiClientError && error.status === 422,
+  );
+});

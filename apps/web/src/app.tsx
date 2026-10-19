@@ -10,6 +10,7 @@ import {
 } from 'react-router-dom';
 import { api, ApiClientError, type Device, type MdmDevice, type MdmStatus } from './api/client.js';
 import { AuthProvider, useAuth } from './auth.js';
+import { GpsWorkspace, type GpsSection } from './gps/GpsWorkspace.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -93,8 +94,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [exitError, setExitError] = useState(false);
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
+    document.title = `GEOPS · ${location.pathname.startsWith('/gps/') ? 'Administración GPS' : 'Consola administrativa'}`;
     main.current?.focus();
-  }, []);
+  }, [location.pathname]);
   async function exit() {
     setExitError(false);
     try {
@@ -130,12 +132,31 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Link aria-current={location.pathname === '/status' ? 'page' : undefined} to="/status">
               Integración MDM
             </Link>
+            <span className="sidebar-heading">Administración GPS · W1-D</span>
+            {(
+              [
+                ['/gps/policies', 'Políticas GPS'],
+                ['/gps/devices', 'Dispositivos'],
+                ['/gps/sessions', 'Sesiones'],
+                ['/gps/executive', 'Resumen ejecutivo'],
+              ] as const
+            ).map(([path, label]) => (
+              <Link
+                key={path}
+                aria-current={location.pathname === path ? 'page' : undefined}
+                to={path}
+              >
+                {label}
+              </Link>
+            ))}
           </nav>
           <main id="content" tabIndex={-1} ref={main}>
-            <div className="page-head">
-              <span className="eyebrow">Wave 0A · simulación</span>
-              <span className="user-label">{profile?.email}</span>
-            </div>
+            {!location.pathname.startsWith('/gps/') && (
+              <div className="page-head">
+                <span className="eyebrow">Wave 0A · simulación</span>
+                <span className="user-label">{profile?.email}</span>
+              </div>
+            )}
             {exitError && (
               <div role="alert" className="notice error">
                 No se pudo cerrar la sesión en el servidor. Comprueba la conexión y vuelve a
@@ -297,6 +318,19 @@ function AppRoutes() {
           </Protected>
         }
       />
+      {(['policies', 'devices', 'sessions', 'executive'] as GpsSection[]).map((section) => (
+        <Route
+          key={section}
+          path={`/gps/${section}`}
+          element={
+            <Protected>
+              <Shell>
+                <GpsWorkspace section={section} />
+              </Shell>
+            </Protected>
+          }
+        />
+      ))}
       <Route path="*" element={<Navigate to="/inventory" replace />} />
     </Routes>
   );

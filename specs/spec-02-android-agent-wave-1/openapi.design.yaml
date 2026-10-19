@@ -1,0 +1,3226 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "GEOPS SPEC-02 GPS policies and sessions — DESIGN ONLY",
+    "version": "0.1.0-design",
+    "description": "W1-A design baseline. Not deployed. SPEC-00 device PoP bytes and SPEC-01 admin cookie/CSRF remain authoritative; no anonymous policy access."
+  },
+  "servers": [
+    {
+      "url": "https://geops.example.invalid",
+      "description": "Illustrative host; no deployment target"
+    }
+  ],
+  "tags": [
+    {
+      "name": "GpsAdmin"
+    },
+    {
+      "name": "GpsDevice"
+    }
+  ],
+  "paths": {
+    "/v1/admin/gps-policies": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "listGpsPolicies",
+        "description": "Requires gps.policy.read; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "createGpsPolicy",
+        "description": "Requires gps.policy.write; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-policies/{id}": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "getGpsPolicy",
+        "description": "Requires gps.policy.read; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "patchGpsPolicy",
+        "description": "Requires gps.policy.write; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-policies/{id}/assignments": {
+      "put": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "replaceGpsAssignments",
+        "description": "Requires gps.policy.assign; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentSet"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-groups": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "listGpsGroups",
+        "description": "Requires gps.policy.read.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Groups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "createGpsGroup",
+        "description": "Requires gps.policy.assign; SPEC-01 Origin/CSRF and audit.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Group created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-groups/{id}/members": {
+      "put": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "replaceGpsGroupMembers",
+        "description": "Requires gps.policy.assign; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/GroupId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupMembers"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupMembers"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-policies/{id}/publish": {
+      "post": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "publishGpsPolicy",
+        "description": "Requires gps.policy.activate + gps.policy.write; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reason"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-policies/{id}/resume": {
+      "post": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "resumeGpsPolicy",
+        "description": "Requires gps.policy.activate + gps.policy.write; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reason"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-policies/{id}/pause": {
+      "post": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "pauseGpsPolicy",
+        "description": "Requires gps.policy.activate + gps.policy.write; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reason"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-policies/{id}/revoke": {
+      "post": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "revokeGpsPolicy",
+        "description": "Requires gps.policy.activate + gps.policy.write; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": [],
+            "csrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PolicyId"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reason"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/devices/{device_id}/gps-status": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "getDeviceGpsStatus",
+        "description": "Requires gps.session.read; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/devices/{device_id}/gps-sessions": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "listDeviceGpsSessions",
+        "description": "Requires gps.session.read; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/devices/{device_id}/locations": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "listDeviceLocations",
+        "description": "Requires gps.location.read + audited reason; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/AccessReason"
+          },
+          {
+            "$ref": "#/components/parameters/LocationFrom"
+          },
+          {
+            "$ref": "#/components/parameters/LocationTo"
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-audit": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "listGpsAudit",
+        "description": "Requires gps.audit.read; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-alerts": {
+      "get": {
+        "tags": [
+          "GpsAdmin"
+        ],
+        "operationId": "listGpsAlerts",
+        "description": "Requires gps.session.read; SPEC-01 admin cookie, Origin and CSRF on mutations. Deny by default; audit sensitive access.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/device/config": {
+      "get": {
+        "tags": [
+          "GpsDevice"
+        ],
+        "operationId": "getDeviceGpsConfig",
+        "description": "Requires SPEC-00 bearer plus GEOPS-REQ-V1 proof; query string forbidden. No MDM credential.",
+        "security": [
+          {
+            "deviceBearer": [],
+            "deviceProof": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/KeyId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Committed or current result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/device/heartbeats": {
+      "post": {
+        "tags": [
+          "GpsDevice"
+        ],
+        "operationId": "postDeviceHeartbeat",
+        "description": "Requires SPEC-00 bearer plus GEOPS-REQ-V1 proof; query string forbidden. No MDM credential.",
+        "security": [
+          {
+            "deviceBearer": [],
+            "deviceProof": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/KeyId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Heartbeat"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed or current result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/device/gps-session-events/batches": {
+      "post": {
+        "tags": [
+          "GpsDevice"
+        ],
+        "operationId": "postGpsSessionEvents",
+        "description": "Requires SPEC-00 bearer plus GEOPS-REQ-V1 proof; query string forbidden. No MDM credential.",
+        "security": [
+          {
+            "deviceBearer": [],
+            "deviceProof": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/KeyId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionEventBatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed or current result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchAck"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Entire batch quarantined pending STARTED; no terminal ACK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingBatch"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "410": {
+            "description": "Pending dependency expired after seven days"
+          },
+          "413": {
+            "description": "Batch exceeds 128 KiB for sessions"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "429": {
+            "description": "Per-device quota exceeded; Retry-After header"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/device/locations/batches": {
+      "post": {
+        "tags": [
+          "GpsDevice"
+        ],
+        "operationId": "postGpsLocations",
+        "description": "Requires SPEC-00 bearer plus GEOPS-REQ-V1 proof; query string forbidden. No MDM credential.",
+        "security": [
+          {
+            "deviceBearer": [],
+            "deviceProof": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/KeyId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationBatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed or current result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchAck"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Entire batch quarantined pending STARTED; no terminal ACK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingBatch"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "410": {
+            "description": "Pending dependency expired after seven days"
+          },
+          "413": {
+            "description": "Batch exceeds 256 KiB for positions"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "429": {
+            "description": "Per-device quota exceeded; Retry-After header"
+          },
+          "503": {
+            "description": "Restore gate closed"
+          }
+        }
+      }
+    },
+    "/v1/device/health/batches": {
+      "post": {
+        "operationId": "postDeviceHealthBatch",
+        "description": "Requires active device identity, short bearer and GEOPS-REQ-V1 PoP. ACK only after COMMIT. Health has no STARTED dependency and never returns 202.",
+        "security": [
+          {
+            "deviceBearer": [],
+            "deviceProof": []
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthBatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Persisted or duplicate IDs after commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthBatchAck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid bearer or proof"
+          },
+          "403": {
+            "description": "Revoked or foreign device"
+          },
+          "409": {
+            "description": "Same event ID with different content"
+          },
+          "413": {
+            "description": "Batch too large"
+          },
+          "422": {
+            "description": "Atomic payload validation failure"
+          },
+          "429": {
+            "description": "Quota; Retry-After"
+          },
+          "503": {
+            "description": "Identity or safety gate unavailable"
+          }
+        }
+      }
+    },
+    "/v1/admin/devices/{id}/health": {
+      "get": {
+        "operationId": "getDeviceHealth",
+        "description": "Requires gps.session.read and audited access; server NO_COMMUNICATION is inference, not device observation.",
+        "security": [
+          {
+            "adminCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-GEOPS-Access-Reason",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 240
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest observed state and server inference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing capability"
+          },
+          "404": {
+            "description": "Unknown device or no tenant grant"
+          },
+          "422": {
+            "description": "Invalid reason or cursor"
+          }
+        }
+      }
+    },
+    "/v1/admin/gps-capabilities": {
+      "get": {
+        "operationId": "listOwnGpsCapabilities",
+        "security": [{ "adminCookie": [] }],
+        "responses": { "200": { "description": "Current active GPS capabilities" }, "401": { "description": "Unauthenticated" } }
+      }
+    },
+    "/v1/admin/gps-devices": {
+      "get": {
+        "operationId": "listAuthorizedGpsDevices",
+        "description": "Requires gps.session.read and an explicit active tenant grant; at most 100 devices.",
+        "security": [{ "adminCookie": [] }],
+        "responses": { "200": { "description": "Tenant-filtered devices" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Missing capability" } }
+      }
+    },
+    "/v1/admin/gps-installations": {
+      "post": {
+        "operationId": "activateGpsInstallation",
+        "description": "Synthetic only; requires gps.installation.manage. Installation ID is server generated.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["device_id", "reason"],
+          "properties": { "device_id": { "type": "string", "format": "uuid" }, "reason": { "type": "string", "minLength": 8, "maxLength": 240 } }
+        } } } },
+        "responses": { "201": { "description": "Installation activated" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Active installation or binding conflict" }, "422": { "description": "Invalid request" } }
+      }
+    },
+    "/v1/admin/gps-installations/{id}/retire": {
+      "post": {
+        "operationId": "retireGpsInstallation",
+        "description": "Requires gps.installation.manage; existing key cannot fetch GPS config after retirement.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["reason"],
+          "properties": { "reason": { "type": "string", "minLength": 8, "maxLength": 240 } }
+        } } } },
+        "responses": { "204": { "description": "Retired" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/v1/admin/gps-tenant-grants/proposals": {
+      "post": {
+        "operationId": "proposeGpsTenantGrant",
+        "description": "Requires gps.tenant.grant; a separate capable admin must approve. GRANT and REVOKE use this flow.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["request_id", "target_admin_id", "tenant_id", "action", "reason"],
+          "properties": {
+            "request_id": { "type": "string", "format": "uuid" },
+            "target_admin_id": { "type": "string", "format": "uuid" },
+            "tenant_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "action": { "type": "string", "enum": ["GRANT", "REVOKE"] },
+            "reason": { "type": "string", "minLength": 8, "maxLength": 240 }
+          }
+        } } } },
+        "responses": { "201": { "description": "Pending proposal" }, "200": { "description": "Idempotent replay" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Request ID conflict" }, "422": { "description": "Invalid request" } }
+      }
+    },
+    "/v1/admin/gps-tenant-grants/{id}/approve": {
+      "post": {
+        "operationId": "approveGpsTenantGrant",
+        "description": "Requires gps.tenant.grant and a distinct authenticated administrator; updates health and data grants atomically.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Approved" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Same proposer or missing capability" }, "404": { "description": "Not found" }, "409": { "description": "Conflicting grant state" }, "410": { "description": "Proposal expired" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "adminCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "geops_admin"
+      },
+      "deviceBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "deviceProof": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-GEOPS-Signature",
+        "description": "Also requires signed key ID, timestamp and nonce per SPEC-00."
+      },
+      "csrfHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token"
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25
+        }
+      },
+      "PolicyId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "DeviceId": {
+        "name": "device_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "GroupId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Csrf": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Origin": {
+        "name": "Origin",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "AccessReason": {
+        "name": "X-GEOPS-Access-Reason",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 240
+        }
+      },
+      "LocationFrom": {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "description": "UTC inclusive; from < to and range at most 24 hours",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "LocationTo": {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "description": "UTC exclusive; from < to and range at most 24 hours",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "KeyId": {
+        "name": "X-GEOPS-Key-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Timestamp": {
+        "name": "X-GEOPS-Timestamp",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        }
+      },
+      "Nonce": {
+        "name": "X-GEOPS-Nonce",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Signature": {
+        "name": "X-GEOPS-Signature",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IfNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "PolicyInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "days_iso",
+          "start_local",
+          "end_local",
+          "time_zone",
+          "capture_interval_s",
+          "sync_interval_s",
+          "heartbeat_missing_after_s",
+          "valid_from",
+          "valid_until"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "days_iso": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "start_local": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "end_local": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "time_zone": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80,
+            "description": "Valid IANA name; server validates against tzdb."
+          },
+          "capture_interval_s": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 300
+          },
+          "sync_interval_s": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 900
+          },
+          "heartbeat_missing_after_s": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 7200,
+            "default": 900
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PolicyException"
+            }
+          },
+          "health_interval_s": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 3600,
+            "default": 300,
+            "description": "GPS-HEALTH-001 SDD amendment; optional input defaults to 300 s"
+          }
+        }
+      },
+      "PolicyPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "days_iso": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "start_local": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "end_local": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "time_zone": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80,
+            "description": "Valid IANA name; server validates against tzdb."
+          },
+          "capture_interval_s": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 300
+          },
+          "sync_interval_s": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 900
+          },
+          "heartbeat_missing_after_s": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 7200,
+            "default": 900
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PolicyException"
+            }
+          },
+          "health_interval_s": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 3600,
+            "default": 300,
+            "description": "GPS-HEALTH-001 SDD amendment; optional input defaults to 300 s"
+          }
+        }
+      },
+      "PolicyException": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "local_date",
+          "mode"
+        ],
+        "properties": {
+          "local_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "OFF",
+              "REPLACE"
+            ]
+          },
+          "start_local": {
+            "type": "string"
+          },
+          "end_local": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 240
+          }
+        }
+      },
+      "PolicyView": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "revision",
+          "etag"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "ACTIVE",
+              "PAUSED",
+              "REVOKED"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "etag": {
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/PolicyInput"
+          }
+        }
+      },
+      "PolicyList": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PolicyView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AssignmentSet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assignments"
+        ],
+        "properties": {
+          "assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "scope_type",
+                "scope_id",
+                "valid_from",
+                "valid_until"
+              ],
+              "properties": {
+                "scope_type": {
+                  "type": "string",
+                  "enum": [
+                    "DEVICE",
+                    "GROUP"
+                  ]
+                },
+                "scope_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "valid_from": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "valid_until": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "GroupCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      },
+      "GroupView": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "etag"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          }
+        }
+      },
+      "GroupList": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "GroupMembers": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device_ids"
+        ],
+        "properties": {
+          "device_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "Reason": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 240
+          }
+        }
+      },
+      "WindowInstance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scheduled_session_id",
+          "start_at",
+          "end_at"
+        ],
+        "properties": {
+          "scheduled_session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConfigSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "capture_anchor_id",
+          "device_id",
+          "installation_id",
+          "assignment_version",
+          "active",
+          "server_time",
+          "verified_at",
+          "offline_not_after",
+          "window_instances"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "capture_anchor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "policy_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "policy": {
+            "$ref": "#/components/schemas/PolicyInput"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "offline_not_after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tzdb_version": {
+            "type": "string"
+          },
+          "window_instances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WindowInstance"
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "active": {
+                  "const": true
+                }
+              },
+              "required": [
+                "active"
+              ]
+            },
+            "then": {
+              "required": [
+                "policy_id",
+                "policy_revision",
+                "policy",
+                "tzdb_version"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "active": {
+                  "const": false
+                }
+              },
+              "required": [
+                "active"
+              ]
+            },
+            "then": {
+              "properties": {
+                "window_instances": {
+                  "maxItems": 0
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "policy_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "policy_revision"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "policy"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "Heartbeat": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "device_id",
+          "installation_id",
+          "assignment_version",
+          "applied_policy_revision",
+          "sent_at",
+          "backlog_count",
+          "location_state",
+          "network_state"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer"
+          },
+          "applied_policy_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "null when no policy has been applied"
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "backlog_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "location_state": {
+            "type": "string",
+            "enum": [
+              "READY",
+              "DISABLED",
+              "PERMISSION_DENIED",
+              "UNKNOWN"
+            ]
+          },
+          "network_state": {
+            "type": "string",
+            "enum": [
+              "ONLINE",
+              "OFFLINE",
+              "UNKNOWN"
+            ]
+          }
+        }
+      },
+      "HeartbeatAck": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "persisted_at"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "persisted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SessionEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "type",
+          "occurred_at",
+          "assignment_version",
+          "boot_id",
+          "elapsed_realtime_ms"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "client_session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scheduled_session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "START_ATTEMPT",
+              "STARTED",
+              "STOP_REQUESTED",
+              "STOPPED",
+              "INTERRUPTED",
+              "RESUMED",
+              "MISSED_START"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assignment_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "boot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "elapsed_realtime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "anchor_elapsed_realtime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "capture_anchor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "FGS_START_BLOCKED",
+              "PERMISSION_DENIED",
+              "GPS_DISABLED",
+              "CONNECTIVITY_LOST",
+              "WINDOW_END",
+              "POLICY_REPLACED",
+              "POLICY_REVOKED",
+              "IDENTITY_REVOKED",
+              "PROCESS_RESTART",
+              "USER_STOP",
+              "UNKNOWN"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "STARTED",
+                    "STOP_REQUESTED",
+                    "STOPPED",
+                    "INTERRUPTED",
+                    "RESUMED"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "client_session_id",
+                "capture_anchor_id",
+                "anchor_elapsed_realtime_ms"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "STARTED"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "required": [
+                "scheduled_session_id"
+              ]
+            }
+          }
+        ]
+      },
+      "SessionEventBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "batch_id",
+          "device_id",
+          "installation_id",
+          "events"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SessionEvent"
+            }
+          }
+        }
+      },
+      "LocationEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "client_session_id",
+          "assignment_version",
+          "captured_at",
+          "latitude",
+          "longitude",
+          "accuracy_m",
+          "boot_id",
+          "anchor_elapsed_realtime_ms",
+          "elapsed_realtime_ms",
+          "capture_anchor_id"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "client_session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "accuracy_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "boot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "anchor_elapsed_realtime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "elapsed_realtime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "capture_anchor_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "LocationBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "batch_id",
+          "device_id",
+          "installation_id",
+          "events"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/LocationEvent"
+            }
+          }
+        }
+      },
+      "SessionMapping": {
+        "type": "object",
+        "required": [
+          "client_session_id",
+          "session_id"
+        ],
+        "properties": {
+          "client_session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "BatchAck": {
+        "type": "object",
+        "required": [
+          "batch_id",
+          "persisted_at",
+          "accepted_event_ids",
+          "duplicate_event_ids"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "persisted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "accepted_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "duplicate_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "session_mappings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionMapping"
+            }
+          },
+          "processing": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "complete"
+            ]
+          }
+        }
+      },
+      "DeviceStatus": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "assignment_version",
+          "sync_state"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer"
+          },
+          "published_revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reported_applied_revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reported_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sync_state": {
+            "type": "string",
+            "enum": [
+              "ONLINE",
+              "LATE",
+              "UNKNOWN"
+            ]
+          },
+          "backlog_reported": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "SessionList": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scheduled_session_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "session_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "evidence_state": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "stopped_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LocationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "session_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "captured_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "received_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "latitude": {
+                  "type": "number"
+                },
+                "longitude": {
+                  "type": "number"
+                },
+                "accuracy_m": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AuditList": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PendingBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "batch_id",
+          "pending_event_ids",
+          "reason_code"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pending_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "reason_code": {
+            "const": "pending_dependency"
+          }
+        }
+      },
+      "AlertList": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "device_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "COMMUNICATION_MISSING",
+                    "UNKNOWN"
+                  ]
+                },
+                "last_received_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HealthEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "device_id",
+          "installation_id",
+          "assignment_version",
+          "policy_revision",
+          "due_at",
+          "observed_at",
+          "boot_id",
+          "capture_anchor_id",
+          "anchor_elapsed_realtime_ms",
+          "elapsed_realtime_ms",
+          "battery_percent",
+          "charging",
+          "plugged",
+          "power_save",
+          "provider_available",
+          "network_available",
+          "tracking_state",
+          "observed_states"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policy_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "boot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "capture_anchor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "anchor_elapsed_realtime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "elapsed_realtime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "battery_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "charging": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "plugged": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "power_save": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "provider_available": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "network_available": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "tracking_state": {
+            "type": "string",
+            "enum": [
+              "RUNNING",
+              "STOPPED"
+            ]
+          },
+          "observed_states": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "ONLINE",
+                "GPS_UNAVAILABLE",
+                "NETWORK_UNAVAILABLE",
+                "BATTERY_LOW",
+                "BATTERY_CRITICAL",
+                "POWER_SAVE_ENABLED",
+                "UNKNOWN"
+              ]
+            }
+          }
+        }
+      },
+      "HealthBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "batch_id",
+          "device_id",
+          "installation_id",
+          "events"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "installation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/HealthEvent"
+            }
+          }
+        }
+      },
+      "HealthBatchAck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "batch_id",
+          "persisted_at",
+          "accepted_event_ids",
+          "duplicate_event_ids"
+        ],
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "persisted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "accepted_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "duplicate_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "HealthView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "assignment_version",
+          "policy_revision",
+          "due_at",
+          "observed_at",
+          "received_at",
+          "battery_percent",
+          "charging",
+          "plugged",
+          "power_save",
+          "provider_available",
+          "network_available",
+          "tracking_state",
+          "observed_states"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assignment_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policy_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "battery_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "charging": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "plugged": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "power_save": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "provider_available": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "network_available": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "tracking_state": {
+            "type": "string",
+            "enum": [
+              "RUNNING",
+              "STOPPED"
+            ]
+          },
+          "observed_states": {
+            "$ref": "#/components/schemas/HealthEvent/properties/observed_states"
+          }
+        }
+      },
+      "HealthStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device_id",
+          "state",
+          "source",
+          "observed_at",
+          "possible_battery_depletion",
+          "latest",
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ONLINE",
+              "GPS_UNAVAILABLE",
+              "NETWORK_UNAVAILABLE",
+              "BATTERY_LOW",
+              "BATTERY_CRITICAL",
+              "POWER_SAVE_ENABLED",
+              "NO_COMMUNICATION",
+              "UNKNOWN"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "DEVICE_OBSERVATION",
+              "SERVER_INFERENCE"
+            ]
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "possible_battery_depletion": {
+            "type": "boolean",
+            "description": "Inference only; never a confirmed cause"
+          },
+          "latest": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HealthView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthView"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

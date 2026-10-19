@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {".": {"types": "./dist/index.d.ts", "default": "./dist/index.js"}},
-  "files": ["dist", "openapi.yaml"],
+  "files": ["dist", "openapi.yaml", "openapi.gps.design.yaml"],
   "scripts": {
     "check": "node scripts/check-openapi.mjs",
     "build": "tsc -p tsconfig.build.json",

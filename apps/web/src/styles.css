@@ -94,6 +94,14 @@ input:focus-visible {
   color: #14507a;
   box-shadow: 0 1px 5px #20384914;
 }
+.sidebar-heading {
+  color: #536778;
+  font-size: 0.71rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 20px 14px 4px;
+}
 main#content {
   max-width: 1240px;
   width: 100%;
@@ -277,6 +285,12 @@ h2 {
   }
   .sidebar a {
     white-space: nowrap;
+  }
+  .sidebar-heading {
+    white-space: nowrap;
+    padding: 11px 7px;
+    border-left: 1px solid #c6d4dc;
+    margin-left: 8px;
   }
   main#content {
     padding: 26px 18px;

@@ -11,6 +11,12 @@
     "test": "node --test --test-isolation=none test/mdm-oauth.test.mjs && tsx --test test/foundation.test.ts test/mdm-provider.test.ts",
     "migrate": "node dist/db/migrate.js",
     "migration:test": "tsx --test test/migration-target.test.ts",
+    "gps:integration": "node --import tsx test/gps-policy.integration.mjs",
+    "gps:health:integration": "node --import tsx test/gps-health.integration.mjs",
+    "gps:config:integration": "node --import tsx test/gps-config.integration.mjs",
+    "gps:events:integration": "node --import tsx test/gps-events.integration.mjs",
+    "gps:operations:integration": "node --import tsx test/gps-operations.integration.mjs",
+    "gps:scheduler:load": "node --import tsx test/gps-scheduler-load.integration.mjs",
     "mdm:dev": "node mdm-oauth-dev.mjs",
     "admin:bootstrap": "node dist/admin-auth/bootstrap.js",
     "admin:recovery": "node dist/admin-auth/recovery.js"
