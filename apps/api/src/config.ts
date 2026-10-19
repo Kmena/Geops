@@ -11,8 +11,8 @@ export interface AppConfig {
   gpsQuarantineKey: Buffer;
   allowedOrigins: string[];
   secureCookie: boolean;
-  adminCookieName: 'geops_admin' | 'geops_stage_admin';
-  adminCookiePath: '/' | '/staging';
+  adminCookieName: 'geops_admin' | '__Host-geops_stage_admin';
+  adminCookiePath: '/';
 }
 
 const oauthVariables = [
@@ -69,10 +69,17 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const secureCookie = env.GEOPS_INSECURE_LOCAL_COOKIE !== '1';
   const cookiePath = env.GEOPS_ADMIN_COOKIE_PATH ?? '/';
   const cookieName = env.GEOPS_ADMIN_COOKIE_NAME ?? 'geops_admin';
+  const stageOrigin = 'https://geops-staging.duckdns.org';
+  const usesStageOrigin = origins.includes(stageOrigin);
   if (
+    cookiePath !== '/' ||
+    (usesStageOrigin && cookieName !== '__Host-geops_stage_admin') ||
     !(
-      (cookiePath === '/' && cookieName === 'geops_admin') ||
-      (cookiePath === '/staging' && cookieName === 'geops_stage_admin' && secureCookie)
+      cookieName === 'geops_admin' ||
+      (cookieName === '__Host-geops_stage_admin' &&
+        secureCookie &&
+        origins.length === 1 &&
+        origins[0] === stageOrigin)
     )
   )
     throw new Error('GEOPS admin cookie scope is invalid');

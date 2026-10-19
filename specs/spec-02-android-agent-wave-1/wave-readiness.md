@@ -1,5 +1,7 @@
 # Readiness — SPEC-02 después de la revisión W1-A
 
+**Staging con hostname DuckDNS (2026-10-19):** [diseño vigente y runbook](staging-duckdns-readiness-2026-10-19.md). PoC en la IP y GEOPS Staging en `geops-staging.duckdns.org` tienen sitios HTTPS separados; Caddy/Compose y PoP canónico pasaron ensayos locales sintéticos. La separación de origen elimina el riesgo lateral específico de compartir `/staging/`, pero HTTPS/certificado real, E2E de navegador, revisión independiente y uso operativo siguen pendientes. No hubo despliegue.
+
 **Acceso Staging bajo `/staging/` (2026-10-19):** [addendum Caddy](staging-path-readiness-2026-10-19.md) y [revisión de seguridad](staging-path-security-review-2026-10-19.md). Configuración, Kotlin/PoP canónico y rutas locales probadas sin servidor ni despliegue. `ACCEPTABLE_WITH_MITIGATIONS` solo para preparar Staging sintético; el mismo origen con la PoC conserva riesgo lateral de XSS y exige aceptación explícita. E2E HTTPS, certificado real y revisión independiente siguen pendientes; despliegue aún no autorizado.
 
 **Preparación Staging (2026-10-19):** [consolidación y checklist](staging-readiness-2026-10-19.md). Infraestructura independiente y validación estática listas para revisión; no se desplegó. `READY_WITH_CONDITIONS` se limita a los artefactos locales. Ejecución Staging, E2E de navegador, carga sostenida, Kotlin fresco, restore operativo y revisión independiente siguen `BLOCKED`; W1-E1/E2 no cambian de estado.

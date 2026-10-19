@@ -78,28 +78,25 @@ class PopHttpClient(
     }
 }
 
-/** The proxy strips /staging before Fastify verifies the canonical PoP path. */
+/** Public synthetic Staging endpoint; activation must supply this URL explicitly. */
+const val SYNTHETIC_STAGING_BASE_URL = "https://geops-staging.duckdns.org/"
+
+/** The dedicated hostname forwards canonical paths unchanged to Fastify. */
 internal class DeviceRequestTarget(baseUrl: String) {
     private val base = URL(baseUrl)
-    private val prefix: String
     private val canonicalRoute = Regex("^/v1/device/[A-Za-z0-9_/-]+$")
 
     init {
         require(base.protocol == "https" && base.query == null && base.ref == null &&
-            base.userInfo == null && base.host.isNotBlank())
-        prefix = when (base.path) {
-            "", "/" -> ""
-            "/staging", "/staging/" -> "/staging"
-            else -> throw IllegalArgumentException("unsupported_device_base_path")
-        }
+            base.userInfo == null && base.host.isNotBlank() &&
+            (base.path == "" || base.path == "/"))
     }
 
     fun publicUrl(canonicalPath: String): URL {
         require(canonicalRoute.matches(canonicalPath) && !canonicalPath.contains("//"))
-        val publicPath = prefix + canonicalPath
-        val url = URL(base, publicPath)
+        val url = URL(base, canonicalPath)
         require(url.protocol == "https" && url.host == base.host && url.port == base.port &&
-            url.path == publicPath && url.query == null && url.ref == null)
+            url.path == canonicalPath && url.query == null && url.ref == null)
         return url
     }
 }

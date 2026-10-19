@@ -37,14 +37,14 @@ for (const [name, service] of Object.entries(compose.services))
 assert.equal(compose.services['geops-api'].environment.GEOPS_DATA_MODE, 'synthetic');
 assert.equal(
   compose.services['geops-api'].environment.GEOPS_ADMIN_COOKIE_NAME,
-  'geops_stage_admin',
+  '__Host-geops_stage_admin',
 );
-assert.equal(compose.services['geops-api'].environment.GEOPS_ADMIN_COOKIE_PATH, '/staging');
+assert.equal(compose.services['geops-api'].environment.GEOPS_ADMIN_COOKIE_PATH, '/');
 assert.equal(
   compose.services['geops-api'].environment.GEOPS_ALLOWED_ORIGINS,
-  'https://18.209.159.208',
+  'https://geops-staging.duckdns.org',
 );
-assert.equal(compose.services['geops-web'].build.args.GEOPS_WEB_BASE, '/staging/');
+assert.equal(compose.services['geops-web'].build.args.GEOPS_WEB_BASE, '/');
 assert.equal(compose.services['geops-api'].environment.GEOPS_INSECURE_LOCAL_COOKIE, undefined);
 assert.equal(compose.services['geops-api'].environment.MDM_CLIENT_SECRET, undefined);
 for (const [key, name] of [
@@ -89,18 +89,11 @@ const candidate = readFileSync(
   resolve(root, 'infrastructure/staging/Caddyfile.poc-proposed'),
   'utf8',
 );
-const stageBlock =
-  /\s+@stagingBare path \/staging\s+redir @stagingBare \/staging\/ 308\s+handle_path \/staging\/\* \{\s+reverse_proxy geops-spec02-stage-web:8080\s+\}\s+/;
-assert.match(candidate, stageBlock);
 const normalized = (value) => value.replace(/\s+/g, ' ').trim();
+assert.ok(normalized(candidate).startsWith(normalized(pocFile)), 'PoC Caddy block changed');
 assert.equal(
-  normalized(
-    candidate
-      .replace('route {', '')
-      .replace(stageBlock, ' ')
-      .replace(/\n\t}\n}\s*$/, '\n}'),
-  ),
-  normalized(pocFile),
+  normalized(candidate).slice(normalized(pocFile).length).trim(),
+  'geops-staging.duckdns.org { encode zstd gzip reverse_proxy geops-spec02-stage-web:8080 }',
 );
 
 const pocEnv = {

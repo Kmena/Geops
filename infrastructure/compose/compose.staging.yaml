@@ -95,8 +95,8 @@ services:
     environment:
       GEOPS_DATA_MODE: synthetic
       GEOPS_ALLOWED_ORIGINS: ${GEOPS_STAGE_ORIGIN:?Set exact HTTPS browser origin}
-      GEOPS_ADMIN_COOKIE_NAME: geops_stage_admin
-      GEOPS_ADMIN_COOKIE_PATH: /staging
+      GEOPS_ADMIN_COOKIE_NAME: __Host-geops_stage_admin
+      GEOPS_ADMIN_COOKIE_PATH: /
       GEOPS_SECURITY_GATE_PATH: /geops-security/security-gate.json
       HOST: 0.0.0.0
       PORT: "3500"
@@ -130,7 +130,7 @@ services:
       context: ../..
       dockerfile: infrastructure/docker/web.Dockerfile
       args:
-        GEOPS_WEB_BASE: /staging/
+        GEOPS_WEB_BASE: /
     configs:
       - source: stage_web_nginx
         target: /etc/nginx/conf.d/default.conf

@@ -27,6 +27,7 @@
 | [staging-readiness-2026-10-19.md](staging-readiness-2026-10-19.md) | Consolidación Git, Compose Staging aislado, resultados y procedimientos propuestos sin desplegar |
 | [staging-path-readiness-2026-10-19.md](staging-path-readiness-2026-10-19.md) | Addendum de acceso Staging bajo `/staging/` con Caddy y certificado de la PoC, sin despliegue |
 | [staging-path-security-review-2026-10-19.md](staging-path-security-review-2026-10-19.md) | Revisión de origen compartido, Kotlin/PoP, pruebas sintéticas y decisión condicional |
+| [staging-duckdns-readiness-2026-10-19.md](staging-duckdns-readiness-2026-10-19.md) | Diseño vigente de dos hostnames HTTPS: PoC en IP, Staging sintético en DuckDNS; despliegue pendiente |
 
 Decisiones W1-A: [ADR-015 capacidades administrativas](../architecture/adr/ADR-015-capacidades-administrativas-gps.md), [ADR-016 sesión canónica](../architecture/adr/ADR-016-identidad-sesiones-gps.md) y [ADR-017 política temporal/offline](../architecture/adr/ADR-017-politicas-gps-temporales-offline.md). No sustituyen ADR-012/013 ni levantan sus gates.
 

@@ -10,23 +10,18 @@
 		}
 	}
 	encode zstd gzip
-
-	route {
-		@stagingBare path /staging
-		redir @stagingBare /staging/ 308
-
-		handle_path /staging/* {
-			reverse_proxy geops-spec02-stage-web:8080
-		}
-
-		@backend path /api/* /health/*
-		handle @backend {
-			reverse_proxy poc-api:3600
-		}
-		handle {
-			root * /srv
-			try_files {path} /index.html
-			file_server
-		}
+	@backend path /api/* /health/*
+	handle @backend {
+		reverse_proxy poc-api:3600
 	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+geops-staging.duckdns.org {
+	encode zstd gzip
+	reverse_proxy geops-spec02-stage-web:8080
 }

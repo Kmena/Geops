@@ -60,7 +60,8 @@ export function registerAdminRoutes(
         request.ip,
         request.id,
       );
-      const flags = `; Path=${cookiePath}; HttpOnly; SameSite=Lax${secureCookie ? '; Secure' : ''}`;
+      const sameSite = auth.cookieName === '__Host-geops_stage_admin' ? 'Strict' : 'Lax';
+      const flags = `; Path=${cookiePath}; HttpOnly; SameSite=${sameSite}${secureCookie ? '; Secure' : ''}`;
       reply.header('set-cookie', `${auth.cookieName}=${session.token}${flags}`);
       return { admin_id: session.id, csrf_token: session.csrfToken, expires_at: session.expiresAt };
     },
@@ -76,7 +77,7 @@ export function registerAdminRoutes(
     await auth.logout(identity, request.id);
     reply.header(
       'set-cookie',
-      `${auth.cookieName}=; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie ? '; Secure' : ''}`,
+      `${auth.cookieName}=; Path=${cookiePath}; HttpOnly; SameSite=${auth.cookieName === '__Host-geops_stage_admin' ? 'Strict' : 'Lax'}; Max-Age=0${secureCookie ? '; Secure' : ''}`,
     );
     reply.code(204).send();
   });

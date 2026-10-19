@@ -26,7 +26,7 @@ export interface AuthSettings {
   sessionKey: Buffer;
   csrfKey: Buffer;
   allowedOrigins: readonly string[];
-  cookieName?: 'geops_admin' | 'geops_stage_admin';
+  cookieName?: 'geops_admin' | '__Host-geops_stage_admin';
   now?: () => Date;
 }
 
@@ -77,7 +77,7 @@ export class AdminAuthService {
   private readonly failures = new Map<string, { count: number; blockedUntil: number }>();
   private dummyHash: string | undefined;
 
-  get cookieName(): 'geops_admin' | 'geops_stage_admin' {
+  get cookieName(): 'geops_admin' | '__Host-geops_stage_admin' {
     return this.settings.cookieName ?? 'geops_admin';
   }
 

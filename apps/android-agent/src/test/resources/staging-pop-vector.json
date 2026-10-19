@@ -1,6 +1,6 @@
 {
-  "base_url": "https://18.209.159.208/staging/",
-  "public_path": "/staging/v1/device/health/batches",
+  "base_url": "https://geops-staging.duckdns.org/",
+  "public_path": "/v1/device/health/batches",
   "canonical_path": "/v1/device/health/batches",
   "method": "POST",
   "body": "{\"events\":[]}",

@@ -1,6 +1,6 @@
 # SPEC-02 — consolidación Git y preparación Staging (2026-10-19)
 
-> **Addendum posterior:** el diseño de proxy HTTPS propio de las secciones 3, 5–7 fue reemplazado para la propuesta `/staging/` por [staging-path-readiness-2026-10-19.md](staging-path-readiness-2026-10-19.md). El resto conserva su valor como evidencia histórica; no se desplegó ninguna de las dos variantes.
+> **Addendum posterior:** el diseño de proxy HTTPS propio de las secciones 3, 5–7 fue reemplazado primero por la propuesta histórica [`/staging/`](staging-path-readiness-2026-10-19.md) y luego por el [hostname DuckDNS independiente](staging-duckdns-readiness-2026-10-19.md). El resto conserva su valor como evidencia histórica; no se desplegó ninguna variante.
 
 **Clasificación: READY_WITH_CONDITIONS para preparar el entorno sintético; BLOCKED para ejecutar el despliegue hasta cumplir el checklist previo.** No es aprobación operativa, de seguridad independiente ni de Android físico. Este corte no desplegó, hizo push o merge, consultó GPS real, ni cambió la PoC, ManageEngine, Inventori o Billing.
 

@@ -1,5 +1,7 @@
 # SPEC-02 — Staging bajo `/staging/` con Caddy de la PoC
 
+> **Diseño histórico sustituido:** la propuesta vigente usa [hostname DuckDNS independiente](staging-duckdns-readiness-2026-10-19.md). Los procedimientos bajo `/staging/` de este documento no se deben aplicar al despliegue nuevo.
+
 **Estado:** artefactos locales preparados; despliegue pendiente de gates. La [revisión de seguridad del path](staging-path-security-review-2026-10-19.md) clasifica la preparación sintética `ACCEPTABLE_WITH_MITIGATIONS`, sujeta a aceptación del riesgo de origen compartido. No se accedió al servidor ni se cambió la PoC activa. Este documento sustituye solo el diseño de transporte HTTPS propio de la [preparación Staging anterior](staging-readiness-2026-10-19.md); su evidencia histórica, gates de datos, restore y seguridad siguen vigentes. ADR-018 continúa propuesto.
 
 ## Arquitectura propuesta

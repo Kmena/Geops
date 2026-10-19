@@ -104,22 +104,23 @@ fun main() {
             initVerify(pair.public); update(proof.toByteArray()); verify(sig)
         })
     }
-    test("Staging public URL uses prefix but PoP remains canonical") {
+    test("DuckDNS Staging URL and PoP use the canonical device path") {
         val vector = JSONObject(Thread.currentThread().contextClassLoader
             .getResourceAsStream("staging-pop-vector.json")!!.bufferedReader().use { it.readText() })
-        val root = DeviceRequestTarget("https://18.209.159.208/")
-        val stage = DeviceRequestTarget(vector.getString("base_url"))
+        check(vector.getString("base_url") == SYNTHETIC_STAGING_BASE_URL)
+        val stage = DeviceRequestTarget(SYNTHETIC_STAGING_BASE_URL)
         val path = vector.getString("canonical_path")
-        check(root.publicUrl(path).path == path)
         check(stage.publicUrl(path).path == vector.getString("public_path"))
+        check(stage.publicUrl(path).host == "geops-staging.duckdns.org")
         val proof = PopProof.bytes(vector.getString("method"), path,
             vector.getString("body").toByteArray(Charsets.UTF_8), vector.getString("token"),
             vector.getString("timestamp"), vector.getString("nonce"), vector.getString("key_id"))
         check(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(proof) ==
             vector.getString("proof_base64url"))
         check(!String(proof, Charsets.UTF_8).contains("/staging/"))
-        for (badBase in listOf("http://18.209.159.208/staging/", "https://18.209.159.208/other/",
-            "https://18.209.159.208/staging/?q=1", "https://18.209.159.208/staging/#x"))
+        for (badBase in listOf("http://geops-staging.duckdns.org/", "https://geops-staging.duckdns.org/other/",
+            "https://geops-staging.duckdns.org/staging/", "https://geops-staging.duckdns.org/?q=1",
+            "https://geops-staging.duckdns.org/#x"))
             check(runCatching { DeviceRequestTarget(badBase) }.isFailure)
         for (badPath in listOf("/staging/v1/device/config", "/v1/device/../config",
             "/v1/device//config", "/v1/device/config?x=1", "/v1/device/%63onfig"))

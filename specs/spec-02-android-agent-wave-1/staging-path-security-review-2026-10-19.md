@@ -1,5 +1,7 @@
 # SPEC-02 — revisión de seguridad de `/staging/`
 
+> **Revisión histórica:** el riesgo de origen compartido aquí descrito corresponde a la propuesta anterior. El diseño vigente utiliza [hostname DuckDNS independiente](staging-duckdns-readiness-2026-10-19.md).
+
 **Decisión: `ACCEPTABLE_WITH_MITIGATIONS` para preparar un Staging exclusivamente sintético.** Esta revisión es interna al trabajo; no sustituye una revisión independiente ni autoriza despliegue, datos reales, teléfonos físicos o concesiones operativas. La aceptación efectiva del riesgo de origen compartido corresponde a Seguridad y al propietario de la PoC antes de activar la ruta en el servidor.
 
 ## Hallazgos

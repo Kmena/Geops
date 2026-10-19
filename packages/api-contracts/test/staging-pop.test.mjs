@@ -15,7 +15,7 @@ const vector = JSON.parse(
 );
 const sha = (value) => createHash('sha256').update(value).digest('base64url');
 
-test('Kotlin/Staging PoP vector verifies the canonical backend path', () => {
+test('Kotlin/DuckDNS PoP vector verifies the canonical public and backend path', () => {
   const fields = {
     method: vector.method,
     absolutePath: vector.canonical_path,
@@ -26,12 +26,14 @@ test('Kotlin/Staging PoP vector verifies the canonical backend path', () => {
     keyId: vector.key_id,
   };
   assert.equal(new URL(vector.public_path, vector.base_url).pathname, vector.public_path);
+  assert.equal(new URL(vector.base_url).hostname, 'geops-staging.duckdns.org');
+  assert.equal(vector.public_path, vector.canonical_path);
   assert.equal(
     Buffer.from(requestProofBytes(fields)).toString('base64url'),
     vector.proof_base64url,
   );
   assert.notEqual(
-    Buffer.from(requestProofBytes({ ...fields, absolutePath: vector.public_path })).toString(
+    Buffer.from(requestProofBytes({ ...fields, absolutePath: '/v1/device/config' })).toString(
       'base64url',
     ),
     vector.proof_base64url,

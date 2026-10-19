@@ -38,7 +38,7 @@ export interface AppOptions {
   deviceSessions?: DeviceSessionService;
   deviceLifecycle?: DeviceLifecycleService;
   secureCookie?: boolean;
-  adminCookiePath?: '/' | '/staging';
+  adminCookiePath?: '/';
   gpsPolicies?: GpsPolicyService;
   gpsHealth?: GpsHealthService;
   gpsDeviceConfig?: GpsDeviceConfigService;
