@@ -1,0 +1,99 @@
+name: SPEC-02 synthetic validation
+
+on:
+  push:
+    branches: [codex/spec-02-wave-1]
+
+permissions:
+  contents: read
+
+jobs:
+  node-web-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Reproducible install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Source and whitespace checks
+        run: git diff --check HEAD~4..HEAD && npm run security:scan && npm run staging:check
+      - name: Typecheck, lint and OpenAPI
+        run: npm run typecheck && npm run lint && npm run contracts:check
+      - name: Node and Web tests
+        run: npm test && node --test specs/spec-02-android-agent-wave-1/contract-vectors.test.mjs
+      - name: API and Web builds
+        run: npm run build
+
+  kotlin-jvm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Kotlin synthetic core
+        run: gradle -p apps/android-agent syntheticTest
+
+  postgres-postgis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgis:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_DB: geops_verify_20261019
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d geops_verify_20261019"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      GEOPS_DATA_MODE: synthetic
+      DATABASE_URL: postgres://postgres@127.0.0.1:5432/geops_verify_20261019
+      GEOPS_MIGRATION_TARGET: geops_verify_20261019
+      GEOPS_CONFIRM_MIGRATION_TARGET: geops_verify_20261019
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Reproducible install and build
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+      - name: Explicit disposable migrations
+        run: node apps/api/dist/db/migrate.js
+      - name: Authenticated synthetic PostgreSQL regressions
+        run: |
+          npm run gps:integration --workspace @geops/api
+          npm run gps:config:integration --workspace @geops/api
+          npm run gps:health:integration --workspace @geops/api
+          npm run gps:events:integration --workspace @geops/api
+          npm run gps:operations:integration --workspace @geops/api
+          npm run gps:scheduler:load --workspace @geops/api
+      - name: Backup, isolated restore and rollback probe
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" pg_dump -U postgres -d geops_verify_20261019 -Fc -f /tmp/spec02.dump
+          docker exec "$container" createdb -U postgres geops_verify_20261019_restore
+          docker exec "$container" pg_restore -U postgres -d geops_verify_20261019_restore /tmp/spec02.dump
+          source_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019 -Atc 'SELECT count(*) FROM geops_schema_migrations')
+          restore_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -Atc 'SELECT count(*) FROM geops_schema_migrations')
+          test "$source_count" = 14
+          test "$source_count" = "$restore_count"
+          docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -v ON_ERROR_STOP=1 -c 'BEGIN; ALTER TABLE gps_scheduler_run ADD COLUMN ci_rollback_probe boolean; ROLLBACK;'
+          probe_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='gps_scheduler_run' AND column_name='ci_rollback_probe'")
+          test "$probe_count" = 0
