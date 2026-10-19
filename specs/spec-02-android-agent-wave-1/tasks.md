@@ -1,5 +1,7 @@
 # Tasks — backlog verificable
 
+**W1-E2 primer dispositivo (2026-10-19):** [implementación local y evidencia](w1-e2-first-device-2026-10-19.md). T05/T06–T10 recibieron conexiones Web/API y empaquetado Android, con pruebas sintéticas; T12 cuenta con APK firmada de prueba pero **no** con instalación ni evidencia física. T11, E2E único en Android/navegador y gates operativos siguen abiertos. No se altera el estado de SPEC-00 ni se cierra W1-E2.
+
 **W1-E1 Corte 3 (2026-10-19):** T09 incorpora tick de ventanas/versiones, MISSED/UNKNOWN_END, purga programada, activación de instalación y doble control de concesiones; T10 conecta vistas Web de lectura a API autenticada, con filtros/motivo y acciones deshabilitadas. [Evidencia](w1-e1-c3-scheduler-activation-web-2026-10-19.md). T09/T10 **siguen abiertos** para migración y retención operativas, E2E de navegador y carga sostenida; T11 sigue abierto por revisión independiente y aprobación de ADR-018. Los estados anteriores abajo son históricos.
 
 **W1-E1 Corte 2 (2026-10-19):** T09 incorpora rutas PoP de sesión/posición, sesión canónica, cuarentena, PostGIS y consultas administrativas con 67 aserciones sintéticas; [evidencia](w1-e1-c2-sessions-positions-2026-10-19.md). T09 **no se cierra operativamente**: faltan scheduler, activación y concesiones tenant. T10 mantiene Web E2E/carga/retención programada pendientes; T11 seguridad independiente pendiente. Los párrafos inferiores describen cortes históricos.
