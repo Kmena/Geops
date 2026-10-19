@@ -11,6 +11,7 @@ Fuente: `api/schema.sql`, `api/store.mjs`, `api/validation.mjs`, `api/app.mjs`, 
 - `infra/.env.local` debe existir como archivo regular privado, por ejemplo modo `600`. Compose usa sus credenciales existentes; la herramienta no las lee ni imprime.
 - Desde `/opt/geops-poc/experiments/weekend-gps-poc`: `node --test --test-isolation=none analysis/analysis.test.mjs`.
 - La comprobación del esquema vivo se realiza automáticamente, en transacción de solo lectura, justo antes de extraer. Hasta entonces la concordancia con el servidor no está verificada.
+- Si falla, el comando indica la etapa y un código seguro (`ENV_PERMISSIONS`, `COMPOSE_CONFIG`, `DB_SERVICE_UNAVAILABLE`, `DB_AUTH`, `SCHEMA_MISMATCH`, `SCHEMA_SQL`, `QUERY_TIMEOUT` o `QUERY_FAILED`). Nunca muestra el stderr bruto de Compose/psql, que podría contener datos de conexión. Comprobar primero que el checkout está actualizado, que `infra/.env.local` tiene modo `600` y que `poc-db` está en ejecución dentro de `geops-weekend-poc`; no compartir el contenido del archivo de entorno.
 
 ## Extracción real — requiere autorización explícita previa
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { analyze, classifyEdge } from './analyze.mjs';
 import { csvCells, csvRow } from './common.mjs';
-import { options } from './extract.mjs';
+import { classifyPsqlFailure, options, validateSchemaOutput } from './extract.mjs';
 
 const base = Date.parse('2026-10-17T12:00:00Z');
 function point(
@@ -106,5 +106,36 @@ test('CSV escaping and strict range validation', () => {
   );
   assert.throws(() =>
     options(['--from', '2026-10-17T00:00:00Z', '--to', '2026-10-18T00:00:00Z', '--device', 'bad']),
+  );
+});
+
+test('database diagnostics disclose only an allowlisted code and stage', () => {
+  const secret = 'example-private-value';
+  const error = classifyPsqlFailure(
+    'schema check',
+    `FATAL: password authentication failed for user ${secret}`,
+    2,
+  );
+  assert.equal(error.code, 'DB_AUTH');
+  assert.match(error.message, /schema check failed/);
+  assert.ok(!error.message.includes(secret));
+});
+
+test('schema validation tolerates psql status lines but still rejects missing columns', () => {
+  const columns = [
+    'poc_device,id,uuid',
+    'poc_device,environment_id,text',
+    'poc_location,device_id,uuid',
+    'poc_location,event_id,uuid',
+    'poc_location,captured_at,timestamptz',
+    'poc_location,received_at,timestamptz',
+    'poc_location,geom,geography',
+    'poc_location,accuracy_m,float8',
+  ];
+  const output = `BEGIN\nGEOPS_DB:geops_poc\n${columns.map((c) => `GEOPS_COLUMN:${c}`).join('\n')}\nCOMMIT\n`;
+  assert.doesNotThrow(() => validateSchemaOutput(output));
+  assert.throws(
+    () => validateSchemaOutput(output.replace('GEOPS_COLUMN:poc_location,geom,geography\n', '')),
+    { code: 'SCHEMA_MISMATCH' },
   );
 });
