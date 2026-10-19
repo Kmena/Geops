@@ -1,0 +1,240 @@
+name: geops-spec02-staging
+
+x-logs: &sanitized-logs
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  geops-db:
+    image: postgis/postgis:18-3.6
+    environment:
+      POSTGRES_DB: geops_dev
+      POSTGRES_USER: geops_stage
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - stage_pgdata:/var/lib/postgresql
+    networks: [stage_db]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geops_stage -d geops_dev && psql -U geops_stage -d geops_dev -tAc 'SELECT PostGIS_Version()' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    logging: *sanitized-logs
+    restart: unless-stopped
+
+  geops-migrate:
+    profiles: [maintenance]
+    image: geops-spec02-api:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    configs:
+      - source: stage_api_entrypoint
+        target: /geops-stage-entrypoint.sh
+    entrypoint: ["sh", "/geops-stage-entrypoint.sh"]
+    command: ["migrate"]
+    environment:
+      GEOPS_DATA_MODE: synthetic
+      GEOPS_MIGRATION_TARGET: geops_dev
+      GEOPS_CONFIRM_MIGRATION_TARGET: geops_dev
+      GEOPS_ALLOW_NONDISPOSABLE_MIGRATION: "YES"
+      GEOPS_SECURITY_GATE_PATH: /geops-security/security-gate.json
+    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]
+    volumes:
+      - stage_security:/geops-security:ro
+    depends_on:
+      geops-db:
+        condition: service_healthy
+    networks: [stage_app, stage_db]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    logging: *sanitized-logs
+    restart: "no"
+
+  geops-gate-init:
+    profiles: [maintenance]
+    image: geops-spec02-api:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    configs:
+      - source: stage_api_entrypoint
+        target: /geops-stage-entrypoint.sh
+    entrypoint: ["sh", "/geops-stage-entrypoint.sh"]
+    command: ["gate", "init"]
+    environment:
+      GEOPS_DATA_MODE: synthetic
+      GEOPS_SECURITY_GATE_PATH: /geops-security/security-gate.json
+    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]
+    volumes:
+      - stage_security:/geops-security
+    depends_on:
+      geops-db:
+        condition: service_healthy
+    networks: [stage_app, stage_db]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 96
+    logging: *sanitized-logs
+    restart: "no"
+
+  geops-api:
+    image: geops-spec02-api:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    configs:
+      - source: stage_api_entrypoint
+        target: /geops-stage-entrypoint.sh
+    entrypoint: ["sh", "/geops-stage-entrypoint.sh"]
+    command: ["server"]
+    environment:
+      GEOPS_DATA_MODE: synthetic
+      GEOPS_ALLOWED_ORIGINS: ${GEOPS_STAGE_ORIGIN:?Set exact HTTPS browser origin}
+      GEOPS_SECURITY_GATE_PATH: /geops-security/security-gate.json
+      HOST: 0.0.0.0
+      PORT: "3500"
+      LOG_LEVEL: silent
+    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]
+    volumes:
+      - stage_security:/geops-security:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      geops-db:
+        condition: service_healthy
+    networks: [stage_app, stage_db]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3500/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    logging: *sanitized-logs
+    restart: unless-stopped
+
+  geops-web:
+    image: geops-spec02-web:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+    configs:
+      - source: stage_web_nginx
+        target: /etc/nginx/conf.d/default.conf
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      geops-api:
+        condition: service_healthy
+    networks: [stage_edge, stage_app]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    logging: *sanitized-logs
+    restart: unless-stopped
+
+  geops-https:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    configs:
+      - source: stage_tls_nginx
+        target: /etc/nginx/conf.d/default.conf
+    secrets: [tls_cert, tls_key]
+    ports:
+      - "127.0.0.1:${GEOPS_STAGE_HTTPS_PORT:?Set unused loopback HTTPS port}:8443"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      geops-web:
+        condition: service_healthy
+    networks: [stage_edge]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:8443/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    logging: *sanitized-logs
+    restart: unless-stopped
+
+  geops-backup:
+    profiles: [maintenance]
+    image: postgis/postgis:18-3.6
+    configs:
+      - source: stage_backup_script
+        target: /geops-stage-backup.sh
+    entrypoint: ["sh", "/geops-stage-backup.sh"]
+    secrets: [db_password]
+    volumes:
+      - stage_backups:/geops-backups
+    depends_on:
+      geops-db:
+        condition: service_healthy
+    networks: [stage_db]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 96
+    logging: *sanitized-logs
+    restart: "no"
+
+configs:
+  stage_api_entrypoint:
+    file: ../staging/api-entrypoint.sh
+  stage_web_nginx:
+    file: ../nginx/geops-staging-web.conf
+  stage_tls_nginx:
+    file: ../nginx/geops-staging-https.conf
+  stage_backup_script:
+    file: ../staging/backup.sh
+
+secrets:
+  db_password:
+    file: ./.local/staging/secrets/db_password
+  admin_session_key:
+    file: ./.local/staging/secrets/admin_session_key
+  admin_csrf_key:
+    file: ./.local/staging/secrets/admin_csrf_key
+  invitation_hmac_key:
+    file: ./.local/staging/secrets/invitation_hmac_key
+  mdm_grant_key:
+    file: ./.local/staging/secrets/mdm_grant_key
+  gps_quarantine_key:
+    file: ./.local/staging/secrets/gps_quarantine_key
+  tls_cert:
+    file: ./.local/staging/secrets/tls_cert
+  tls_key:
+    file: ./.local/staging/secrets/tls_key
+
+volumes:
+  stage_pgdata:
+    name: geops_spec02_stage_pgdata
+  stage_security:
+    name: geops_spec02_stage_security
+  stage_backups:
+    name: geops_spec02_stage_backups
+
+networks:
+  stage_db:
+    name: geops_spec02_stage_db
+    internal: true
+  stage_app:
+    name: geops_spec02_stage_app
+    internal: true
+  stage_edge:
+    name: geops_spec02_stage_edge

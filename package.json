@@ -14,6 +14,7 @@
     "build": "npm run build --workspace @geops/api-contracts && npm run build --workspace @geops/api && npm run build --workspace @geops/web",
     "contracts:check": "npm run check --workspace @geops/api-contracts",
     "security:scan": "node scripts/security-scan.mjs",
+    "staging:check": "node scripts/check-staging-compose.mjs",
     "restore:test": "node --test scripts/restore-synthetic.test.mjs"
   },
   "devDependencies": {
