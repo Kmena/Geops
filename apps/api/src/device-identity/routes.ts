@@ -73,6 +73,19 @@ export function registerIdentityRoutes(
     },
   );
 
+  app.delete<{ Params: { device_id: string; invitation_id: string } }>(
+    '/v1/admin/devices/:device_id/invitations/:invitation_id',
+    async (request) => {
+      const admin = await requireAdmin(request, auth, true);
+      return enrollment.cancelInvitation(
+        uuid(request.params.device_id),
+        uuid(request.params.invitation_id),
+        admin.id,
+        request.id,
+      );
+    },
+  );
+
   app.post<{ Body: unknown }>('/v1/device/enrollment/claims', async (request, reply) => {
     limiter.check(request, 'claim');
     const data = object(request.body, [

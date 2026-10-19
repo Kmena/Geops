@@ -8,10 +8,17 @@ import {
   useLocation,
   useNavigate,
 } from 'react-router-dom';
-import { api, ApiClientError, type Device, type MdmDevice, type MdmStatus } from './api/client.js';
+import {
+  api,
+  ApiClientError,
+  type BasicDevice,
+  type MdmDevice,
+  type MdmStatus,
+} from './api/client.js';
 import { webBase } from './api/base.js';
 import { AuthProvider, useAuth } from './auth.js';
 import { GpsWorkspace, type GpsSection } from './gps/GpsWorkspace.js';
+import { EnrollmentPanel } from './EnrollmentPanel.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -190,7 +197,9 @@ function useLoad<T>(load: () => Promise<T>) {
 
 function Inventory() {
   const geops = useLoad(api.geopsDevices);
+  const enrollment = useLoad(api.enrollmentDevices);
   const mdm = useLoad(api.mdmDevices);
+  const gpsAccess = useLoad(api.gpsCapabilities);
   return (
     <Shell>
       <h1>Inventario</h1>
@@ -214,7 +223,7 @@ function Inventory() {
             <p className="empty">Todavía no hay dispositivos de prueba.</p>
           ) : (
             <ul className="device-list">
-              {geops.data.items.map((item: Device) => (
+              {geops.data.items.map((item: BasicDevice) => (
                 <li key={item.id}>
                   <strong>{item.display_label}</strong>
                   <span>{item.status}</span>
@@ -223,6 +232,32 @@ function Inventory() {
             </ul>
           )}
         </section>
+        {gpsAccess.loading ||
+        (gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.loading) ? (
+          <section className="panel" role="status">
+            Cargando inscripción…
+          </section>
+        ) : gpsAccess.error ||
+          (gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.error) ? (
+          <section className="panel">
+            <ErrorText error={gpsAccess.error ?? enrollment.error} />
+            <button
+              type="button"
+              onClick={gpsAccess.error ? gpsAccess.refresh : enrollment.refresh}
+            >
+              Reintentar
+            </button>
+          </section>
+        ) : (
+          <EnrollmentPanel
+            devices={enrollment.data?.items ?? []}
+            capabilities={gpsAccess.data?.capabilities ?? []}
+            refresh={() => {
+              enrollment.refresh();
+              geops.refresh();
+            }}
+          />
+        )}
         <section className="panel" aria-labelledby="mdm-title">
           <div className="panel-head">
             <h2 id="mdm-title">Inventario MDM</h2>

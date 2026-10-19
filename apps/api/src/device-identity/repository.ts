@@ -10,6 +10,20 @@ export interface DeviceRecord {
   mdm_binding_id: string;
 }
 
+export interface DeviceInventoryRecord extends DeviceRecord {
+  tenant_id: string;
+  mdm_device_id: string;
+  enrolled_at: string | null;
+  last_communication_at: string | null;
+  invitation_id: string | null;
+  invitation_status: string | null;
+  invitation_expires_at: string | null;
+  claim_id: string | null;
+  claim_status: string | null;
+  key_id: string | null;
+  installation_id: string | null;
+}
+
 export interface BindingRecord {
   id: string;
   geops_device_id: string;
@@ -40,7 +54,11 @@ export async function transaction<T>(
 export class DeviceRepository {
   constructor(readonly pool: Pool) {}
 
-  async createDraft(label: string): Promise<DeviceRecord> {
+  async createDraft(
+    label: string,
+    adminId?: string,
+    correlationId: string = randomUUID(),
+  ): Promise<DeviceRecord> {
     if (label.trim().length < 1 || label.length > 120) {
       throw new ApiError(400, 'invalid_request', 'Invalid request');
     }
@@ -55,7 +73,22 @@ export class DeviceRepository {
         "INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state) VALUES($1,$2,'fake','synthetic',$3,'PENDING')",
         [bindingId, id, `fake-${id}`],
       );
-      return { id, display_label: label.trim(), status: 'DRAFT', mdm_binding_id: bindingId };
+      await appendAudit(db, {
+        actorType: adminId ? 'ADMIN' : 'SYSTEM',
+        ...(adminId ? { actorId: adminId } : {}),
+        deviceId: id,
+        action: 'device.draft.create',
+        outcome: 'success',
+        correlationId,
+        nextState: 'DRAFT',
+        metadata: { tenant_id: 'synthetic' },
+      });
+      return {
+        id,
+        display_label: label.trim(),
+        status: 'DRAFT',
+        mdm_binding_id: bindingId,
+      };
     });
   }
 
@@ -63,6 +96,33 @@ export class DeviceRepository {
     cursor: string | undefined,
     limit: number,
   ): Promise<{ items: DeviceRecord[]; next_cursor: string | null; source: 'geops' }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      throw new ApiError(400, 'invalid_limit', 'Invalid limit');
+    let after: string | null = null;
+    if (cursor) {
+      try {
+        after = Buffer.from(cursor, 'base64url').toString('utf8');
+      } catch {
+        throw new ApiError(400, 'invalid_cursor', 'Invalid cursor');
+      }
+      if (!/^[0-9a-f-]{36}$/.test(after))
+        throw new ApiError(400, 'invalid_cursor', 'Invalid cursor');
+    }
+    const result = await this.pool.query<DeviceRecord>(
+      "SELECT d.id,d.display_label,d.status,b.id AS mdm_binding_id FROM geops_device d JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state IN ('PENDING','ACTIVE') WHERE ($1::uuid IS NULL OR d.id>$1::uuid) ORDER BY d.id LIMIT $2",
+      [after, limit + 1],
+    );
+    const items = result.rows.slice(0, limit);
+    const last = items.at(-1);
+    const next_cursor =
+      result.rows.length > limit && last ? Buffer.from(last.id).toString('base64url') : null;
+    return { items, next_cursor, source: 'geops' };
+  }
+
+  async listEnrollment(
+    cursor: string | undefined,
+    limit: number,
+  ): Promise<{ items: DeviceInventoryRecord[]; next_cursor: string | null; source: 'geops' }> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       throw new ApiError(400, 'invalid_limit', 'Invalid limit');
     }
@@ -76,8 +136,24 @@ export class DeviceRepository {
       if (!/^[0-9a-f-]{36}$/.test(after))
         throw new ApiError(400, 'invalid_cursor', 'Invalid cursor');
     }
-    const result = await this.pool.query<DeviceRecord>(
-      "SELECT d.id,d.display_label,d.status,b.id AS mdm_binding_id FROM geops_device d JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state IN ('PENDING','ACTIVE') WHERE ($1::uuid IS NULL OR d.id>$1::uuid) ORDER BY d.id LIMIT $2",
+    const result = await this.pool.query<DeviceInventoryRecord>(
+      `SELECT d.id,d.display_label,d.status,b.id AS mdm_binding_id,
+        b.customer_id AS tenant_id,b.mdm_device_id,b.verified_at AS enrolled_at,
+        i.id AS invitation_id,i.status AS invitation_status,i.expires_at AS invitation_expires_at,
+        c.id AS claim_id,c.status AS claim_status,k.id AS key_id,g.installation_id,
+        (SELECT max(received_at) FROM (
+          SELECT max(received_at) AS received_at FROM gps_device_health_event WHERE device_id=d.id
+          UNION ALL SELECT max(received_at) FROM gps_session_event WHERE device_id=d.id
+          UNION ALL SELECT max(received_at) FROM position_event WHERE device_id=d.id
+          UNION ALL SELECT max(issued_at) FROM device_session WHERE geops_device_id=d.id
+        ) communication) AS last_communication_at
+      FROM geops_device d JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state IN ('PENDING','ACTIVE')
+      LEFT JOIN LATERAL (SELECT id,status,expires_at FROM device_invitation WHERE geops_device_id=d.id ORDER BY issued_at DESC LIMIT 1) i ON true
+      LEFT JOIN LATERAL (SELECT id,status FROM enrollment_claim WHERE invitation_id=i.id AND status IN ('CLAIMED','PENDING_CONFIRMATION') LIMIT 1) c ON true
+      LEFT JOIN LATERAL (SELECT id FROM device_key WHERE geops_device_id=d.id AND status='ACTIVE' LIMIT 1) k ON true
+      LEFT JOIN LATERAL (SELECT installation_id FROM gps_device_installation WHERE device_id=d.id AND retired_at IS NULL LIMIT 1) g ON true
+      WHERE b.provider='fake' AND b.customer_id='synthetic' AND ($1::uuid IS NULL OR d.id>$1::uuid)
+      ORDER BY d.id LIMIT $2`,
       [after, limit + 1],
     );
     const items = result.rows.slice(0, limit);

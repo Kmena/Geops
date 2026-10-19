@@ -8,6 +8,7 @@ import {
   type RemotePolicy,
   type RemotePosition,
 } from './remote.js';
+import { GpsPolicyEditor } from './GpsPolicyEditor.js';
 
 type Section = 'policies' | 'devices' | 'sessions' | 'executive';
 const remote = new GpsRemote();
@@ -15,6 +16,64 @@ const format = (value: string | undefined | null): string =>
   value
     ? new Date(value).toLocaleString('es-GT', { timeZone: 'America/Guatemala' })
     : 'Desconocido';
+const observed = (value: boolean | null | undefined, yes: string, no: string): string =>
+  value === true ? yes : value === false ? no : 'Desconocido';
+
+function PositionTrack({ positions }: { positions: RemotePosition[] }) {
+  const ordered = [...positions].sort(
+    (a, b) => Date.parse(a.captured_at) - Date.parse(b.captured_at),
+  );
+  const latitudes = ordered.map((item) => item.latitude);
+  const longitudes = ordered.map((item) => item.longitude);
+  const minLat = Math.min(...latitudes),
+    maxLat = Math.max(...latitudes);
+  const minLon = Math.min(...longitudes),
+    maxLon = Math.max(...longitudes);
+  const rangeLat = Math.max(maxLat - minLat, 0.00001);
+  const rangeLon = Math.max(maxLon - minLon, 0.00001);
+  const xy = (item: RemotePosition) => ({
+    x: 20 + ((item.longitude - minLon) / rangeLon) * 600,
+    y: 20 + (1 - (item.latitude - minLat) / rangeLat) * 260,
+  });
+  return (
+    <figure className="gps-track">
+      <svg
+        viewBox="0 0 640 300"
+        role="img"
+        aria-label={`Recorrido de ${ordered.length} posiciones autorizadas`}
+      >
+        <polyline
+          points={ordered
+            .map((item) => {
+              const point = xy(item);
+              return `${point.x},${point.y}`;
+            })
+            .join(' ')}
+          fill="none"
+          stroke="#176b82"
+          strokeWidth="3"
+          strokeLinejoin="round"
+        />
+        {ordered.map((item, index) => {
+          const point = xy(item);
+          return (
+            <circle
+              key={item.event_id}
+              cx={point.x}
+              cy={point.y}
+              r={index === ordered.length - 1 ? 6 : 3}
+              fill={index === ordered.length - 1 ? '#b5412c' : '#176b82'}
+            />
+          );
+        })}
+      </svg>
+      <figcaption>
+        Trayectoria relativa de posiciones consultadas · sin mapa base ni envío a terceros. El punto
+        rojo es el último de esta consulta.
+      </figcaption>
+    </figure>
+  );
+}
 function message(error: unknown): string {
   if (!(error instanceof ApiClientError))
     return 'No se pudo completar la consulta. Inténtalo de nuevo.';
@@ -164,7 +223,8 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
       <div className="gps-banner" role="note">
         <strong>Backend sintético autenticado</strong>
         <span>
-          Lectura real del servidor de pruebas. Edición y activación desde Web deshabilitadas.
+          Consultas y administración autenticadas del entorno de prueba. Los teléfonos reales
+          requieren autorización y gates de seguridad.
         </span>
       </div>
       <div className="gps-live-toolbar">
@@ -186,18 +246,18 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
             <ul>
               {policies.map((policy) => (
                 <li key={policy.id}>
-                  <strong>{policy.name}</strong> · {policy.state} · ETag {policy.etag}
+                  <strong>{policy.policy.name}</strong> · {policy.state} · revisión{' '}
+                  {policy.revision}
                 </li>
               ))}
             </ul>
           )}
-          <button
-            type="button"
-            disabled
-            title="Pendiente de revisión de seguridad y gates operativos"
-          >
-            Crear o editar política
-          </button>
+          <GpsPolicyEditor
+            policies={policies}
+            devices={devices}
+            capabilities={capabilities}
+            refresh={refresh}
+          />
         </div>
       )}
       {!loading && !error && section === 'executive' && (
@@ -290,10 +350,71 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                   Consultar salud
                 </button>
                 {health && (
-                  <p>
-                    Salud: {health.state} · {health.source} · Observado:{' '}
-                    {format(health.observed_at)}
-                  </p>
+                  <div className="gps-health-detail">
+                    <p>
+                      <strong>Estado:</strong> {health.state} ·{' '}
+                      {health.source === 'DEVICE_OBSERVATION'
+                        ? 'Observado por dispositivo'
+                        : 'Inferencia del servidor'}{' '}
+                      · Observado: {format(health.observed_at)}
+                    </p>
+                    {health.latest ? (
+                      <dl>
+                        <div>
+                          <dt>Batería</dt>
+                          <dd>
+                            {health.latest.battery_percent === null
+                              ? 'Desconocida'
+                              : `${health.latest.battery_percent}%`}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Carga</dt>
+                          <dd>{observed(health.latest.charging, 'Cargando', 'Sin carga')}</dd>
+                        </div>
+                        <div>
+                          <dt>Ahorro de energía</dt>
+                          <dd>{observed(health.latest.power_save, 'Activado', 'Desactivado')}</dd>
+                        </div>
+                        <div>
+                          <dt>GPS</dt>
+                          <dd>
+                            {observed(
+                              health.latest.provider_available,
+                              'Disponible',
+                              'No disponible',
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Conectividad</dt>
+                          <dd>
+                            {observed(
+                              health.latest.network_available,
+                              'Disponible',
+                              'No disponible',
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Servicio</dt>
+                          <dd>{health.latest.tracking_state ?? 'Desconocido'}</dd>
+                        </div>
+                        <div>
+                          <dt>Última recepción</dt>
+                          <dd>{format(health.latest.received_at)}</dd>
+                        </div>
+                      </dl>
+                    ) : (
+                      <p>Sin eventos de salud observados.</p>
+                    )}
+                    {health.possible_battery_depletion && (
+                      <p>
+                        Posible apagado por batería: el último nivel observado era crítico; la causa
+                        no está confirmada.
+                      </p>
+                    )}
+                  </div>
                 )}
                 {allowed('gps.location.read') && (
                   <form
@@ -342,14 +463,17 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                   </form>
                 )}
                 {positions.length > 0 && (
-                  <ul>
-                    {positions.map((position) => (
-                      <li key={position.event_id}>
-                        {format(position.captured_at)} · {position.latitude}, {position.longitude} ·
-                        ±{position.accuracy_m} m
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <PositionTrack positions={positions} />
+                    <ul>
+                      {positions.map((position) => (
+                        <li key={position.event_id}>
+                          {format(position.captured_at)} · {position.latitude}, {position.longitude}{' '}
+                          · ±{position.accuracy_m} m
+                        </li>
+                      ))}
+                    </ul>
+                  </>
                 )}
                 {positionCursor && (
                   <button type="button" onClick={() => void loadPositions(positionCursor)}>

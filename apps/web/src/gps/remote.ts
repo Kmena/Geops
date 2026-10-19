@@ -5,9 +5,39 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export interface RemotePolicy {
   id: string;
-  name: string;
   state: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'REVOKED';
   etag: string;
+  revision: number;
+  policy: RemotePolicySpec;
+  assignments?: RemoteAssignment[];
+}
+
+export interface RemoteAssignment {
+  scope_type: 'DEVICE' | 'GROUP';
+  scope_id: string;
+  valid_from: string;
+  valid_until: string;
+}
+
+export interface RemotePolicySpec {
+  name: string;
+  days_iso: number[];
+  start_local: string;
+  end_local: string;
+  time_zone: string;
+  capture_interval_s: number;
+  sync_interval_s: number;
+  heartbeat_missing_after_s: number;
+  health_interval_s: number;
+  valid_from: string;
+  valid_until: string;
+  exceptions?: Array<{
+    local_date: string;
+    mode: 'OFF' | 'REPLACE';
+    start_local?: string;
+    end_local?: string;
+    reason: string;
+  }>;
 }
 
 export interface RemoteHealthEvent {
@@ -15,6 +45,12 @@ export interface RemoteHealthEvent {
   observed_at: string;
   received_at: string;
   battery_percent: number | null;
+  charging: boolean | null;
+  plugged: boolean | null;
+  power_save: boolean | null;
+  provider_available: boolean | null;
+  network_available: boolean | null;
+  tracking_state: string | null;
   observed_states: string[];
 }
 
@@ -23,6 +59,7 @@ export interface RemoteHealth {
   state: string;
   source: 'DEVICE_OBSERVATION' | 'SERVER_INFERENCE';
   observed_at: string | null;
+  possible_battery_depletion: boolean;
   latest: RemoteHealthEvent | null;
   items: RemoteHealthEvent[];
   next_cursor: string | null;
@@ -63,7 +100,7 @@ export interface RemotePosition {
   accuracy_m: number;
 }
 
-/** Read-only authenticated transport. Mutations stay disabled in the Web workspace. */
+/** Authenticated transport; server capabilities, CSRF and ETags remain authoritative. */
 export class GpsRemote {
   constructor(private readonly send: typeof fetch = fetch) {}
 
@@ -94,6 +131,94 @@ export class GpsRemote {
     if (!body || typeof body !== 'object' || Array.isArray(body))
       throw new ApiClientError(502, 'invalid_response');
     return body as T;
+  }
+
+  private async mutate<T>(
+    method: 'POST' | 'PATCH' | 'PUT',
+    path: `/v1/${string}`,
+    body: unknown,
+    csrf: string,
+    etag?: string,
+  ): Promise<T> {
+    if (!csrf || (etag !== undefined && !etag.startsWith('"gps-policy:')))
+      throw new ApiClientError(422, 'invalid_mutation');
+    const response = await this.send(apiPath(path), {
+      method,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        'idempotency-key': crypto.randomUUID(),
+        ...(etag ? { 'if-match': etag } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    const result: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const record =
+        result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+      const nested =
+        record.error && typeof record.error === 'object'
+          ? (record.error as Record<string, unknown>)
+          : record;
+      throw new ApiClientError(
+        response.status,
+        typeof nested.code === 'string' ? nested.code : 'request_failed',
+      );
+    }
+    if (!result || typeof result !== 'object' || Array.isArray(result))
+      throw new ApiClientError(502, 'invalid_response');
+    return result as T;
+  }
+
+  createPolicy(spec: RemotePolicySpec, csrf: string): Promise<RemotePolicy> {
+    return this.mutate('POST', '/v1/admin/gps-policies', spec, csrf);
+  }
+
+  editPolicy(
+    id: string,
+    spec: RemotePolicySpec,
+    etag: string,
+    csrf: string,
+  ): Promise<RemotePolicy> {
+    if (!uuid.test(id)) throw new ApiClientError(422, 'invalid_policy_id');
+    return this.mutate('PATCH', `/v1/admin/gps-policies/${id}`, spec, csrf, etag);
+  }
+
+  assignPolicy(
+    id: string,
+    assignments: RemoteAssignment[],
+    etag: string,
+    csrf: string,
+  ): Promise<RemotePolicy> {
+    if (!uuid.test(id) || assignments.some((item) => !uuid.test(item.scope_id)))
+      throw new ApiClientError(422, 'invalid_assignment');
+    return this.mutate(
+      'PUT',
+      `/v1/admin/gps-policies/${id}/assignments`,
+      { assignments },
+      csrf,
+      etag,
+    );
+  }
+
+  transitionPolicy(
+    id: string,
+    action: 'publish' | 'resume' | 'pause' | 'revoke',
+    reason: string,
+    etag: string,
+    csrf: string,
+  ): Promise<RemotePolicy> {
+    if (!uuid.test(id) || reason.trim().length < 8 || reason.length > 240)
+      throw new ApiClientError(422, 'invalid_transition');
+    return this.mutate(
+      'POST',
+      `/v1/admin/gps-policies/${id}/${action}`,
+      { reason: reason.trim() },
+      csrf,
+      etag,
+    );
   }
 
   session(signal?: AbortSignal): Promise<AdminProfile> {

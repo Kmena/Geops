@@ -265,6 +265,133 @@ h2 {
   min-height: 100vh;
   color: #526879;
 }
+.enrollment-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+.enrollment-panel form,
+.enrollment-panel label {
+  display: grid;
+  gap: 7px;
+}
+.enrollment-panel input,
+.enrollment-panel select {
+  max-width: 100%;
+  padding: 10px;
+  border: 1px solid #b7c7d1;
+  border-radius: 8px;
+}
+.enrollment-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.enrollment-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.enrollment-secret {
+  padding: 16px;
+  border: 1px solid #b7c7d1;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.enrollment-secret img {
+  max-width: 100%;
+  height: auto;
+}
+.enrollment-secret dd {
+  margin: 0 0 12px;
+}
+.enrollment-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d1dfe5;
+  border-radius: 8px;
+}
+.enrollment-confirm .day-checkbox {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+.enrollment-confirm dl {
+  overflow-wrap: anywhere;
+}
+.gps-policy-editor {
+  margin-top: 24px;
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid #d1dfe5;
+  border-radius: 12px;
+  background: #fff;
+}
+.gps-policy-editor form,
+.gps-assignment-panel {
+  display: grid;
+  gap: 16px;
+}
+.gps-policy-editor label {
+  display: grid;
+  gap: 6px;
+}
+.gps-policy-editor input:not([type="checkbox"]),
+.gps-policy-editor select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 9px;
+  border: 1px solid #afc2cd;
+  border-radius: 7px;
+}
+.gps-policy-editor fieldset {
+  border: 1px solid #d1dfe5;
+  border-radius: 8px;
+}
+.gps-policy-editor .day-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 7px 14px 7px 0;
+}
+.gps-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.gps-health-detail dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.gps-health-detail dl div {
+  padding: 10px;
+  border: 1px solid #d1dfe5;
+  border-radius: 8px;
+}
+.gps-health-detail dt {
+  color: #526879;
+}
+.gps-health-detail dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+.gps-track {
+  margin: 18px 0;
+  max-width: 680px;
+}
+.gps-track svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid #d1dfe5;
+  border-radius: 8px;
+  background: #f6fafb;
+}
+.gps-track figcaption {
+  color: #526879;
+  font-size: 0.9rem;
+}
 @media (max-width: 760px) {
   .topbar {
     padding: 12px 18px;

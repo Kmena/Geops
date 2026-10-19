@@ -767,7 +767,24 @@ export class GpsPolicyService {
       [id],
     );
     if (!result.rows[0]) throw new ApiError(404, 'not_found', 'Not found');
-    return this.view(result.rows[0]);
+    const assignments = await this.pool.query<{
+      scope_type: 'DEVICE' | 'GROUP';
+      scope_id: string;
+      valid_from: Date;
+      valid_until: Date;
+    }>(
+      'SELECT scope_type,COALESCE(device_id,group_id) AS scope_id,valid_from,valid_until FROM gps_policy_assignment WHERE policy_id=$1 AND revision IS NULL ORDER BY scope_type,scope_id',
+      [id],
+    );
+    return {
+      ...this.view(result.rows[0]),
+      assignments: assignments.rows.map((row) => ({
+        scope_type: row.scope_type,
+        scope_id: row.scope_id,
+        valid_from: asIso(row.valid_from),
+        valid_until: asIso(row.valid_until),
+      })),
+    };
   }
 
   async listPolicies(

@@ -54,6 +54,8 @@ for (const path of [
   '/v1/admin/gps-installations/{id}/retire',
   '/v1/admin/gps-tenant-grants/proposals',
   '/v1/admin/gps-tenant-grants/{id}/approve',
+  '/v1/admin/enrollment/devices',
+  '/v1/admin/devices/{device_id}/invitations/{invitation_id}',
 ]) {
   assert.ok(gpsPackaged.paths[path], 'required GPS design path missing');
 }
@@ -72,6 +74,13 @@ for (const path of ['/v1/device/gps-session-events/batches', '/v1/device/locatio
     assert.ok(operation.responses[status], `${path} missing ${status}`);
 }
 assert.deepEqual(healthPost.security, [{ deviceBearer: [], deviceProof: [] }]);
+assert.deepEqual(gpsPackaged.paths['/v1/admin/enrollment/devices'].get.security, [
+  { adminCookie: [] },
+]);
+assert.deepEqual(
+  gpsPackaged.paths['/v1/admin/devices/{device_id}/invitations/{invitation_id}'].delete.security,
+  [{ adminCookie: [], csrfHeader: [] }],
+);
 assert.ok(healthPost.responses['200'] && !healthPost.responses['202']);
 assert.deepEqual(healthPost.parameters, []);
 const healthEvent = gpsPackaged.components.schemas.HealthEvent;

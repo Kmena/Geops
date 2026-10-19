@@ -6,11 +6,32 @@ export interface AdminProfile {
   csrf_token: string;
 }
 
-export interface Device {
+export interface BasicDevice {
   id: string;
   display_label: string;
   status: string;
-  mdm_binding_id?: string;
+  mdm_binding_id: string;
+}
+
+export interface Device extends BasicDevice {
+  tenant_id: string;
+  mdm_device_id: string;
+  enrolled_at: string | null;
+  last_communication_at: string | null;
+  invitation_id: string | null;
+  invitation_status: string | null;
+  invitation_expires_at: string | null;
+  claim_id: string | null;
+  claim_status: string | null;
+  key_id: string | null;
+  installation_id: string | null;
+}
+
+export interface DeviceInvitation {
+  invitation_id: string;
+  geops_device_id: string;
+  invitation_secret: string;
+  expires_at: string;
 }
 
 export interface MdmDevice {
@@ -80,10 +101,85 @@ export const api = {
       headers: { 'x-csrf-token': csrf },
     }),
   geopsDevices: (cursor?: string) =>
-    read<Page<Device>>(`/v1/admin/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
+    read<Page<BasicDevice>>(
+      `/v1/admin/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
+  enrollmentDevices: (cursor?: string) =>
+    read<Page<Device>>(
+      `/v1/admin/enrollment/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
+  createDevice: (label: string, csrf: string) =>
+    read<BasicDevice>('/v1/admin/devices', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ display_label: label }),
+    }),
+  issueInvitation: (device: Device, csrf: string) =>
+    read<DeviceInvitation>(`/v1/admin/devices/${device.id}/invitations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({
+        mdm_binding_id: device.mdm_binding_id,
+        delivery_mode: 'supervised_qr',
+      }),
+    }),
+  cancelInvitation: (device: Device & { invitation_id: string }, csrf: string) =>
+    read<{ status: 'CANCELLED' }>(
+      `/v1/admin/devices/${device.id}/invitations/${device.invitation_id}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-csrf-token': csrf },
+      },
+    ),
+  recordSyntheticEvidence: (
+    device: Device & { claim_id: string },
+    csrf: string,
+    attestationException: boolean,
+  ) =>
+    read<{ evidence_ref: string; source: 'fake' }>(
+      `/v1/admin/devices/${device.id}/synthetic-evidence`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+        body: JSON.stringify({
+          claim_id: device.claim_id,
+          physical_confirmed: true,
+          attestation_exception: attestationException,
+        }),
+      },
+    ),
+  activateDevice: (
+    device: Device & { claim_id: string },
+    csrf: string,
+    pairingCode: string,
+    evidenceRef: string,
+  ) =>
+    read<{ status: 'ACTIVE'; key_id: string; mdm_binding_id: string }>(
+      `/v1/admin/devices/${device.id}/activate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+        body: JSON.stringify({
+          claim_id: device.claim_id,
+          pairing_code: pairingCode,
+          mdm_verification_method: 'manual_two_traits',
+          evidence_ref: evidenceRef,
+        }),
+      },
+    ),
+  activateInstallation: (deviceId: string, csrf: string, reason: string) =>
+    read<{ installation_id: string; device_id: string; state: 'ACTIVE' }>(
+      '/v1/admin/gps-installations',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+        body: JSON.stringify({ device_id: deviceId, reason }),
+      },
+    ),
   mdmDevices: (cursor?: string) =>
     read<Page<MdmDevice>>(
       `/v1/admin/mdm/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   mdmStatus: () => read<MdmStatus>('/v1/admin/mdm/status'),
+  gpsCapabilities: () => read<{ capabilities: string[] }>('/v1/admin/gps-capabilities'),
 };

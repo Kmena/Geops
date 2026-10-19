@@ -93,3 +93,63 @@ test('Corte 3 remote uses authorized device, session and bounded position routes
     (error: unknown) => error instanceof ApiClientError && error.status === 422,
   );
 });
+
+test('policy mutations send CSRF, unique idempotency keys and ETag without bypassing API', async () => {
+  const calls: Array<{ path: string; init: RequestInit }> = [];
+  const remote = new GpsRemote(async (path, init) => {
+    calls.push({ path: String(path), init: init ?? {} });
+    return new Response(JSON.stringify({ id, state: 'DRAFT', etag: `"gps-policy:${id}:2"` }), {
+      status: 200,
+    });
+  });
+  const spec = {
+    name: 'Prueba',
+    days_iso: [1, 2, 3],
+    start_local: '08:00',
+    end_local: '17:00',
+    time_zone: 'America/Guatemala',
+    capture_interval_s: 60,
+    sync_interval_s: 300,
+    heartbeat_missing_after_s: 900,
+    health_interval_s: 300,
+    valid_from: '2026-10-19T00:00:00.000Z',
+    valid_until: '2026-11-19T00:00:00.000Z',
+  };
+  const etag = `"gps-policy:${id}:1"`;
+  await remote.createPolicy(spec, 'csrf-test');
+  await remote.editPolicy(id, spec, etag, 'csrf-test');
+  await remote.assignPolicy(
+    id,
+    [
+      {
+        scope_type: 'DEVICE',
+        scope_id: id,
+        valid_from: spec.valid_from,
+        valid_until: spec.valid_until,
+      },
+    ],
+    etag,
+    'csrf-test',
+  );
+  await remote.transitionPolicy(id, 'publish', 'Prueba sintética', etag, 'csrf-test');
+  assert.deepEqual(
+    calls.map((call) => call.init.method),
+    ['POST', 'PATCH', 'PUT', 'POST'],
+  );
+  assert.equal(calls[0]?.path, '/v1/admin/gps-policies');
+  assert.equal(calls[2]?.path, `/v1/admin/gps-policies/${id}/assignments`);
+  assert.equal(calls[3]?.path, `/v1/admin/gps-policies/${id}/publish`);
+  const keys = calls.map(
+    (call) => (call.init.headers as Record<string, string>)['idempotency-key'],
+  );
+  assert.equal(new Set(keys).size, 4);
+  for (const call of calls) {
+    const headers = call.init.headers as Record<string, string>;
+    assert.equal(call.init.credentials, 'same-origin');
+    assert.equal(headers['x-csrf-token'], 'csrf-test');
+    assert.match(headers['idempotency-key'] ?? '', /^[0-9a-f-]{36}$/);
+  }
+  assert.equal(((calls[1]?.init.headers ?? {}) as Record<string, string>)['if-match'], etag);
+  assert.equal(((calls[2]?.init.headers ?? {}) as Record<string, string>)['if-match'], etag);
+  assert.equal(((calls[3]?.init.headers ?? {}) as Record<string, string>)['if-match'], etag);
+});

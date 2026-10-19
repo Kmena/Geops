@@ -157,6 +157,9 @@ try {
     created.etag,
   );
   check(assigned.status === 200, 'draft assignment');
+  const detailed = await call('GET', `/v1/admin/gps-policies/${id}`);
+  check(detailed.status === 200 && detailed.body.assignments?.length === 1 &&
+    detailed.body.assignments[0].scope_id === device1, 'policy detail returns draft assignments for safe Web editing');
   const key = randomUUID(),
     reason = { reason: 'Synthetic approval' };
   const path = `/v1/admin/gps-policies/${id}/publish`;

@@ -28,9 +28,47 @@ export function registerInventoryRoutes(
   mdm: MdmProvider,
 ): void {
   app.get<{ Querystring: PageQuery }>('/v1/admin/devices', async (request) => {
-    await requireAdmin(request, auth);
+    const admin = await requireAdmin(request, auth);
     const args = page(request.query);
-    return devices.list(args.cursor, args.limit);
+    const result = await devices.list(args.cursor, args.limit);
+    await appendAudit(devices.pool, {
+      actorType: 'ADMIN',
+      actorId: admin.id,
+      action: 'device.inventory.read',
+      outcome: 'success',
+      correlationId: request.id,
+      metadata: { source: 'geops', count: result.items.length },
+    });
+    return result;
+  });
+
+  app.get<{ Querystring: PageQuery }>('/v1/admin/enrollment/devices', async (request) => {
+    const admin = await requireAdmin(request, auth);
+    const granted = await devices.pool.query(
+      "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL",
+      [admin.id],
+    );
+    if (!granted.rowCount) {
+      await appendAudit(devices.pool, {
+        actorType: 'ADMIN',
+        actorId: admin.id,
+        action: 'device.enrollment.inventory.read',
+        outcome: 'rejected',
+        correlationId: request.id,
+      });
+      throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+    }
+    const args = page(request.query);
+    const result = await devices.listEnrollment(args.cursor, args.limit);
+    await appendAudit(devices.pool, {
+      actorType: 'ADMIN',
+      actorId: admin.id,
+      action: 'device.enrollment.inventory.read',
+      outcome: 'success',
+      correlationId: request.id,
+      metadata: { tenant_id: 'synthetic', count: result.items.length },
+    });
+    return result;
   });
 
   app.post<{ Body: { display_label: string } }>(
@@ -46,8 +84,8 @@ export function registerInventoryRoutes(
       },
     },
     async (request, reply) => {
-      await requireAdmin(request, auth, true);
-      const record = await devices.createDraft(request.body.display_label);
+      const admin = await requireAdmin(request, auth, true);
+      const record = await devices.createDraft(request.body.display_label, admin.id, request.id);
       reply.code(201);
       return record;
     },

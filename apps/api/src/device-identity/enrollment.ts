@@ -123,6 +123,73 @@ export class EnrollmentService {
     });
   }
 
+  async cancelInvitation(
+    deviceId: string,
+    invitationId: string,
+    adminId: string,
+    correlationId: string = randomUUID(),
+  ): Promise<{ status: 'CANCELLED' }> {
+    const granted = await this.pool.query(
+      "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL",
+      [adminId],
+    );
+    if (!granted.rowCount) {
+      await appendAudit(this.pool, {
+        actorType: 'ADMIN',
+        actorId: adminId,
+        deviceId,
+        action: 'device.invitation.cancel',
+        outcome: 'rejected',
+        correlationId,
+      });
+      throw new ApiError(403, 'gps_forbidden', 'Forbidden', true);
+    }
+    return transaction(this.pool, async (db) => {
+      const stillGranted = await db.query(
+        "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL FOR SHARE",
+        [adminId],
+      );
+      if (!stillGranted.rowCount) throw new ApiError(403, 'gps_forbidden', 'Forbidden', true);
+      const device = await this.repository.getDeviceForUpdate(db, deviceId);
+      if (device.status === 'ACTIVE' || device.status === 'REVOKED')
+        throw new ApiError(409, 'device_state', 'Conflict', true);
+      const result = await db.query<{ status: string; mdm_binding_id: string }>(
+        'SELECT status,mdm_binding_id FROM device_invitation WHERE id=$1 AND geops_device_id=$2 FOR UPDATE',
+        [invitationId, deviceId],
+      );
+      const invite = result.rows[0];
+      if (!invite) throw new ApiError(404, 'invitation_missing', 'Not found', true);
+      const binding = await this.repository.getBinding(db, invite.mdm_binding_id, deviceId);
+      if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic')
+        throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
+      if (invite.status !== 'ISSUED' && invite.status !== 'CLAIMED')
+        throw new ApiError(409, 'invitation_state', 'Conflict', true);
+      await db.query(
+        "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE id=$1",
+        [invitationId],
+      );
+      await db.query(
+        "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE invitation_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
+        [invitationId],
+      );
+      await db.query(
+        "UPDATE geops_device SET status='DRAFT',version=version+1,updated_at=$2 WHERE id=$1 AND status IN ('INVITED','PENDING_CONFIRMATION')",
+        [deviceId, this.now()],
+      );
+      await appendAudit(db, {
+        actorType: 'ADMIN',
+        actorId: adminId,
+        deviceId,
+        action: 'device.invitation.cancel',
+        outcome: 'success',
+        correlationId,
+        previousState: invite.status,
+        nextState: 'CANCELLED',
+      });
+      return { status: 'CANCELLED' };
+    });
+  }
+
   async claim(
     input: ClaimInput,
     correlationId: string = randomUUID(),
