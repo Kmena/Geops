@@ -1,0 +1,5 @@
+# Use only for an approved Web-only Staging update. Keep GEOPS_STAGE_IMAGE_TAG
+# in the private base env file unchanged so API, migrator and gate retain their image.
+services:
+  geops-web:
+    image: geops-spec02-web:${GEOPS_STAGE_WEB_IMAGE_TAG:?Set approved Web commit SHA}

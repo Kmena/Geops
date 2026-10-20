@@ -8,6 +8,50 @@ const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 }
 const failure = (status: number) =>
   new Response(JSON.stringify({ error: { code: `synthetic_${status}` } }), { status });
 
+test('Staging capability response loads GPS policies with the browser fetch receiver', async () => {
+  const capabilities = [
+    'gps.audit.read',
+    'gps.installation.manage',
+    'gps.location.read',
+    'gps.policy.activate',
+    'gps.policy.assign',
+    'gps.policy.read',
+    'gps.policy.write',
+    'gps.session.read',
+    'gps.tenant.grant',
+    'gps.user.manage',
+  ];
+  const paths: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = function (this: typeof globalThis, path, init) {
+    assert.equal(this, globalThis);
+    assert.equal(init?.credentials, 'same-origin');
+    paths.push(String(path));
+    if (String(path).endsWith('/gps-capabilities'))
+      return Promise.resolve(ok({ capabilities, tenant_ids: ['synthetic'] }));
+    return Promise.resolve(ok({ items: [], next_cursor: null }));
+  };
+  try {
+    const remote = new GpsRemote();
+    const observed: Array<{ rights: string[]; tenants: string[] }> = [];
+    const overview = await loadGpsOverview(
+      remote,
+      new AbortController().signal,
+      (rights, tenants) => observed.push({ rights, tenants }),
+    );
+    assert.deepEqual(observed, [{ rights: capabilities, tenants: ['synthetic'] }]);
+    assert.deepEqual(overview.capabilities, capabilities);
+    assert.deepEqual(overview.policies, []);
+    assert.deepEqual(paths, [
+      '/v1/admin/gps-capabilities',
+      '/v1/admin/gps-policies',
+      '/v1/admin/gps-devices',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('authenticated admin without capabilities gets a confirmed empty state without policy reads', async () => {
   const paths: string[] = [];
   const remote = new GpsRemote(async (path) => {
@@ -131,4 +175,17 @@ test('malformed capability response does not masquerade as an empty grant list',
     loadGpsOverview(remote, new AbortController().signal, () => {}),
     (error: unknown) => error instanceof ApiClientError && error.code === 'invalid_response',
   );
+});
+
+test('malformed tenant_ids does not trigger policy or device reads', async () => {
+  const paths: string[] = [];
+  const remote = new GpsRemote(async (path) => {
+    paths.push(String(path));
+    return ok({ capabilities: ['gps.policy.read', 'gps.session.read'], tenant_ids: 'synthetic' });
+  });
+  await assert.rejects(
+    loadGpsOverview(remote, new AbortController().signal, () => {}),
+    (error: unknown) => error instanceof ApiClientError && error.code === 'invalid_response',
+  );
+  assert.deepEqual(paths, ['/v1/admin/gps-capabilities']);
 });

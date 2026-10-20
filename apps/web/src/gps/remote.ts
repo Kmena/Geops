@@ -102,7 +102,7 @@ export interface RemotePosition {
 
 /** Authenticated transport; server capabilities, CSRF and ETags remain authoritative. */
 export class GpsRemote {
-  constructor(private readonly send: typeof fetch = fetch) {}
+  constructor(private readonly send: typeof fetch = globalThis.fetch.bind(globalThis)) {}
 
   private async get<T>(
     path: `/v1/${string}`,
