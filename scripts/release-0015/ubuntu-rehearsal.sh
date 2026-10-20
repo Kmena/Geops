@@ -47,14 +47,23 @@ openssl rand -hex 32 > "$scratch/db_password"
 chmod 600 "$scratch/db_password"
 stage=preflight
 completed=no
+created_container=
+created_network=
+built_image=
 cleanup() {
   code=$?
   if [[ $completed != yes ]]; then
     printf '{"result":"BLOCKED","stage":"%s"}\n' "$stage" > "$evidence/result.json"
   fi
-  docker rm -f "$database_container" >/dev/null 2>&1 || true
-  docker network rm "$network" >/dev/null 2>&1 || true
-  docker image rm "$image" >/dev/null 2>&1 || true
+  if [[ -n $created_container ]]; then
+    docker rm -f "$created_container" >/dev/null 2>&1 || true
+  fi
+  if [[ -n $created_network ]]; then
+    docker network rm "$created_network" >/dev/null 2>&1 || true
+  fi
+  if [[ -n $built_image && $(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null || true) == "$built_image" ]]; then
+    docker image rm "$image" >/dev/null 2>&1 || true
+  fi
   if [[ $scratch == /tmp/geops-0015-rehearsal.* && -d $scratch && ! -L $scratch ]]; then
     rm -rf -- "$scratch"
   fi
@@ -64,8 +73,15 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 stage=build
-docker build -q -f "$root/infrastructure/docker/api-release-rehearsal.Dockerfile" -t "$image" "$root" >/dev/null
+if docker container inspect "$database_container" >/dev/null 2>&1 ||
+  docker network inspect "$network" >/dev/null 2>&1 ||
+  docker image inspect "$image" >/dev/null 2>&1; then
+  echo 'El nombre de un recurso temporal ya existe; ensayo cancelado sin tocarlo' >&2
+  exit 1
+fi
+built_image=$(docker build -q -f "$root/infrastructure/docker/api-release-rehearsal.Dockerfile" -t "$image" "$root")
 api_image_id=$(docker image inspect "$image" --format '{{.Id}}')
+[[ $api_image_id == "$built_image" ]] || { echo 'La imagen de ensayo cambió inesperadamente' >&2; exit 1; }
 postgis_image_id=$(docker image inspect postgis/postgis:18-3.6 --format '{{.Id}}')
 git_sha=$(git -C "$root" rev-parse HEAD)
 dirty=no
@@ -74,19 +90,19 @@ printf '{"result":"IN_PROGRESS","git_sha":"%s","working_tree_dirty":"%s","dump_s
   "$git_sha" "$dirty" "$actual_hash" "$api_image_id" "$postgis_image_id" > "$evidence/source.json"
 
 stage=isolation
-docker network create --internal "$network" >/dev/null
-[[ $(docker network inspect "$network" --format '{{.Internal}}') == true ]] || { echo 'Red no aislada' >&2; exit 1; }
-docker run -d --name "$database_container" --network "$network" \
+created_network=$(docker network create --internal "$network")
+[[ $(docker network inspect "$created_network" --format '{{.Internal}}') == true ]] || { echo 'Red no aislada' >&2; exit 1; }
+created_container=$(docker run -d --name "$database_container" --network "$created_network" \
   --tmpfs /var/lib/postgresql:rw,size=1073741824 \
   --memory 1536m --cpus 1 --pids-limit 256 --security-opt no-new-privileges \
   -e POSTGRES_DB="$replica" -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD_FILE=/run/secrets/db_password \
   --mount "type=bind,src=$scratch/db_password,dst=/run/secrets/db_password,readonly" \
-  postgis/postgis:18-3.6 >/dev/null
-[[ -z $(docker port "$database_container") ]] || { echo 'PostGIS tiene un puerto publicado' >&2; exit 1; }
+  postgis/postgis:18-3.6)
+[[ -z $(docker port "$created_container") ]] || { echo 'PostGIS tiene un puerto publicado' >&2; exit 1; }
 ready=no
 for _ in $(seq 1 40); do
-  if docker exec "$database_container" pg_isready -U postgres -d "$replica" >/dev/null 2>&1; then ready=yes; break; fi
+  if docker exec "$created_container" pg_isready -h 127.0.0.1 -U postgres -d "$replica" >/dev/null 2>&1; then ready=yes; break; fi
   sleep 1
 done
 [[ $ready == yes ]] || { echo 'PostGIS desechable no inició' >&2; exit 1; }
@@ -94,7 +110,7 @@ done
 run_app() {
   local db_name=$1
   shift
-  docker run --rm --network "container:$database_container" \
+  docker run --rm --network "container:$created_container" \
     --user "$(id -u):$(id -g)" --memory 768m --cpus 1 --pids-limit 192 \
     --read-only --tmpfs /tmp:rw,nosuid,nodev,size=67108864 \
     --security-opt no-new-privileges \
@@ -104,7 +120,7 @@ run_app() {
     -e GEOPS_CONFIRM_MIGRATION_TARGET="$db_name" \
     -e GEOPS_SECURITY_GATE_PATH=/run/rehearsal/gate/security-gate.json \
     -e GEOPS_CONFIRM_LOST_GATE=YES -e GEOPS_CONFIRM_RESTORE_QUARANTINE=YES \
-    "$image" sh -ec '
+    "$built_image" sh -ec '
       password=$(cat /run/rehearsal/db_password)
       export DATABASE_URL="postgresql://postgres:${password}@127.0.0.1:5432/${REHEARSAL_DB_NAME}"
       exec "$@"
@@ -112,8 +128,8 @@ run_app() {
 }
 
 stage=restore
-docker exec -i "$database_container" pg_restore --list < "$dump" >/dev/null
-docker exec -i "$database_container" pg_restore --exit-on-error --no-owner --no-acl \
+docker exec -i "$created_container" pg_restore --list < "$dump" >/dev/null
+docker exec -i "$created_container" pg_restore --exit-on-error --no-owner --no-acl \
   -U postgres -d "$replica" < "$dump" >/dev/null
 run_app "$replica" node scripts/release-0015/replica-check.mjs pre > "$scratch/pre.json"
 
@@ -130,12 +146,12 @@ run_app "$replica" node apps/api/dist/db/quarantine-restored-db.js >/dev/null
 run_app "$replica" node scripts/release-0015/replica-check.mjs gate-after-quarantine > "$scratch/gate-after.json"
 
 stage=fault-tests
-docker exec "$database_container" createdb -U postgres "$fixture_migration"
+docker exec "$created_container" createdb -U postgres "$fixture_migration"
 run_app "$fixture_migration" node --import tsx apps/api/test/migration-0015-upgrade.integration.mjs > "$scratch/migration-test.log"
-docker exec "$database_container" createdb -U postgres "$fixture_recovery"
+docker exec "$created_container" createdb -U postgres "$fixture_recovery"
 run_app "$fixture_recovery" node --import tsx apps/api/test/migration-0015-upgrade.integration.mjs prepare-14 > "$scratch/fixture-test.log"
 run_app "$fixture_recovery" node --import tsx apps/api/test/maintenance-recovery.integration.mjs > "$scratch/recovery-test.log"
-docker exec "$database_container" createdb -U postgres "$fixture_admin"
+docker exec "$created_container" createdb -U postgres "$fixture_admin"
 run_app "$fixture_admin" node apps/api/dist/db/migrate.js > "$scratch/admin-migrate.log"
 run_app "$fixture_admin" node --import tsx apps/api/test/gps-capability-bootstrap.integration.mjs > "$scratch/capability-test.log"
 run_app "$fixture_admin" node --import tsx apps/api/test/admin-tenant-bootstrap.integration.mjs > "$scratch/tenant-test.log"

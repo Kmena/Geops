@@ -254,6 +254,8 @@ test('existing TypeScript PoP bytes and OpenAPI authentication remain aligned', 
       if (path.startsWith('/v1/device/')) {
         assert.deepEqual(operation.security, [{ deviceBearer: [], deviceProof: [] }]);
         assert.equal(operation.parameters?.some((p) => p.in === 'query'), false);
+      } else if (path === '/v1/admin/users/invitations/accept' && method === 'post') {
+        assert.deepEqual(operation.security, [], 'one-time invitation activation has no admin session');
       } else if (path.startsWith('/v1/admin/')) {
         assert.equal(operation.security[0].adminCookie?.length, 0);
         if (method !== 'get') assert.equal(operation.security[0].csrfHeader?.length, 0);
