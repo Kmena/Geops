@@ -129,6 +129,8 @@ jobs:
           npm run admin:users:integration --workspace @geops/api
           npm run maintenance:integration --workspace @geops/api
           npm run gps:scheduler:load --workspace @geops/api
+      - name: Detached staging preflight and private secret mounts
+        run: bash scripts/staging/test-clean-reinstall-0015.sh
       - name: Backup, isolated restore and rollback probe
         run: |
           container='${{ job.services.postgis.id }}'

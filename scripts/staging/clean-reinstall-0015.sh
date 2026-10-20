@@ -21,7 +21,7 @@ else
 fi
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
-[[ $(git -C "$root" branch --show-current) == codex/spec-02-wave-1 ]] || { echo 'Rama incorrecta' >&2; exit 1; }
+# A deployment checkout may intentionally be detached; the immutable commit is the authority.
 [[ $(git -C "$root" rev-parse HEAD) == "$approved_sha" ]] || { echo 'SHA no aprobado' >&2; exit 1; }
 [[ -z $(git -C "$root" status --porcelain) ]] || { echo 'Checkout con cambios locales' >&2; exit 1; }
 [[ -f $env_input && ! -L $env_input ]] || { echo 'Env privado inválido' >&2; exit 1; }
@@ -29,6 +29,21 @@ env_file=$(realpath -e -- "$env_input")
 [[ $(stat -c %u -- "$env_file") == "$(id -u)" ]] || { echo 'Env no pertenece al operador' >&2; exit 1; }
 env_mode=$(stat -c %a -- "$env_file")
 (( (8#$env_mode & 077) == 0 )) || { echo 'Env debe ser privado' >&2; exit 1; }
+
+# File-backed Compose secrets are bind mounts: uid/gid/mode in secrets: cannot remap them.
+# A dedicated group grants read access to both non-root application and database users.
+operator=$(id -un)
+group_record=$(getent group geops-stage-secrets) || { echo 'Grupo exclusivo de secretos ausente' >&2; exit 1; }
+IFS=: read -r group_name _ secret_gid group_members <<< "$group_record"
+[[ $group_name == geops-stage-secrets && $secret_gid =~ ^[0-9]+$ ]] || { echo 'Grupo de secretos inválido' >&2; exit 1; }
+(( secret_gid >= 2000 && secret_gid <= 60000 )) || { echo 'GID de secretos fuera del rango dedicado' >&2; exit 1; }
+[[ -z $group_members || $group_members == "$operator" ]] || { echo 'Grupo de secretos compartido con otra cuenta' >&2; exit 1; }
+[[ " $(id -G) " == *" $secret_gid "* ]] || { echo 'Operador no pertenece al grupo de secretos' >&2; exit 1; }
+passwd_records=$(getent passwd) || { echo 'No se pudo revisar el grupo primario de las cuentas' >&2; exit 1; }
+while IFS=: read -r account _ _ primary_gid _; do
+  [[ $primary_gid != "$secret_gid" || $account == "$operator" ]] || { echo 'Grupo de secretos usado por otra cuenta' >&2; exit 1; }
+done <<< "$passwd_records"
+
 [[ -z ${DOCKER_HOST:-} || ${DOCKER_HOST:-} == unix:///var/run/docker.sock ]] || { echo 'Docker remoto prohibido' >&2; exit 1; }
 [[ -z ${DOCKER_CONTEXT:-} && -z ${BUILDX_BUILDER:-} && -z ${BUILDKIT_HOST:-} ]] || { echo 'Overrides remotos de Docker prohibidos' >&2; exit 1; }
 [[ $(docker context inspect --format '{{.Endpoints.docker.Host}}') == unix://* ]] || { echo 'Se requiere Docker local Unix' >&2; exit 1; }
@@ -43,6 +58,9 @@ assert set(c["services"]) == {"geops-db","geops-migrate","geops-gate-init","geop
 assert c["services"]["geops-api"]["image"] == "geops-spec02-api:"+sha
 assert c["services"]["geops-web"]["image"] == "geops-spec02-web:"+sha
 assert c["services"]["geops-api"]["environment"]["GEOPS_ALLOWED_ORIGINS"] == "https://geops-staging.duckdns.org"
+for service in ("geops-db","geops-migrate","geops-gate-init","geops-api","geops-backup"):
+  assert c["services"][service]["group_add"] == [sys.argv[2]]
+assert not c["services"]["geops-web"].get("group_add")
 assert all(not s.get("ports") for s in c["services"].values())
 assert all(not s.get("network_mode") for s in c["services"].values())
 assert set(c["services"]["geops-db"]["networks"]) == {"stage_db"}
@@ -57,7 +75,7 @@ assert c["networks"]["stage_edge"]["external"] is True
 assert c["volumes"]["stage_pgdata"]["name"] == "geops_spec02_stage_pgdata"
 assert c["volumes"]["stage_security"]["name"] == "geops_spec02_stage_security"
 assert c["volumes"]["stage_backups"]["name"] == "geops_spec02_stage_backups"
-' "$approved_sha"
+' "$approved_sha" "$secret_gid"
 docker network inspect geops_spec02_stage_edge >/dev/null
 
 secret_dir="$root/infrastructure/compose/.local/staging/secrets"
@@ -71,8 +89,33 @@ for name in "${secret_names[@]}"; do
   path="$secret_dir/$name"
   [[ -f $path && ! -L $path && $(stat -c %u -- "$path") == "$(id -u)" ]] || { echo 'Secreto Staging inválido' >&2; exit 1; }
   secret_mode=$(stat -c %a -- "$path")
-  (( (8#$secret_mode & 077) == 0 )) || { echo 'Secreto Staging no es privado' >&2; exit 1; }
+  secret_file_gid=$(stat -c %g -- "$path")
+  [[ $secret_mode == 600 || ( $secret_mode == 640 && $secret_file_gid == "$secret_gid" ) ]] || { echo 'Secreto Staging no es privado' >&2; exit 1; }
 done
+
+probe_tmp=
+secret_tmp=
+cleanup_tmp() {
+  [[ -z $probe_tmp ]] || rm -f -- "$probe_tmp"
+  [[ -z $secret_tmp ]] || rm -f -- "$secret_tmp"
+}
+trap cleanup_tmp EXIT
+probe_read() {
+  local uid=$1 source=$2
+  docker run --rm --pull never --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --user "$uid:$uid" --group-add "$secret_gid" \
+    --mount "type=bind,src=$source,dst=/run/secrets/probe,readonly" \
+    --entrypoint /bin/sh postgis/postgis:18-3.6 -ec 'cat /run/secrets/probe >/dev/null'
+}
+# Verify the same host directory, owner, mode and bind-mount mechanism before stopping anything.
+probe_tmp=$(mktemp "$secret_dir/.access-probe.XXXXXXXX")
+printf 'synthetic-permission-probe\n' > "$probe_tmp"
+chgrp "$secret_gid" "$probe_tmp"
+chmod 640 "$probe_tmp"
+probe_read 1000 "$probe_tmp"
+probe_read 999 "$probe_tmp"
+rm -f -- "$probe_tmp"
+probe_tmp=
 
 services=(geops-web geops-api geops-backup geops-migrate geops-gate-init geops-db)
 project_services=$(docker ps -a --filter label=com.docker.compose.project=geops-spec02-staging --format '{{.Label "com.docker.compose.service"}}')
@@ -100,7 +143,7 @@ if [[ $mode == check ]]; then
   printf 'Preflight PASS: SHA=%s proyecto=geops-spec02-staging\n' "$approved_sha"
   printf 'Servicios exclusivos: %s\n' "${services[*]}"
   printf 'Volúmenes a descartar: %s\n' "${volumes[*]}"
-  echo 'Sin modificaciones de Docker.'
+  echo 'Sin modificaciones persistentes de Docker; lectura verificada en contenedores temporales sin red.'
   exit 0
 fi
 
@@ -114,9 +157,6 @@ for volume in "${volumes[@]}"; do
 done
 
 # Reemplazar solo los seis secretos exclusivos de Staging, sin mostrarlos.
-secret_tmp=
-cleanup_secret_tmp() { [[ -z $secret_tmp ]] || rm -f -- "$secret_tmp"; }
-trap cleanup_secret_tmp EXIT
 for name in "${secret_names[@]}"; do
   secret_tmp=$(mktemp "$secret_dir/.${name}.XXXXXXXX")
   if [[ $name == db_password ]]; then
@@ -126,9 +166,12 @@ for name in "${secret_names[@]}"; do
     openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n' > "$secret_tmp"
     [[ $(wc -c < "$secret_tmp") -eq 43 ]] || exit 1
   fi
-  chmod 600 "$secret_tmp"
+  chgrp "$secret_gid" "$secret_tmp"
+  chmod 640 "$secret_tmp"
   mv -T -- "$secret_tmp" "$secret_dir/$name"
   secret_tmp=
+  probe_read 1000 "$secret_dir/$name"
+  if [[ $name == db_password ]]; then probe_read 999 "$secret_dir/$name"; fi
 done
 
 "${compose[@]}" build geops-api geops-web

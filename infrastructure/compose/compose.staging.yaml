@@ -9,6 +9,7 @@ x-logs: &sanitized-logs
 services:
   geops-db:
     image: postgis/postgis:18-3.6
+    group_add: ["${GEOPS_STAGE_SECRET_GID:?Set dedicated staging secret group GID}"]
     environment:
       POSTGRES_DB: geops_dev
       POSTGRES_USER: geops_stage
@@ -31,6 +32,7 @@ services:
   geops-migrate:
     profiles: [maintenance]
     image: geops-spec02-api:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    group_add: ["${GEOPS_STAGE_SECRET_GID:?Set dedicated staging secret group GID}"]
     build:
       context: ../..
       dockerfile: infrastructure/docker/api.Dockerfile
@@ -62,6 +64,7 @@ services:
   geops-gate-init:
     profiles: [maintenance]
     image: geops-spec02-api:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    group_add: ["${GEOPS_STAGE_SECRET_GID:?Set dedicated staging secret group GID}"]
     configs:
       - source: stage_api_entrypoint
         target: /geops-stage-entrypoint.sh
@@ -85,6 +88,7 @@ services:
 
   geops-api:
     image: geops-spec02-api:${GEOPS_STAGE_IMAGE_TAG:?Set immutable staging image tag}
+    group_add: ["${GEOPS_STAGE_SECRET_GID:?Set dedicated staging secret group GID}"]
     build:
       context: ../..
       dockerfile: infrastructure/docker/api.Dockerfile
@@ -156,6 +160,7 @@ services:
   geops-backup:
     profiles: [maintenance]
     image: postgis/postgis:18-3.6
+    group_add: ["${GEOPS_STAGE_SECRET_GID:?Set dedicated staging secret group GID}"]
     configs:
       - source: stage_backup_script
         target: /geops-stage-backup.sh

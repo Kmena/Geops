@@ -45,6 +45,9 @@ assert.equal(
   'https://geops-staging.duckdns.org',
 );
 assert.equal(compose.services['geops-web'].build.args.GEOPS_WEB_BASE, '/');
+for (const name of ['geops-db', 'geops-migrate', 'geops-gate-init', 'geops-api', 'geops-backup'])
+  assert.deepEqual(compose.services[name].group_add, ['24001']);
+assert.equal(compose.services['geops-web'].group_add, undefined);
 assert.equal(compose.services['geops-api'].environment.GEOPS_INSECURE_LOCAL_COOKIE, undefined);
 assert.equal(compose.services['geops-migrate'].environment.GEOPS_CONFIRM_MAINTENANCE_EPOCH, '');
 assert.equal(
