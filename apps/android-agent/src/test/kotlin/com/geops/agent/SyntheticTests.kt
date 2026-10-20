@@ -271,6 +271,38 @@ fun main() {
         qr.put("origin", "https://geops-staging.duckdns.org")
         check(runCatching { EnrollmentTicket.parseActive(qr.put("invitation_secret", "invalid").toString(), now) }.isFailure)
     }
+    test("activation QR accepts only staging and canonical device identifiers") {
+        val now = Instant.parse("2026-10-20T12:00:00Z")
+        val qr = JSONObject().put("format", "geops-activation-v1")
+            .put("origin", "https://geops-staging.duckdns.org")
+            .put("geops_device_id", device).put("key_id", policyId)
+            .put("installation_id", anchor).put("expires_at", "2026-10-20T12:15:00Z")
+        val ticket = ActivationTicket.parseActive(qr.toString(), now)
+        check(ticket.deviceId == device && ticket.keyId == policyId && ticket.installationId == anchor)
+        check(runCatching { ActivationTicket.parseActive(qr.toString(), now.plusSeconds(900)) }.isFailure)
+        check(runCatching { ActivationTicket.parse(qr.put("origin", "https://evil.invalid").toString()) }.isFailure)
+        qr.put("origin", "https://geops-staging.duckdns.org")
+        check(runCatching { ActivationTicket.parse(qr.put("key_id", "invalid").toString()) }.isFailure)
+        qr.put("key_id", policyId)
+        check(runCatching { ActivationTicket.parse(qr.put("extra", "value").toString()) }.isFailure)
+    }
+    test("an activation QR cannot create a session for an inactive device") {
+        val signer = object : EnrollmentSigner {
+            override val publicSpki = byteArrayOf(1)
+            override fun sign(message: ByteArray) = byteArrayOf(1)
+        }
+        var attempts = 0
+        val transport = object : EnrollmentTransport {
+            override fun post(path: String, body: String): HttpResult {
+                attempts++
+                check(path == "/v1/device/sessions/challenge")
+                return HttpResult(403, "{}", null)
+            }
+        }
+        val provider = RefreshingSessionProvider(device, policyId, signer, transport)
+        check(runCatching { provider.currentToken() }.isFailure)
+        check(attempts == 1)
+    }
     test("claim conflict keeps only an allowlisted code and never echoes the response") {
         val now = Instant.parse("2026-10-19T12:00:00Z")
         val secret = java.util.Base64.getUrlEncoder().withoutPadding()

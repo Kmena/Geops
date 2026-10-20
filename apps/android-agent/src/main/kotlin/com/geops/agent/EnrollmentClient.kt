@@ -40,6 +40,29 @@ data class EnrollmentTicket(
     }
 }
 
+/** Public identifiers delivered by the administrator after supervised confirmation.
+ * Possession of this QR grants nothing: the server still requires the enrolled private key. */
+data class ActivationTicket(val deviceId: String, val keyId: String, val installationId: String,
+    val expiresAt: Instant) {
+    companion object {
+        fun parse(raw: String, expectedOrigin: String = "https://geops-staging.duckdns.org"): ActivationTicket {
+            require(raw.length <= 1024) { "activation_too_large" }
+            val value = JSONObject(raw)
+            require(value.keys().asSequence().toSet() == setOf("format", "origin", "geops_device_id",
+                "key_id", "installation_id", "expires_at")) { "activation_fields" }
+            require(value.getString("format") == "geops-activation-v1" &&
+                value.getString("origin") == expectedOrigin) { "activation_origin" }
+            val deviceId = value.getString("geops_device_id")
+            val keyId = value.getString("key_id")
+            val installationId = value.getString("installation_id")
+            require(uuid(deviceId) && uuid(keyId) && uuid(installationId)) { "activation_id" }
+            return ActivationTicket(deviceId, keyId, installationId, Instant.parse(value.getString("expires_at")))
+        }
+        fun parseActive(raw: String, now: Instant = Instant.now()): ActivationTicket =
+            parse(raw).also { require(it.expiresAt.isAfter(now)) { "activation_expired" } }
+    }
+}
+
 interface EnrollmentSigner {
     val publicSpki: ByteArray
     fun sign(message: ByteArray): ByteArray

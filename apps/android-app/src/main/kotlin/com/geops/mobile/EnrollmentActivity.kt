@@ -19,6 +19,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import com.geops.agent.AndroidKeys
+import com.geops.agent.ActivationTicket
 import com.geops.agent.EnrollmentClient
 import com.geops.agent.EnrollmentHttpException
 import com.geops.agent.EnrollmentTicket
@@ -50,6 +51,27 @@ class EnrollmentActivity : ComponentActivity() {
         val contents = result.contents
         if (contents == null) {
             show("No se leyó el QR. Comprueba el permiso de cámara, vuelve a escanear o introduce los datos manualmente.")
+            return@registerForActivityResult
+        }
+        if (runCatching { org.json.JSONObject(contents).optString("format") }.getOrNull() == "geops-activation-v1") {
+            val activation = try { ActivationTicket.parseActive(contents) }
+                catch (failure: Exception) {
+                    show(if (failure.message == "activation_expired")
+                        "El QR de activación venció. Actualiza GEOPS Web y vuelve a escanear."
+                        else "El QR de activación no es válido. Muéstralo de nuevo en GEOPS Web.")
+                    return@registerForActivityResult
+                }
+            val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+            if (saved.getString("device_id", null) != activation.deviceId ||
+                runCatching { AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS) }.isFailure) {
+                show("Este QR corresponde a otro equipo o falta la clave de inscripción. Inscribe este teléfono primero.")
+                return@registerForActivityResult
+            }
+            saved.edit().putString("key_id", activation.keyId)
+                .putString("installation_id", activation.installationId).apply()
+            keyField.setText(activation.keyId)
+            installationField.setText(activation.installationId)
+            show("Activación leída. Pulsa Iniciar seguimiento; el servidor verificará la identidad y la política.")
             return@registerForActivityResult
         }
         val ticket = try { EnrollmentTicket.parseActive(contents) }
@@ -85,19 +107,19 @@ class EnrollmentActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
-        fun paragraph(value: String) = TextView(this).also {
+        fun paragraph(value: String, parent: LinearLayout = content) = TextView(this).also {
             it.text = value
             it.textSize = 16f
-            content.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            parent.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = 16 })
         }
-        fun field(label: String, value: String = ""): EditText {
-            paragraph(label)
+        fun field(label: String, value: String = "", parent: LinearLayout = content): EditText {
+            paragraph(label, parent)
             return EditText(this).also {
                 it.setSingleLine(true)
                 it.setText(value)
                 it.contentDescription = label
-                content.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                parent.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = 20 })
             }
         }
@@ -109,27 +131,48 @@ class EnrollmentActivity : ComponentActivity() {
         paragraph("GEOPS · inscripción supervisada de prueba")
         paragraph("La ubicación solo se inicia durante una ventana autorizada desde esta pantalla visible. Android mostrará la notificación de seguimiento.")
         status = paragraph("Sin inscripción confirmada. No se captura ubicación.")
-        scannerButton = button("Escanear QR de invitación") {
+        scannerButton = button("Escanear QR de GEOPS") {
             qrScanner.launch(ScanOptions().apply {
                 setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                setPrompt("Escanea el QR de inscripción mostrado en GEOPS Web")
+                setPrompt("Escanea la invitación o el QR de activación mostrado en GEOPS Web")
                 setBeepEnabled(false)
                 setBarcodeImageEnabled(false)
                 setOrientationLocked(false)
             })
         }
-        deviceField = field("ID de dispositivo GEOPS", saved.getString("device_id", "") ?: "")
-        mdmField = field("ID MDM sintético")
-        invitationField = field("ID de invitación")
-        secretField = field("Código de inscripción de un solo uso").apply {
+        val manualFields = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        content.addView(manualFields)
+        button("Introducir invitación manualmente") {
+            manualFields.visibility = if (manualFields.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        deviceField = field("ID de dispositivo GEOPS", saved.getString("device_id", "") ?: "", manualFields)
+        mdmField = field("ID MDM sintético", parent = manualFields)
+        invitationField = field("ID de invitación", parent = manualFields)
+        secretField = field("Código de inscripción de un solo uso", parent = manualFields).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
         }
         claimButton = button("Reclamar invitación") { enroll() }
-        paragraph("Tras la confirmación en GEOPS Web, introduce los identificadores de activación. No son credenciales.")
-        keyField = field("ID de clave activada", saved.getString("key_id", "") ?: "")
-        installationField = field("ID de instalación GPS", saved.getString("installation_id", "") ?: "")
-        button("Consultar política e iniciar seguimiento autorizado") { startTracking() }
+        paragraph("Tras la confirmación en GEOPS Web, escanea el QR de activación y pulsa Iniciar seguimiento.")
+        val manualActivation = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        content.addView(manualActivation)
+        button("Introducir activación manualmente") {
+            manualActivation.visibility = if (manualActivation.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        keyField = field("ID de clave activada", saved.getString("key_id", "") ?: "", manualActivation)
+        installationField = field("ID de instalación GPS", saved.getString("installation_id", "") ?: "", manualActivation)
+        Button(this).also {
+            it.text = "Guardar identificadores"
+            it.setOnClickListener { saveManualActivation() }
+            manualActivation.addView(it)
+        }
+        button("Iniciar seguimiento") { startTracking() }
         setContentView(ScrollView(this).apply { addView(content) })
     }
 
@@ -170,7 +213,7 @@ class EnrollmentActivity : ComponentActivity() {
                 val enrollment = EnrollmentClient(HttpsEnrollmentTransport(SYNTHETIC_STAGING_BASE_URL))
                 val proof = enrollment.prove(ticket, enrollment.claim(ticket, signer), signer)
                 getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE).edit()
-                    .putString("device_id", deviceId).apply()
+                    .putString("device_id", deviceId).remove("key_id").remove("installation_id").apply()
                 val message = "Pendiente de confirmación administrativa. Código de emparejamiento: ${proof.pairingCode}. Vence ${proof.expiresAt}."
                 runOnUiThread {
                     completedInvitationId = invitationId
@@ -207,7 +250,33 @@ class EnrollmentActivity : ComponentActivity() {
         return "No se completó la inscripción. Comprueba el estado de la invitación en GEOPS Web antes de volver a intentarlo."
     }
 
+    private fun saveManualActivation() {
+        val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        if (saved.getString("device_id", null).isNullOrBlank() ||
+            runCatching { AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS) }.isFailure) {
+            show("Inscribe este teléfono antes de activarlo.")
+            return
+        }
+        val keyId = keyField.text.toString().trim()
+        val installationId = installationField.text.toString().trim()
+        val id = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        if (!id.matches(keyId) || !id.matches(installationId)) {
+            show("Los identificadores no son válidos. Escanea el QR de activación para evitar errores.")
+            return
+        }
+        saved.edit().putString("key_id", keyId).putString("installation_id", installationId).apply()
+        show("Identificadores guardados. Pulsa Iniciar seguimiento para validar el servidor.")
+    }
+
     private fun startTracking() {
+        val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        val deviceId = saved.getString("device_id", "") ?: ""
+        val keyId = saved.getString("key_id", "") ?: ""
+        val installationId = saved.getString("installation_id", "") ?: ""
+        if (deviceId.isBlank() || keyId.isBlank() || installationId.isBlank()) {
+            show("Falta activar este teléfono. Escanea el QR de activación mostrado en GEOPS Web.")
+            return
+        }
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION), 40)
@@ -219,18 +288,12 @@ class EnrollmentActivity : ComponentActivity() {
             show("Concede notificaciones para mostrar el seguimiento y vuelve a pulsar iniciar.")
             return
         }
-        val deviceId = deviceField.text.toString().trim()
-        val keyId = keyField.text.toString().trim()
-        val installationId = installationField.text.toString().trim()
         show("Validando identidad y sesión con el servidor…")
         work.execute {
             try {
                 val signer = AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS)
                 RefreshingSessionProvider(deviceId, keyId, signer,
                     HttpsEnrollmentTransport(SYNTHETIC_STAGING_BASE_URL)).currentToken()
-                val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
-                saved.edit().putString("device_id", deviceId).putString("key_id", keyId)
-                    .putString("installation_id", installationId).apply()
                 runOnUiThread {
                     if (!visible) { show("Vuelve a abrir GEOPS para iniciar desde una pantalla visible."); return@runOnUiThread }
                     try {
@@ -243,7 +306,7 @@ class EnrollmentActivity : ComponentActivity() {
                     }
                 }
             } catch (failure: Exception) {
-                show("Activación no confirmada: ${failure.message ?: "error"}. Revisa los identificadores en GEOPS Web.")
+                show("Activación no confirmada: ${failure.message ?: "error"}. Comprueba el estado del equipo en GEOPS Web.")
             }
         }
     }
