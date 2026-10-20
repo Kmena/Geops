@@ -2,16 +2,23 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import QRCode from 'qrcode';
 import { api, ApiClientError, type Device, type DeviceInvitation } from './api/client.js';
 import { useAuth } from './auth.js';
+import { activationQrPayload } from './activation.js';
 
 function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message === 'installation_pending') {
+    return 'La inscripción quedó confirmada, pero la preparación GPS no se completó. Actualiza el equipo y usa «Activar instalación» si sigue pendiente.';
+  }
   if (error instanceof Error && error.message === 'clipboard_unavailable') {
     return 'No se pudo copiar el código. Puedes introducirlo manualmente en la APK.';
   }
   if (error instanceof ApiClientError) {
+    if (error.status === 0) return 'No hay conexión con el servidor. Comprueba la red.';
     if (error.status === 401) return 'La sesión expiró. Vuelve a iniciar sesión.';
     if (error.status === 403) return 'No tienes autorización para esta operación.';
     if (error.status === 409) return 'El estado cambió. Actualiza el inventario.';
     if (error.status === 429) return 'Demasiados intentos. Espera y vuelve a probar.';
+    if (error.status >= 500)
+      return 'El servidor no pudo completar la operación. Reintenta después.';
   }
   return 'No se pudo completar la operación.';
 }
@@ -34,14 +41,20 @@ export function EnrollmentPanel({
     'invitation_id' | 'geops_device_id' | 'expires_at'
   > | null>(null);
   const [qr, setQr] = useState('');
+  const [activationQr, setActivationQr] = useState<{
+    deviceId: string;
+    url: string;
+    expiresAt: string;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const issuing = useRef(false);
+  const confirming = useRef(false);
+  const activating = useRef(false);
   const [error, setError] = useState<unknown>(null);
   const [pairingCode, setPairingCode] = useState('');
   const [physicalConfirmed, setPhysicalConfirmed] = useState(false);
   const [attestationException, setAttestationException] = useState(false);
-  const [reason, setReason] = useState('');
   const device = devices.find((item) => item.id === selected);
   const openInvitation = ['ISSUED', 'CLAIMED'].includes(device?.invitation_status ?? '');
   const localIssue =
@@ -59,6 +72,31 @@ export function EnrollmentPanel({
     localIssue?.invitation_id ?? (openInvitation ? device?.invitation_id : null);
   const displayedExpiry = localIssue?.expires_at ?? device?.invitation_expires_at;
   const invitationExpired = !!displayedExpiry && Date.parse(displayedExpiry) <= Date.now();
+
+  useEffect(() => {
+    if (device?.status !== 'ACTIVE' || !device.key_id || !device.installation_id) {
+      setActivationQr(null);
+      return;
+    }
+    let active = true;
+    const updateQr = () => {
+      const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+      const payload = activationQrPayload(device, window.location.origin, expiresAt);
+      void QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 2, width: 320 })
+        .then((value) => {
+          if (active) setActivationQr({ deviceId: device.id, url: value, expiresAt });
+        })
+        .catch((failure: unknown) => {
+          if (active) setError(failure);
+        });
+    };
+    updateQr();
+    const interval = window.setInterval(updateQr, 10 * 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [device]);
 
   useEffect(() => {
     if (!invitation) return;
@@ -158,10 +196,19 @@ export function EnrollmentPanel({
     }
   }
   async function confirm() {
-    if (!profile || !device?.claim_id || !physicalConfirmed || !/^[0-9]{8}$/.test(pairingCode))
+    if (
+      !profile ||
+      !device?.claim_id ||
+      !physicalConfirmed ||
+      !/^[0-9]{8}$/.test(pairingCode) ||
+      confirming.current ||
+      busy
+    )
       return;
+    confirming.current = true;
     setBusy(true);
     setError(null);
+    let enrollmentConfirmed = false;
     try {
       const scoped = { ...device, claim_id: device.claim_id };
       const evidence = await api.recordSyntheticEvidence(
@@ -170,13 +217,21 @@ export function EnrollmentPanel({
         attestationException,
       );
       await api.activateDevice(scoped, profile.csrf_token, pairingCode, evidence.evidence_ref);
+      enrollmentConfirmed = true;
+      await api.activateInstallation(
+        device.id,
+        profile.csrf_token,
+        'Preparación GPS tras inscripción supervisada en GEOPS Web',
+      );
       setPairingCode('');
       setPhysicalConfirmed(false);
       setAttestationException(false);
       refresh();
     } catch (failure) {
-      setError(failure);
+      setError(enrollmentConfirmed ? new Error('installation_pending') : failure);
+      refresh();
     } finally {
+      confirming.current = false;
       setBusy(false);
     }
   }
@@ -184,19 +239,25 @@ export function EnrollmentPanel({
     if (
       !profile ||
       !device ||
-      reason.trim().length < 8 ||
-      !capabilities.includes('gps.installation.manage')
+      !capabilities.includes('gps.installation.manage') ||
+      activating.current ||
+      busy
     )
       return;
+    activating.current = true;
     setBusy(true);
     setError(null);
     try {
-      await api.activateInstallation(device.id, profile.csrf_token, reason.trim());
-      setReason('');
+      await api.activateInstallation(
+        device.id,
+        profile.csrf_token,
+        'Activación operativa solicitada desde inventario GEOPS Web',
+      );
       refresh();
     } catch (failure) {
       setError(failure);
     } finally {
+      activating.current = false;
       setBusy(false);
     }
   }
@@ -348,7 +409,7 @@ export function EnrollmentPanel({
                 disabled={busy || !physicalConfirmed || !/^[0-9]{8}$/.test(pairingCode)}
                 onClick={() => void confirm()}
               >
-                Confirmar inscripción
+                Confirmar inscripción y preparar GPS
               </button>
             </div>
           )}
@@ -357,45 +418,30 @@ export function EnrollmentPanel({
             capabilities.includes('gps.installation.manage') && (
               <div className="enrollment-confirm">
                 <h3>Activar instalación GPS</h3>
-                <label>
-                  Motivo administrativo
-                  <input
-                    minLength={8}
-                    maxLength={240}
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={busy || reason.trim().length < 8}
-                  onClick={() => void activateInstallation()}
-                >
+                <p>Activa el seguimiento de este equipo. La operación queda auditada.</p>
+                <button type="button" disabled={busy} onClick={() => void activateInstallation()}>
                   Activar instalación
                 </button>
               </div>
             )}
-          {device.status === 'ACTIVE' && (
+          {device.status === 'ACTIVE' && device.installation_id && (
             <div className="enrollment-confirm">
-              <h3>Identificadores de activación</h3>
+              <h3>Activar en el teléfono</h3>
               <p>
-                Transfiere estos identificadores al agente después de la confirmación. No son
-                credenciales.
+                Escanea este QR con la APK GEOPS en el equipo inscrito y pulsa «Iniciar
+                seguimiento». La clave del teléfono y la política se verifican antes de iniciar.
               </p>
-              <dl>
-                <dt>Dispositivo</dt>
-                <dd>
-                  <code>{device.id}</code>
-                </dd>
-                <dt>Clave</dt>
-                <dd>
-                  <code>{device.key_id ?? 'Pendiente'}</code>
-                </dd>
-                <dt>Instalación</dt>
-                <dd>
-                  <code>{device.installation_id ?? 'Pendiente'}</code>
-                </dd>
-              </dl>
+              {activationQr?.deviceId === device.id && (
+                <>
+                  <p>QR válido hasta {new Date(activationQr.expiresAt).toLocaleString('es-GT')}.</p>
+                  <img
+                    src={activationQr.url}
+                    alt="QR de activación GPS para este dispositivo"
+                    width="320"
+                    height="320"
+                  />
+                </>
+              )}
             </div>
           )}
         </div>

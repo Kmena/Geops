@@ -14,6 +14,15 @@ import { GpsPolicyEditor } from './GpsPolicyEditor.js';
 
 type Section = 'policies' | 'devices' | 'sessions' | 'executive';
 const remote = new GpsRemote();
+const HEALTH_REASON = 'Consulta operativa de salud desde GEOPS Web';
+const LOCATION_REASON = 'Consulta operativa de ubicaciones desde GEOPS Web';
+const recentPeriod = () => {
+  const end = new Date();
+  return {
+    from: new Date(end.getTime() - 23 * 60 * 60 * 1000).toISOString(),
+    to: end.toISOString(),
+  };
+};
 const format = (value: string | undefined | null): string =>
   value
     ? new Date(value).toLocaleString('es-GT', { timeZone: 'America/Guatemala' })
@@ -99,7 +108,8 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
   const [health, setHealth] = useState<RemoteHealth | null>(null);
   const [positions, setPositions] = useState<RemotePosition[]>([]);
   const [positionCursor, setPositionCursor] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
+  const [positionPeriod, setPositionPeriod] = useState<{ from: string; to: string } | null>(null);
+  const [positionLoading, setPositionLoading] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [filterSession, setFilterSession] = useState('');
@@ -155,6 +165,8 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
     setHealth(null);
     setPositions([]);
     setPositionCursor(null);
+    setPositionPeriod(null);
+    setPositionLoading(false);
     void remote
       .sessions(selected, undefined, controller.signal)
       .then((page) => {
@@ -172,15 +184,49 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
     return () => controller.abort();
   }, [selected, allowed]);
 
+  useEffect(() => {
+    if (section !== 'devices' || !selected || !allowed('gps.location.read')) return;
+    const controller = new AbortController();
+    const period = recentPeriod();
+    setPositions([]);
+    setPositionCursor(null);
+    setPositionPeriod(period);
+    setPositionLoading(true);
+    void remote
+      .positions(selected, LOCATION_REASON, period.from, period.to, undefined, controller.signal)
+      .then((page) => {
+        if (!controller.signal.aborted) {
+          setPositions(page.items);
+          setPositionCursor(page.next_cursor);
+        }
+      })
+      .catch((failure: unknown) => {
+        if (!controller.signal.aborted) setDetailError(failure);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPositionLoading(false);
+      });
+    return () => controller.abort();
+  }, [section, selected, allowed]);
+
   const active = useMemo(
     () => devices.find((item) => item.device_id === selected),
     [devices, selected],
+  );
+  const latestPosition = useMemo(
+    () =>
+      positions.reduce<RemotePosition | null>(
+        (latest, item) =>
+          !latest || Date.parse(item.captured_at) > Date.parse(latest.captured_at) ? item : latest,
+        null,
+      ),
+    [positions],
   );
   async function loadHealth() {
     setDetailLoading(true);
     setDetailError(null);
     try {
-      setHealth(await remote.health(selected, reason));
+      setHealth(await remote.health(selected, HEALTH_REASON));
     } catch (failure) {
       setDetailError(failure);
     } finally {
@@ -189,23 +235,32 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
   }
   async function loadPositions(cursor?: string) {
     setDetailLoading(true);
+    setPositionLoading(true);
     setDetailError(null);
     try {
+      const period =
+        cursor && positionPeriod
+          ? positionPeriod
+          : from && to
+            ? { from: new Date(from).toISOString(), to: new Date(to).toISOString() }
+            : recentPeriod();
       const page = await remote.positions(
         selected,
-        reason,
-        new Date(from).toISOString(),
-        new Date(to).toISOString(),
+        LOCATION_REASON,
+        period.from,
+        period.to,
         cursor,
         undefined,
         filterSession || undefined,
       );
       setPositions((current) => (cursor ? [...current, ...page.items] : page.items));
       setPositionCursor(page.next_cursor);
+      if (!cursor) setPositionPeriod(period);
     } catch (failure) {
       setDetailError(failure);
     } finally {
       setDetailLoading(false);
+      setPositionLoading(false);
     }
   }
 
@@ -341,20 +396,11 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                 </>
               )}
               <div className="gps-live-sensitive">
-                <h3>Consultas sensibles</h3>
-                <label>
-                  Motivo de consulta{' '}
-                  <input
-                    value={reason}
-                    minLength={8}
-                    maxLength={240}
-                    onChange={(event) => setReason(event.target.value)}
-                    placeholder="Explica el motivo de acceso"
-                  />
-                </label>
+                <h3>Estado y ubicación</h3>
+                <p>Las consultas quedan auditadas y requieren permisos para este dispositivo.</p>
                 <button
                   type="button"
-                  disabled={reason.trim().length < 8 || !allowed('gps.session.read')}
+                  disabled={!allowed('gps.session.read')}
                   onClick={() => void loadHealth()}
                 >
                   Consultar salud
@@ -433,6 +479,10 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                       void loadPositions();
                     }}
                   >
+                    <p>
+                      Ubicaciones de las últimas 23 horas. Ajusta el período si necesitas consultar
+                      otro momento.
+                    </p>
                     <label>
                       Sesión efectiva
                       <select
@@ -455,7 +505,6 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                         type="datetime-local"
                         value={from}
                         onChange={(event) => setFrom(event.target.value)}
-                        required
                       />
                     </label>
                     <label>
@@ -464,16 +513,20 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                         type="datetime-local"
                         value={to}
                         onChange={(event) => setTo(event.target.value)}
-                        required
                       />
                     </label>
-                    <button type="submit" disabled={reason.trim().length < 8}>
-                      Consultar posiciones
-                    </button>
+                    <button type="submit">Actualizar ubicaciones</button>
                   </form>
                 )}
                 {positions.length > 0 && (
                   <>
+                    {latestPosition && (
+                      <p>
+                        <strong>Última ubicación observada:</strong>{' '}
+                        {format(latestPosition.captured_at)} · {latestPosition.latitude},{' '}
+                        {latestPosition.longitude} · precisión ±{latestPosition.accuracy_m} m
+                      </p>
+                    )}
                     <PositionTrack positions={positions} />
                     <ul>
                       {positions.map((position) => (
@@ -485,6 +538,11 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                     </ul>
                   </>
                 )}
+                {allowed('gps.location.read') &&
+                  !positionLoading &&
+                  positionPeriod &&
+                  positions.length === 0 &&
+                  detailError === null && <p>No hay ubicaciones observadas en este período.</p>}
                 {positionCursor && (
                   <button type="button" onClick={() => void loadPositions(positionCursor)}>
                     Más posiciones
