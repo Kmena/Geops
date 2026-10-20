@@ -11,7 +11,6 @@ import {
   INITIAL_GPS_CAPABILITIES,
 } from '../src/admin-auth/gps-capability-bootstrap.ts';
 import { AdminUserAdministrationService } from '../src/admin-auth/user-administration.ts';
-import { DeviceRepository } from '../src/device-identity/repository.ts';
 
 const url = process.env.DATABASE_URL;
 const mode = process.argv[2] ?? 'full';
@@ -72,10 +71,16 @@ try {
       'INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,$2,$1,$3)',
       [adminId, permission, 'Pre-upgrade permission'],
     );
-  const device = await new DeviceRepository(pool).createDraft(
+  // Build a representative 0014 fixture using its schema. The current repository
+  // correctly requires the operating-tenant table introduced only by 0015.
+  const device = { id: randomUUID(), mdm_binding_id: randomUUID() };
+  await pool.query("INSERT INTO geops_device(id,status,display_label) VALUES($1,'DRAFT',$2)", [
+    device.id,
     'Synthetic migration device',
-    adminId,
-    randomUUID(),
+  ]);
+  await pool.query(
+    "INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state) VALUES($1,$2,'fake','synthetic',$3,'PENDING')",
+    [device.mdm_binding_id, device.id, `fake-${device.id}`],
   );
   const publicKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey.export({
     type: 'spki',
