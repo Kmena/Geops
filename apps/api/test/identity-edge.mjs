@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, randomBytes, sign, createHash } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID, sign, createHash } from 'node:crypto';
 import { enrollmentProofBytes } from '@geops/api-contracts';
 import { loadConfig } from '../dist/config.js';
 import { applyMigrations } from '../dist/db/migration-manager.js';
@@ -40,6 +40,19 @@ async function main() {
       'edge@example.test',
       randomBytes(24).toString('base64url'),
     );
+    await pool.query(
+      'INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES($1,$2,$3)',
+      ['synthetic', adminId, randomUUID()],
+    );
+    await pool.query(
+      "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.installation.manage',$1,$2)",
+      [adminId, 'Synthetic identity edge fixture'],
+    );
+    for (const table of ['gps_data_tenant_access', 'gps_health_tenant_access'])
+      await pool.query(
+        `INSERT INTO ${table}(admin_id,tenant_id,granted_by,reason) VALUES($1,'synthetic',$1,$2)`,
+        [adminId, 'Synthetic identity edge fixture'],
+      );
     const repo = new DeviceRepository(pool);
     let current = Date.now();
     const enroll = new EnrollmentService(

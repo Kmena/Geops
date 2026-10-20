@@ -100,7 +100,7 @@ paths:
     get:
       tags: [Inventory]
       operationId: listGeopsDevices
-      description: Synthetic enrollment inventory only; requires gps.installation.manage.
+      description: Synthetic enrollment inventory only; requires gps.installation.manage and active tenant access.
       security:
         - adminCookie: []
       parameters:
@@ -115,10 +115,12 @@ paths:
                 $ref: '#/components/schemas/DevicePage'
         '401':
           $ref: '#/components/responses/AdminError'
+        '403':
+          $ref: '#/components/responses/AdminError'
     post:
       tags: [Inventory]
       operationId: createGeopsDevice
-      description: Creates a synthetic DRAFT; requires gps.installation.manage and does not enroll MDM.
+      description: Creates a synthetic DRAFT; requires gps.installation.manage and active synthetic tenant access; does not enroll MDM.
       security:
         - adminCookie: []
           csrfHeader: []
@@ -150,6 +152,7 @@ paths:
     post:
       tags: [Identity]
       operationId: createDeviceInvitation
+      description: Requires gps.installation.manage and active access to the binding tenant.
       security:
         - adminCookie: []
           csrfHeader: []
@@ -222,6 +225,7 @@ paths:
     post:
       tags: [Identity]
       operationId: recordSyntheticEvidence
+      x-geops-authorization: gps.installation.manage and active binding tenant access
       description: Solo desarrollo con binding fake; nunca acredita verificación física ni MDM real.
       security:
         - adminCookie: []
@@ -258,6 +262,7 @@ paths:
     post:
       tags: [Identity]
       operationId: activateDevice
+      x-geops-authorization: gps.installation.manage and active binding tenant access
       description: Requiere confirmación física y verificación MDM independiente. Deshabilitado para dispositivos reales en 0A.
       security:
         - adminCookie: []
@@ -365,6 +370,7 @@ paths:
     post:
       tags: [Identity]
       operationId: revokeDevice
+      description: Requires gps.installation.manage and active device tenant access.
       security:
         - adminCookie: []
           csrfHeader: []
@@ -400,6 +406,7 @@ paths:
     get:
       tags: [MDM]
       operationId: getMdmStatus
+      description: Requires gps.installation.manage and active synthetic tenant access.
       security:
         - adminCookie: []
       responses:
@@ -411,10 +418,13 @@ paths:
                 $ref: '#/components/schemas/MdmStatus'
         '401':
           $ref: '#/components/responses/AdminError'
+        '403':
+          $ref: '#/components/responses/AdminError'
   /v1/admin/mdm/devices:
     get:
       tags: [MDM]
       operationId: listMdmDevices
+      description: Requires gps.installation.manage and active synthetic tenant access.
       security:
         - adminCookie: []
       parameters:

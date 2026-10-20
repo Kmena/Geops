@@ -137,6 +137,15 @@ async function main() {
       "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.installation.manage',$1,$2)",
       [adminId, 'Synthetic SPEC-01 integration fixture'],
     );
+    await pool.query(
+      'INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES($1,$2,$3)',
+      ['synthetic', adminId, randomUUID()],
+    );
+    for (const table of ['gps_data_tenant_access', 'gps_health_tenant_access'])
+      await pool.query(
+        `INSERT INTO ${table}(admin_id,tenant_id,granted_by,reason) VALUES($1,'synthetic',$1,$2)`,
+        [adminId, 'Synthetic SPEC-01 integration fixture'],
+      );
     step = 'device';
     const created = await call(
       'POST',

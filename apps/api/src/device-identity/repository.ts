@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { ApiError } from '../errors.js';
 import { appendAudit } from '../audit/index.js';
+import { requireInstallationAccess } from './admin-scope.js';
 
 export interface DeviceRecord {
   id: string;
@@ -64,11 +65,7 @@ export class DeviceRepository {
     }
     return transaction(this.pool, async (db) => {
       if (adminId) {
-        const permission = await db.query(
-          "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL FOR SHARE",
-          [adminId],
-        );
-        if (!permission.rowCount) throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+        await requireInstallationAccess(db, adminId, 'synthetic');
       }
       const id = randomUUID();
       const bindingId = randomUUID();
@@ -199,43 +196,78 @@ export class DeviceRepository {
     adminId?: string,
     correlationId: string = randomUUID(),
   ): Promise<void> {
-    await transaction(this.pool, async (db) => {
-      const device = await this.getDeviceForUpdate(db, deviceId);
-      if (device.status === 'REVOKED') return;
-      await db.query(
-        "UPDATE geops_device SET status='REVOKED',version=version+1,updated_at=now() WHERE id=$1",
-        [deviceId],
-      );
-      await db.query(
-        "UPDATE mdm_binding SET state='REVOKED',version=version+1 WHERE geops_device_id=$1",
-        [deviceId],
-      );
-      await db.query(
-        "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('ISSUED','CLAIMED')",
-        [deviceId],
-      );
-      await db.query(
-        "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
-        [deviceId],
-      );
-      await db.query(
-        "UPDATE device_key SET status='REVOKED',revoked_at=now(),version=version+1 WHERE geops_device_id=$1 AND status<>'REVOKED'",
-        [deviceId],
-      );
-      await db.query(
-        'UPDATE device_session SET revoked_at=now() WHERE geops_device_id=$1 AND revoked_at IS NULL',
-        [deviceId],
-      );
-      await appendAudit(db, {
-        actorType: adminId ? 'ADMIN' : 'SYSTEM',
-        ...(adminId ? { actorId: adminId } : {}),
-        deviceId,
-        action: 'device.revoke',
-        outcome: 'success',
-        correlationId,
-        previousState: device.status,
-        nextState: 'REVOKED',
+    try {
+      await transaction(this.pool, async (db) => {
+        if (adminId) await requireInstallationAccess(db, adminId, 'synthetic');
+        const device = await this.getDeviceForUpdate(db, deviceId);
+        if (device.status === 'REVOKED') {
+          if (adminId) {
+            const previous = await db.query<{ count: number; valid: boolean }>(
+              "SELECT count(*)::int AS count,bool_and(provider='fake' AND customer_id='synthetic' AND state='REVOKED') AS valid FROM mdm_binding WHERE geops_device_id=$1",
+              [deviceId],
+            );
+            if (!previous.rows[0]?.count || !previous.rows[0].valid)
+              throw new ApiError(409, 'binding_conflict', 'Conflict', true);
+          }
+          return;
+        }
+        if (adminId) {
+          const binding = await db.query<{ customer_id: string }>(
+            "SELECT customer_id FROM mdm_binding WHERE geops_device_id=$1 AND state IN ('PENDING','ACTIVE') FOR SHARE",
+            [deviceId],
+          );
+          const activeBinding = binding.rows[0];
+          if (binding.rows.length !== 1 || !activeBinding)
+            throw new ApiError(409, 'binding_conflict', 'Conflict', true);
+          await requireInstallationAccess(db, adminId, activeBinding.customer_id);
+        }
+        await db.query(
+          "UPDATE geops_device SET status='REVOKED',version=version+1,updated_at=now() WHERE id=$1",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE mdm_binding SET state='REVOKED',version=version+1 WHERE geops_device_id=$1",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('ISSUED','CLAIMED')",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE device_key SET status='REVOKED',revoked_at=now(),version=version+1 WHERE geops_device_id=$1 AND status<>'REVOKED'",
+          [deviceId],
+        );
+        await db.query(
+          'UPDATE device_session SET revoked_at=now() WHERE geops_device_id=$1 AND revoked_at IS NULL',
+          [deviceId],
+        );
+        await appendAudit(db, {
+          actorType: adminId ? 'ADMIN' : 'SYSTEM',
+          ...(adminId ? { actorId: adminId } : {}),
+          deviceId,
+          action: 'device.revoke',
+          outcome: 'success',
+          correlationId,
+          previousState: device.status,
+          nextState: 'REVOKED',
+        });
       });
-    });
+    } catch (error) {
+      if (adminId)
+        await appendAudit(this.pool, {
+          actorType: 'ADMIN',
+          actorId: adminId,
+          deviceId,
+          action: 'device.revoke',
+          outcome: 'rejected',
+          correlationId,
+          metadata: { code: error instanceof ApiError ? error.code : 'dependency_unavailable' },
+        }).catch(() => {});
+      throw error;
+    }
   }
 }

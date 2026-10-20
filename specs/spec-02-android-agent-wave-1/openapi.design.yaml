@@ -1568,7 +1568,7 @@
     "/v1/admin/gps-installations": {
       "post": {
         "operationId": "activateGpsInstallation",
-        "description": "Synthetic only; requires gps.installation.manage. Installation ID is server generated.",
+        "description": "Synthetic only; requires gps.installation.manage and active access to the device tenant. Installation ID is server generated.",
         "security": [{ "adminCookie": [], "csrfHeader": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": {
           "type": "object", "additionalProperties": false, "required": ["device_id", "reason"],
@@ -1580,7 +1580,7 @@
     "/v1/admin/gps-installations/{id}/retire": {
       "post": {
         "operationId": "retireGpsInstallation",
-        "description": "Requires gps.installation.manage; existing key cannot fetch GPS config after retirement.",
+        "description": "Requires gps.installation.manage and active access to the installation tenant; existing key cannot fetch GPS config after retirement.",
         "security": [{ "adminCookie": [], "csrfHeader": [] }],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": {

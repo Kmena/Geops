@@ -5,6 +5,7 @@ import { requireAdmin } from './admin-auth/routes.js';
 import type { AdminAuthService } from './admin-auth/service.js';
 import { appendAudit } from './audit/index.js';
 import { ApiError } from './errors.js';
+import { requireInstallationAccess } from './device-identity/admin-scope.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -132,6 +133,7 @@ export class GpsAdministrationService {
     try {
       await db.query('BEGIN');
       await this.lockedCapability(db, adminId, 'gps.installation.manage');
+      await requireInstallationAccess(db, adminId, 'synthetic');
       const device = await db.query<{ status: string }>(
         'SELECT status FROM geops_device WHERE id=$1 FOR UPDATE',
         [deviceId],
@@ -144,6 +146,7 @@ export class GpsAdministrationService {
       const activeBinding = binding.rows[0];
       if (binding.rows.length !== 1 || !activeBinding)
         throw new ApiError(409, 'binding_conflict', 'Conflict');
+      await requireInstallationAccess(db, adminId, activeBinding.customer_id);
       const installed = await db.query(
         'SELECT 1 FROM gps_device_installation WHERE device_id=$1 AND retired_at IS NULL FOR UPDATE',
         [deviceId],
@@ -188,11 +191,13 @@ export class GpsAdministrationService {
     try {
       await db.query('BEGIN');
       await this.lockedCapability(db, adminId, 'gps.installation.manage');
-      const row = await db.query<{ device_id: string }>(
-        'SELECT device_id FROM gps_device_installation WHERE installation_id=$1 AND retired_at IS NULL FOR UPDATE',
+      await requireInstallationAccess(db, adminId, 'synthetic');
+      const row = await db.query<{ device_id: string; activation_tenant_id: string }>(
+        'SELECT device_id,activation_tenant_id FROM gps_device_installation WHERE installation_id=$1 AND retired_at IS NULL FOR UPDATE',
         [installationId],
       );
       if (!row.rows[0]) throw new ApiError(404, 'not_found', 'Not found');
+      await requireInstallationAccess(db, adminId, row.rows[0].activation_tenant_id);
       await db.query(
         'UPDATE gps_device_installation SET retired_at=now() WHERE installation_id=$1',
         [installationId],

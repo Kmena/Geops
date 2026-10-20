@@ -4,6 +4,7 @@ import type { AdminAuthService } from '../admin-auth/service.js';
 import { ApiError } from '../errors.js';
 import { appendAudit } from '../audit/index.js';
 import type { DeviceRepository } from '../device-identity/repository.js';
+import { requireInstallationAccess } from '../device-identity/admin-scope.js';
 import type { MdmProvider } from './provider.js';
 
 interface PageQuery {
@@ -27,19 +28,19 @@ async function requireInstallationCapability(
   requestId: string,
   action: string,
 ): Promise<void> {
-  const granted = await devices.pool.query(
-    "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL",
-    [adminId],
-  );
-  if (granted.rowCount) return;
-  await appendAudit(devices.pool, {
-    actorType: 'ADMIN',
-    actorId: adminId,
-    action,
-    outcome: 'rejected',
-    correlationId: requestId,
-  });
-  throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+  try {
+    await requireInstallationAccess(devices.pool, adminId, 'synthetic');
+  } catch (error) {
+    await appendAudit(devices.pool, {
+      actorType: 'ADMIN',
+      actorId: adminId,
+      action,
+      outcome: 'rejected',
+      correlationId: requestId,
+      metadata: { code: error instanceof ApiError ? error.code : 'dependency_unavailable' },
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 export function registerInventoryRoutes(
@@ -108,6 +109,7 @@ export function registerInventoryRoutes(
 
   app.get('/v1/admin/mdm/status', async (request) => {
     const admin = await requireAdmin(request, auth);
+    await requireInstallationCapability(devices, admin.id, request.id, 'mdm.status.read');
     const status = await mdm.integrationStatus();
     await appendAudit(devices.pool, {
       actorType: 'ADMIN',
@@ -122,6 +124,7 @@ export function registerInventoryRoutes(
 
   app.get<{ Querystring: PageQuery }>('/v1/admin/mdm/devices', async (request) => {
     const admin = await requireAdmin(request, auth);
+    await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.read');
     const args = page(request.query);
     const result = await mdm.listDevices('synthetic', args.cursor, args.limit);
     await appendAudit(devices.pool, {

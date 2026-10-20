@@ -14,6 +14,7 @@ import {
   verifyP256,
 } from './crypto.js';
 import { type DeviceRepository, transaction } from './repository.js';
+import { requireInstallationAccess } from './admin-scope.js';
 
 const INVITATION_MS = 10 * 60_000;
 const CHALLENGE_MS = 2 * 60_000;
@@ -39,6 +40,24 @@ export class RejectingAttestationVerifier implements AttestationVerifier {
 
 export class EnrollmentService {
   private readonly now: () => Date;
+
+  private async rejected(
+    adminId: string,
+    deviceId: string,
+    action: string,
+    correlationId: string,
+    error: unknown,
+  ): Promise<void> {
+    await appendAudit(this.pool, {
+      actorType: 'ADMIN',
+      actorId: adminId,
+      deviceId,
+      action,
+      outcome: 'rejected',
+      correlationId,
+      metadata: { code: error instanceof ApiError ? error.code : 'dependency_unavailable' },
+    }).catch(() => {});
+  }
 
   constructor(
     private readonly pool: Pool,
@@ -66,61 +85,68 @@ export class EnrollmentService {
     if (deliveryMode !== 'supervised_qr') {
       throw new ApiError(403, 'delivery_unavailable', 'Forbidden', true);
     }
-    return transaction(this.pool, async (db) => {
-      const device = await this.repository.getDeviceForUpdate(db, deviceId);
-      if (!['DRAFT', 'INVITED', 'PENDING_CONFIRMATION'].includes(device.status)) {
-        throw new ApiError(409, 'device_state', 'Conflict', true);
-      }
-      const binding = await this.repository.getBinding(db, bindingId, deviceId);
-      if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic') {
-        throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
-      }
-      await db.query(
-        "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
-        [deviceId],
-      );
-      await db.query(
-        "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('ISSUED','CLAIMED')",
-        [deviceId],
-      );
-      const secret = randomBytes(32);
-      const issued = this.now();
-      const expires = new Date(issued.getTime() + INVITATION_MS);
-      const id = randomUUID();
-      await db.query(
-        "INSERT INTO device_invitation(id,geops_device_id,mdm_binding_id,secret_hmac,status,delivery_mode,issued_by,issued_at,expires_at) VALUES($1,$2,$3,$4,'ISSUED',$5,$6,$7,$8)",
-        [
-          id,
+    try {
+      return await transaction(this.pool, async (db) => {
+        await requireInstallationAccess(db, adminId, 'synthetic');
+        const device = await this.repository.getDeviceForUpdate(db, deviceId);
+        if (!['DRAFT', 'INVITED', 'PENDING_CONFIRMATION'].includes(device.status)) {
+          throw new ApiError(409, 'device_state', 'Conflict', true);
+        }
+        const binding = await this.repository.getBinding(db, bindingId, deviceId);
+        if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic') {
+          throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
+        }
+        await requireInstallationAccess(db, adminId, binding.customer_id);
+        await db.query(
+          "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('ISSUED','CLAIMED')",
+          [deviceId],
+        );
+        const secret = randomBytes(32);
+        const issued = this.now();
+        const expires = new Date(issued.getTime() + INVITATION_MS);
+        const id = randomUUID();
+        await db.query(
+          "INSERT INTO device_invitation(id,geops_device_id,mdm_binding_id,secret_hmac,status,delivery_mode,issued_by,issued_at,expires_at) VALUES($1,$2,$3,$4,'ISSUED',$5,$6,$7,$8)",
+          [
+            id,
+            deviceId,
+            bindingId,
+            invitationDigest(this.invitationKey, secret),
+            deliveryMode,
+            adminId,
+            issued,
+            expires,
+          ],
+        );
+        await db.query(
+          "UPDATE geops_device SET status='INVITED',version=version+1,updated_at=$2 WHERE id=$1",
+          [deviceId, issued],
+        );
+        await appendAudit(db, {
+          actorType: 'ADMIN',
+          actorId: adminId,
           deviceId,
-          bindingId,
-          invitationDigest(this.invitationKey, secret),
-          deliveryMode,
-          adminId,
-          issued,
-          expires,
-        ],
-      );
-      await db.query(
-        "UPDATE geops_device SET status='INVITED',version=version+1,updated_at=$2 WHERE id=$1",
-        [deviceId, issued],
-      );
-      await appendAudit(db, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        deviceId,
-        action: 'device.invitation.issue',
-        outcome: 'success',
-        correlationId,
-        previousState: device.status,
-        nextState: 'INVITED',
+          action: 'device.invitation.issue',
+          outcome: 'success',
+          correlationId,
+          previousState: device.status,
+          nextState: 'INVITED',
+        });
+        return {
+          invitation_id: id,
+          geops_device_id: deviceId,
+          invitation_secret: secret.toString('base64url'),
+          expires_at: expires.toISOString(),
+        };
       });
-      return {
-        invitation_id: id,
-        geops_device_id: deviceId,
-        invitation_secret: secret.toString('base64url'),
-        expires_at: expires.toISOString(),
-      };
-    });
+    } catch (error) {
+      await this.rejected(adminId, deviceId, 'device.invitation.issue', correlationId, error);
+      throw error;
+    }
   }
 
   async cancelInvitation(
@@ -129,65 +155,52 @@ export class EnrollmentService {
     adminId: string,
     correlationId: string = randomUUID(),
   ): Promise<{ status: 'CANCELLED' }> {
-    const granted = await this.pool.query(
-      "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL",
-      [adminId],
-    );
-    if (!granted.rowCount) {
-      await appendAudit(this.pool, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        deviceId,
-        action: 'device.invitation.cancel',
-        outcome: 'rejected',
-        correlationId,
+    try {
+      return await transaction(this.pool, async (db) => {
+        await requireInstallationAccess(db, adminId, 'synthetic');
+        const device = await this.repository.getDeviceForUpdate(db, deviceId);
+        if (device.status === 'ACTIVE' || device.status === 'REVOKED')
+          throw new ApiError(409, 'device_state', 'Conflict', true);
+        const result = await db.query<{ status: string; mdm_binding_id: string }>(
+          'SELECT status,mdm_binding_id FROM device_invitation WHERE id=$1 AND geops_device_id=$2 FOR UPDATE',
+          [invitationId, deviceId],
+        );
+        const invite = result.rows[0];
+        if (!invite) throw new ApiError(404, 'invitation_missing', 'Not found', true);
+        const binding = await this.repository.getBinding(db, invite.mdm_binding_id, deviceId);
+        if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic')
+          throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
+        await requireInstallationAccess(db, adminId, binding.customer_id);
+        if (invite.status !== 'ISSUED' && invite.status !== 'CLAIMED')
+          throw new ApiError(409, 'invitation_state', 'Conflict', true);
+        await db.query(
+          "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE id=$1",
+          [invitationId],
+        );
+        await db.query(
+          "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE invitation_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
+          [invitationId],
+        );
+        await db.query(
+          "UPDATE geops_device SET status='DRAFT',version=version+1,updated_at=$2 WHERE id=$1 AND status IN ('INVITED','PENDING_CONFIRMATION')",
+          [deviceId, this.now()],
+        );
+        await appendAudit(db, {
+          actorType: 'ADMIN',
+          actorId: adminId,
+          deviceId,
+          action: 'device.invitation.cancel',
+          outcome: 'success',
+          correlationId,
+          previousState: invite.status,
+          nextState: 'CANCELLED',
+        });
+        return { status: 'CANCELLED' };
       });
-      throw new ApiError(403, 'gps_forbidden', 'Forbidden', true);
+    } catch (error) {
+      await this.rejected(adminId, deviceId, 'device.invitation.cancel', correlationId, error);
+      throw error;
     }
-    return transaction(this.pool, async (db) => {
-      const stillGranted = await db.query(
-        "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL FOR SHARE",
-        [adminId],
-      );
-      if (!stillGranted.rowCount) throw new ApiError(403, 'gps_forbidden', 'Forbidden', true);
-      const device = await this.repository.getDeviceForUpdate(db, deviceId);
-      if (device.status === 'ACTIVE' || device.status === 'REVOKED')
-        throw new ApiError(409, 'device_state', 'Conflict', true);
-      const result = await db.query<{ status: string; mdm_binding_id: string }>(
-        'SELECT status,mdm_binding_id FROM device_invitation WHERE id=$1 AND geops_device_id=$2 FOR UPDATE',
-        [invitationId, deviceId],
-      );
-      const invite = result.rows[0];
-      if (!invite) throw new ApiError(404, 'invitation_missing', 'Not found', true);
-      const binding = await this.repository.getBinding(db, invite.mdm_binding_id, deviceId);
-      if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic')
-        throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
-      if (invite.status !== 'ISSUED' && invite.status !== 'CLAIMED')
-        throw new ApiError(409, 'invitation_state', 'Conflict', true);
-      await db.query(
-        "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE id=$1",
-        [invitationId],
-      );
-      await db.query(
-        "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE invitation_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
-        [invitationId],
-      );
-      await db.query(
-        "UPDATE geops_device SET status='DRAFT',version=version+1,updated_at=$2 WHERE id=$1 AND status IN ('INVITED','PENDING_CONFIRMATION')",
-        [deviceId, this.now()],
-      );
-      await appendAudit(db, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        deviceId,
-        action: 'device.invitation.cancel',
-        outcome: 'success',
-        correlationId,
-        previousState: invite.status,
-        nextState: 'CANCELLED',
-      });
-      return { status: 'CANCELLED' };
-    });
   }
 
   async claim(
@@ -418,41 +431,56 @@ export class EnrollmentService {
   ): Promise<string> {
     if (!physicalConfirmed)
       throw new ApiError(403, 'physical_confirmation_required', 'Forbidden', true);
-    return transaction(this.pool, async (db) => {
-      const result = await db.query<{
-        mdm_device_id: string;
-        geops_device_id: string;
-        invitation_id: string;
-      }>(
-        "SELECT mdm_device_id,geops_device_id,invitation_id FROM enrollment_claim WHERE id=$1 AND status='PENDING_CONFIRMATION' FOR UPDATE",
-        [claimId],
-      );
-      const claim = result.rows[0];
-      if (!claim || claim.geops_device_id !== deviceId)
-        throw new ApiError(409, 'claim_unavailable', 'Conflict', true);
-      const binding = await db.query<{ id: string; customer_id: string; provider: string }>(
-        'SELECT b.id,b.customer_id,b.provider FROM mdm_binding b JOIN device_invitation i ON i.mdm_binding_id=b.id WHERE i.id=$1',
-        [claim.invitation_id],
-      );
-      const row = binding.rows[0];
-      if (row?.provider !== 'fake')
-        throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
-      const id = randomUUID();
-      await db.query(
-        "INSERT INTO synthetic_mdm_evidence(id,claim_id,mdm_binding_id,tenant,mdm_device_id,operator_id,physical_confirmed,method,attestation_exception) VALUES($1,$2,$3,$4,$5,$6,true,'manual_two_traits',$7)",
-        [id, claimId, row.id, row.customer_id, claim.mdm_device_id, adminId, attestationException],
-      );
-      await appendAudit(db, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        deviceId,
-        action: 'device.synthetic_evidence',
-        outcome: 'success',
-        correlationId,
-        metadata: { source: 'fake', attestation_exception: attestationException },
+    try {
+      return await transaction(this.pool, async (db) => {
+        await requireInstallationAccess(db, adminId, 'synthetic');
+        const result = await db.query<{
+          mdm_device_id: string;
+          geops_device_id: string;
+          invitation_id: string;
+        }>(
+          "SELECT mdm_device_id,geops_device_id,invitation_id FROM enrollment_claim WHERE id=$1 AND status='PENDING_CONFIRMATION' FOR UPDATE",
+          [claimId],
+        );
+        const claim = result.rows[0];
+        if (!claim || claim.geops_device_id !== deviceId)
+          throw new ApiError(409, 'claim_unavailable', 'Conflict', true);
+        const binding = await db.query<{ id: string; customer_id: string; provider: string }>(
+          'SELECT b.id,b.customer_id,b.provider FROM mdm_binding b JOIN device_invitation i ON i.mdm_binding_id=b.id WHERE i.id=$1',
+          [claim.invitation_id],
+        );
+        const row = binding.rows[0];
+        if (row?.provider !== 'fake' || row.customer_id !== 'synthetic')
+          throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
+        await requireInstallationAccess(db, adminId, row.customer_id);
+        const id = randomUUID();
+        await db.query(
+          "INSERT INTO synthetic_mdm_evidence(id,claim_id,mdm_binding_id,tenant,mdm_device_id,operator_id,physical_confirmed,method,attestation_exception) VALUES($1,$2,$3,$4,$5,$6,true,'manual_two_traits',$7)",
+          [
+            id,
+            claimId,
+            row.id,
+            row.customer_id,
+            claim.mdm_device_id,
+            adminId,
+            attestationException,
+          ],
+        );
+        await appendAudit(db, {
+          actorType: 'ADMIN',
+          actorId: adminId,
+          deviceId,
+          action: 'device.synthetic_evidence',
+          outcome: 'success',
+          correlationId,
+          metadata: { source: 'fake', attestation_exception: attestationException },
+        });
+        return id;
       });
-      return id;
-    });
+    } catch (error) {
+      await this.rejected(adminId, deviceId, 'device.synthetic_evidence', correlationId, error);
+      throw error;
+    }
   }
 
   async activate(
@@ -471,84 +499,102 @@ export class EnrollmentService {
     if (!/^[0-9]{8}$/.test(code) || method !== 'manual_two_traits') {
       throw new ApiError(403, 'confirmation_required', 'Forbidden', true);
     }
-    return transaction(this.pool, async (db) => {
-      const device = await this.repository.getDeviceForUpdate(db, deviceId);
-      if (device.status !== 'PENDING_CONFIRMATION')
-        throw new ApiError(409, 'device_state', 'Conflict', true);
-      const result = await db.query<{
-        invitation_id: string;
-        geops_device_id: string;
-        public_key_spki_der: Buffer;
-        pairing_code_hash: Buffer;
-        status: string;
-        expires_at: Date;
-        attestation_state: string;
-      }>('SELECT * FROM enrollment_claim WHERE id=$1 FOR UPDATE', [claimId]);
-      const claim = result.rows[0];
-      if (!claim || claim.geops_device_id !== deviceId || claim.status !== 'PENDING_CONFIRMATION') {
-        throw new ApiError(409, 'claim_unavailable', 'Conflict', true);
-      }
-      if (claim.expires_at.getTime() <= this.now().getTime())
-        throw new ApiError(410, 'claim_expired', 'Gone', true);
-      if (
-        !sameBytes(claim.pairing_code_hash, invitationDigest(this.invitationKey, Buffer.from(code)))
-      ) {
-        throw new ApiError(403, 'confirmation_mismatch', 'Forbidden', true);
-      }
-      const invitation = await db.query<{ mdm_binding_id: string; status: string }>(
-        'SELECT mdm_binding_id,status FROM device_invitation WHERE id=$1 FOR UPDATE',
-        [claim.invitation_id],
-      );
-      if (invitation.rows[0]?.status !== 'CLAIMED')
-        throw new ApiError(409, 'invitation_consumed', 'Conflict', true);
-      const bindingId = invitation.rows[0].mdm_binding_id;
-      const evidence = await db.query<{
-        operator_id: string;
-        physical_confirmed: boolean;
-        attestation_exception: boolean;
-      }>(
-        "SELECT e.operator_id,e.physical_confirmed,e.attestation_exception FROM synthetic_mdm_evidence e JOIN mdm_binding b ON b.id=e.mdm_binding_id JOIN enrollment_claim c ON c.id=e.claim_id WHERE e.id=$1 AND e.claim_id=$2 AND e.mdm_binding_id=$3 AND e.operator_id=$4 AND e.method='manual_two_traits' AND e.tenant=b.customer_id AND e.mdm_device_id=c.mdm_device_id AND b.provider='fake'",
-        [evidenceRef, claimId, bindingId, adminId],
-      );
-      const proof = evidence.rows[0];
-      if (
-        !proof?.physical_confirmed ||
-        (claim.attestation_state !== 'VERIFIED' && !proof.attestation_exception)
-      ) {
-        throw new ApiError(403, 'evidence_missing', 'Forbidden', true);
-      }
-      const keyId = randomUUID();
-      await db.query(
-        "INSERT INTO device_key(id,geops_device_id,public_key_spki_der,public_key_fingerprint,status) VALUES($1,$2,$3,$4,'ACTIVE')",
-        [keyId, deviceId, claim.public_key_spki_der, sha256(claim.public_key_spki_der)],
-      );
-      await db.query(
-        "UPDATE geops_device SET status='ACTIVE',version=version+1,updated_at=now() WHERE id=$1",
-        [deviceId],
-      );
-      await db.query(
-        "UPDATE mdm_binding SET state='ACTIVE',verified_at=now(),verification_method=$2,evidence_ref=$3,version=version+1 WHERE id=$1 AND state='PENDING'",
-        [bindingId, method, evidenceRef],
-      );
-      await db.query("UPDATE enrollment_claim SET status='ACTIVE',version=version+1 WHERE id=$1", [
-        claimId,
-      ]);
-      await db.query(
-        "UPDATE device_invitation SET status='CONSUMED',consumed_at=now(),version=version+1 WHERE id=$1",
-        [claim.invitation_id],
-      );
-      await appendAudit(db, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        deviceId,
-        action: 'device.activate.synthetic',
-        outcome: 'success',
-        correlationId,
-        previousState: 'PENDING_CONFIRMATION',
-        nextState: 'ACTIVE',
-        metadata: { source: 'fake' },
+    try {
+      return await transaction(this.pool, async (db) => {
+        await requireInstallationAccess(db, adminId, 'synthetic');
+        const device = await this.repository.getDeviceForUpdate(db, deviceId);
+        if (device.status !== 'PENDING_CONFIRMATION')
+          throw new ApiError(409, 'device_state', 'Conflict', true);
+        const result = await db.query<{
+          invitation_id: string;
+          geops_device_id: string;
+          public_key_spki_der: Buffer;
+          pairing_code_hash: Buffer;
+          status: string;
+          expires_at: Date;
+          attestation_state: string;
+        }>('SELECT * FROM enrollment_claim WHERE id=$1 FOR UPDATE', [claimId]);
+        const claim = result.rows[0];
+        if (
+          !claim ||
+          claim.geops_device_id !== deviceId ||
+          claim.status !== 'PENDING_CONFIRMATION'
+        ) {
+          throw new ApiError(409, 'claim_unavailable', 'Conflict', true);
+        }
+        if (claim.expires_at.getTime() <= this.now().getTime())
+          throw new ApiError(410, 'claim_expired', 'Gone', true);
+        if (
+          !sameBytes(
+            claim.pairing_code_hash,
+            invitationDigest(this.invitationKey, Buffer.from(code)),
+          )
+        ) {
+          throw new ApiError(403, 'confirmation_mismatch', 'Forbidden', true);
+        }
+        const invitation = await db.query<{ mdm_binding_id: string; status: string }>(
+          'SELECT mdm_binding_id,status FROM device_invitation WHERE id=$1 FOR UPDATE',
+          [claim.invitation_id],
+        );
+        if (invitation.rows[0]?.status !== 'CLAIMED')
+          throw new ApiError(409, 'invitation_consumed', 'Conflict', true);
+        const bindingId = invitation.rows[0].mdm_binding_id;
+        const binding = await this.repository.getBinding(db, bindingId, deviceId);
+        if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic')
+          throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
+        await requireInstallationAccess(db, adminId, binding.customer_id);
+        const evidence = await db.query<{
+          operator_id: string;
+          physical_confirmed: boolean;
+          attestation_exception: boolean;
+        }>(
+          "SELECT e.operator_id,e.physical_confirmed,e.attestation_exception FROM synthetic_mdm_evidence e JOIN mdm_binding b ON b.id=e.mdm_binding_id JOIN enrollment_claim c ON c.id=e.claim_id WHERE e.id=$1 AND e.claim_id=$2 AND e.mdm_binding_id=$3 AND e.operator_id=$4 AND e.method='manual_two_traits' AND e.tenant=b.customer_id AND e.mdm_device_id=c.mdm_device_id AND b.provider='fake'",
+          [evidenceRef, claimId, bindingId, adminId],
+        );
+        const proof = evidence.rows[0];
+        if (
+          !proof?.physical_confirmed ||
+          (claim.attestation_state !== 'VERIFIED' && !proof.attestation_exception)
+        ) {
+          throw new ApiError(403, 'evidence_missing', 'Forbidden', true);
+        }
+        const keyId = randomUUID();
+        await db.query(
+          "INSERT INTO device_key(id,geops_device_id,public_key_spki_der,public_key_fingerprint,status) VALUES($1,$2,$3,$4,'ACTIVE')",
+          [keyId, deviceId, claim.public_key_spki_der, sha256(claim.public_key_spki_der)],
+        );
+        await db.query(
+          "UPDATE geops_device SET status='ACTIVE',version=version+1,updated_at=now() WHERE id=$1",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE mdm_binding SET state='ACTIVE',verified_at=now(),verification_method=$2,evidence_ref=$3,version=version+1 WHERE id=$1 AND state='PENDING'",
+          [bindingId, method, evidenceRef],
+        );
+        await db.query(
+          "UPDATE enrollment_claim SET status='ACTIVE',version=version+1 WHERE id=$1",
+          [claimId],
+        );
+        await db.query(
+          "UPDATE device_invitation SET status='CONSUMED',consumed_at=now(),version=version+1 WHERE id=$1",
+          [claim.invitation_id],
+        );
+        await appendAudit(db, {
+          actorType: 'ADMIN',
+          actorId: adminId,
+          deviceId,
+          action: 'device.activate.synthetic',
+          outcome: 'success',
+          correlationId,
+          previousState: 'PENDING_CONFIRMATION',
+          nextState: 'ACTIVE',
+          metadata: { source: 'fake' },
+        });
+        return { status: 'ACTIVE', key_id: keyId, mdm_binding_id: bindingId };
       });
-      return { status: 'ACTIVE', key_id: keyId, mdm_binding_id: bindingId };
-    });
+    } catch (error) {
+      await this.rejected(adminId, deviceId, 'device.activate.synthetic', correlationId, error);
+      throw error;
+    }
   }
 }
