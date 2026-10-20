@@ -1,5 +1,7 @@
 # GEOPS — Empresa única, usuarios y capacidades
 
+> **Decisión posterior (2026-10-20):** el propietario autorizó descartar íntegramente los datos exclusivos del Staging anterior. Para esa instalación usar el [procedimiento de reinstalación limpia](staging-clean-reinstall-0015-2026-10-20.md). La sección de actualización de una base 0014 persistente de este documento queda histórica y no se aplica a ese caso.
+
 **Estado:** implementación y ensayos locales sintéticos; ningún permiso, migración o cambio se aplicó en Staging. ADR-019 y el modo de mantenimiento requieren revisión independiente antes de una ventana de cambio. La PoC, Inventori, Billing, MDM y teléfonos no forman parte de este procedimiento.
 
 ## Modelo autorizado

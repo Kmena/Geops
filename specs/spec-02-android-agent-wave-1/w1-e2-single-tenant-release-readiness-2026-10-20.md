@@ -1,5 +1,7 @@
 # W1-E2 — preparación de publicación de administración para una empresa
 
+> **Actualización posterior:** la rama se publicó en `2043054f2a9461241a0d90bf73f3f5d78cebf1c0` y su CI pasó. El propietario decidió descartar el Staging anterior; la ruta de actualización 0014→0015 y sus bloqueos de recuperación ya no gobiernan esa reinstalación. Ver el [procedimiento limpio](staging-clean-reinstall-0015-2026-10-20.md), no ejecutado en Staging.
+
 **Fecha:** 2026-10-20. **Estado:** `BLOCKED` para publicación y actualización de Staging. Se preservó el árbol heredado; no hubo commit, push, CI remoto, servidor, migración de Staging ni concesión real. El HEAD revisado fue `ce0866a66a9a2e79492acaa0eed0739243b2824e` en `codex/spec-02-wave-1`.
 
 ## Alcance y decisiones
