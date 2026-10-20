@@ -8,15 +8,16 @@
     "packages/api-contracts"
   ],
   "scripts": {
-    "lint": "biome check apps/api/src apps/api/test/foundation.test.ts apps/api/test/mdm-provider.test.ts apps/api/test/integration-smoke.mjs apps/api/test/identity-edge.mjs apps/api/test/load-smoke.mjs apps/api/test/restore-check.mjs apps/api/test/restore-before-revoke.mjs apps/api/test/restore-gate.mjs apps/api/test/security-regression.mjs apps/api/test/staging-cookie.test.mjs apps/api/test/migration-target.test.ts apps/api/scripts scripts/security-scan.mjs scripts/check-staging-compose.mjs scripts/check-staging-caddy.mjs scripts/restore-synthetic.mjs scripts/restore-synthetic.test.mjs apps/web/src apps/web/vite.config.ts scripts/create-local-compose-env.mjs packages/api-contracts/src packages/api-contracts/scripts packages/api-contracts/test",
+    "lint": "biome check apps/api/src apps/api/test/foundation.test.ts apps/api/test/mdm-provider.test.ts apps/api/test/integration-smoke.mjs apps/api/test/identity-edge.mjs apps/api/test/load-smoke.mjs apps/api/test/restore-check.mjs apps/api/test/restore-before-revoke.mjs apps/api/test/restore-gate.mjs apps/api/test/security-regression.mjs apps/api/test/staging-cookie.test.mjs apps/api/test/migration-target.test.ts apps/api/test/gps-capability-bootstrap.integration.mjs apps/api/test/admin-tenant-bootstrap.integration.mjs apps/api/test/single-tenant-users.integration.mjs apps/api/test/maintenance-upgrade.integration.mjs apps/api/test/migration-0015-upgrade.integration.mjs apps/api/test/single-tenant-release-restore.integration.mjs apps/api/test/maintenance-cli-rehearsal.integration.mjs apps/api/test/maintenance-recovery.integration.mjs apps/api/scripts scripts/security-scan.mjs scripts/check-staging-compose.mjs scripts/check-staging-caddy.mjs scripts/restore-synthetic.mjs scripts/restore-synthetic.test.mjs scripts/release-0015/replica-check.mjs scripts/release-0015/replica-check.test.mjs apps/web/src apps/web/vite.config.ts scripts/create-local-compose-env.mjs packages/api-contracts/src packages/api-contracts/scripts packages/api-contracts/test",
     "typecheck": "npm run build --workspace @geops/api-contracts && npm run typecheck --workspaces --if-present",
-    "test": "npm run build --workspace @geops/api-contracts && npm run test --workspaces --if-present && npm run migration:test --workspace @geops/api && npm run restore:test",
+    "test": "npm run build --workspace @geops/api-contracts && npm run test --workspaces --if-present && npm run migration:test --workspace @geops/api && npm run restore:test && npm run release:0015:replica-check:test",
     "build": "npm run build --workspace @geops/api-contracts && npm run build --workspace @geops/api && npm run build --workspace @geops/web",
     "contracts:check": "npm run check --workspace @geops/api-contracts",
     "security:scan": "node scripts/security-scan.mjs",
     "staging:check": "node scripts/check-staging-compose.mjs",
     "staging:caddy:check": "node scripts/check-staging-caddy.mjs",
-    "restore:test": "node --test scripts/restore-synthetic.test.mjs"
+    "restore:test": "node --test scripts/restore-synthetic.test.mjs",
+    "release:0015:replica-check:test": "node --test scripts/release-0015/replica-check.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
