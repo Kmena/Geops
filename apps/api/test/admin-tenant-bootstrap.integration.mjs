@@ -62,6 +62,12 @@ try {
     reason: 'Approved synthetic initial administration',
   });
   await ceremony.grantInitial(ceremonyInput());
+  // This legacy two-admin grant test starts with an established operating tenant,
+  // but intentionally without data/health grants for either administrator.
+  await pool.query(
+    'INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES($1,$2,$3)',
+    ['synthetic', primaryId, randomUUID()],
+  );
   const secondaryCandidates = ['secondary-a@example.invalid', 'secondary-b@example.invalid'];
   await denied(
     ceremony.addSecondary({
@@ -207,13 +213,29 @@ try {
     (await admin(primarySession, 'GET', '/v1/admin/gps-devices')).json().items.length === 0,
     'tenant data denied before explicit grant',
   );
-  const draft = await admin(primarySession, 'POST', '/v1/admin/devices', {
-    display_label: 'Synthetic first tenant handset',
-  });
-  check(draft.statusCode === 201, 'authorized device draft created without real MDM');
   check(
-    (await admin(primarySession, 'GET', '/v1/admin/devices')).json().items.length === 1,
-    'authorized synthetic enrollment inventory visible',
+    (
+      await admin(primarySession, 'POST', '/v1/admin/devices', {
+        display_label: 'Denied before tenant grant',
+      })
+    ).statusCode === 403,
+    'installation capability alone cannot create a device before tenant grant',
+  );
+  check(
+    (await admin(primarySession, 'GET', '/v1/admin/devices')).statusCode === 403,
+    'enrollment inventory requires tenant grant',
+  );
+  // A pending synthetic binding anchors the grant proposal; it is a disposable
+  // fixture, not an administrative API bypass or a real MDM identity.
+  const anchorId = randomUUID();
+  const anchorBindingId = randomUUID();
+  await pool.query("INSERT INTO geops_device(id,status,display_label) VALUES($1,'DRAFT',$2)", [
+    anchorId,
+    'Synthetic grant anchor',
+  ]);
+  await pool.query(
+    "INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state) VALUES($1,$2,'fake','synthetic',$3,'PENDING')",
+    [anchorBindingId, anchorId, `fake-${anchorId}`],
   );
   const unprivilegedId = randomUUID();
   await pool.query(
@@ -286,6 +308,14 @@ try {
       ).rowCount === 1,
       `${table} granted to exact tenant`,
     );
+  const draft = await admin(primarySession, 'POST', '/v1/admin/devices', {
+    display_label: 'Synthetic first tenant handset',
+  });
+  check(draft.statusCode === 201, 'authorized device draft created without real MDM');
+  check(
+    (await admin(primarySession, 'GET', '/v1/admin/devices')).json().items.length === 2,
+    'authorized synthetic enrollment inventory visible',
+  );
   await pool.query("UPDATE geops_device SET status='ACTIVE' WHERE id=$1", [draft.json().id]);
   await pool.query("UPDATE mdm_binding SET state='ACTIVE' WHERE id=$1", [
     draft.json().mdm_binding_id,
