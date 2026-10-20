@@ -74,7 +74,7 @@ for name in stage_pgdata stage_security; do
 done
 "${as_operator[@]}" bash scripts/staging/clean-reinstall-0015.sh check "$sha" "$env_file"
 
-chgrp "$gid" "$secret_dir/db_password"
+"${as_operator[@]}" chgrp "$gid" "$secret_dir/db_password"
 chmod 640 "$secret_dir/db_password"
 "${as_operator[@]}" bash scripts/staging/clean-reinstall-0015.sh check "$sha" "$env_file" > /dev/null
 for uid in 1000 999; do
