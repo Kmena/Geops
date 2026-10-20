@@ -4,13 +4,6 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { loadMigrations } from '../../apps/api/dist/db/migration-manager.js';
-import {
-  gateAllowsTraffic,
-  openGateAfterQuarantine,
-  readGate,
-  verifyForReopen,
-} from '../../apps/api/dist/db/restore-gate.js';
 
 const stage = process.argv[2];
 const digest = (value) => createHash('sha256').update(value).digest('hex');
@@ -26,6 +19,7 @@ export function compareInventories(before, after) {
 }
 
 async function inventory(pool, expectedVersion) {
+  const { loadMigrations } = await import('../../apps/api/dist/db/migration-manager.js');
   const migrations = await loadMigrations();
   assert.equal(migrations.length, 15);
   const versions = await pool.query('SELECT version,checksum FROM geops_schema_migrations');
@@ -77,6 +71,9 @@ async function inventory(pool, expectedVersion) {
 }
 
 async function gateStatus(pool, path, quarantined) {
+  const { gateAllowsTraffic, openGateAfterQuarantine, readGate, verifyForReopen } = await import(
+    '../../apps/api/dist/db/restore-gate.js'
+  );
   const gate = await readGate(path);
   const name = new URL(process.env.DATABASE_URL).pathname.slice(1);
   assert.equal(gate.phase, 'closed', 'replica gate must remain closed');
