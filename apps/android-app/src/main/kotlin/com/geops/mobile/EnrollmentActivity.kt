@@ -1,7 +1,6 @@
 package com.geops.mobile
 
 import android.Manifest
-import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -10,24 +9,30 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.text.InputType
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.ComponentActivity
 import com.geops.agent.AndroidKeys
 import com.geops.agent.EnrollmentClient
+import com.geops.agent.EnrollmentHttpException
 import com.geops.agent.EnrollmentTicket
 import com.geops.agent.GeopsLocationService
 import com.geops.agent.HttpsEnrollmentTransport
 import com.geops.agent.RefreshingSessionProvider
 import com.geops.agent.SYNTHETIC_STAGING_BASE_URL
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import java.time.Instant
 import java.util.concurrent.Executors
 
 /** Visible supervised enrollment and diagnostic UI; policy values are read-only from the server. */
-class EnrollmentActivity : Activity() {
+class EnrollmentActivity : ComponentActivity() {
     private val work = Executors.newSingleThreadExecutor()
     private lateinit var deviceField: EditText
     private lateinit var mdmField: EditText
@@ -36,6 +41,28 @@ class EnrollmentActivity : Activity() {
     private lateinit var keyField: EditText
     private lateinit var installationField: EditText
     private lateinit var status: TextView
+    private lateinit var scannerButton: Button
+    private lateinit var claimButton: Button
+    private var enrollmentInFlight = false
+    private var completedInvitationId: String? = null
+    private var completionMessage: String? = null
+    private val qrScanner = registerForActivityResult(ScanContract()) { result ->
+        val contents = result.contents
+        if (contents == null) {
+            show("No se leyó el QR. Comprueba el permiso de cámara, vuelve a escanear o introduce los datos manualmente.")
+            return@registerForActivityResult
+        }
+        val ticket = try { EnrollmentTicket.parseActive(contents) }
+            catch (_: Exception) {
+                show("El QR no es una invitación GEOPS válida y vigente. Genera una nueva invitación en Web.")
+                return@registerForActivityResult
+            }
+        deviceField.setText(ticket.deviceId)
+        mdmField.setText(ticket.mdmDeviceId)
+        invitationField.setText(ticket.invitationId)
+        secretField.setText(ticket.invitationSecret)
+        show("Invitación leída. Revisa el dispositivo y pulsa Reclamar invitación antes de que venza.")
+    }
     private var visible = false
     private var bound = false
     private val connection = object : ServiceConnection {
@@ -81,16 +108,28 @@ class EnrollmentActivity : Activity() {
         }
         paragraph("GEOPS · inscripción supervisada de prueba")
         paragraph("La ubicación solo se inicia durante una ventana autorizada desde esta pantalla visible. Android mostrará la notificación de seguimiento.")
+        status = paragraph("Sin inscripción confirmada. No se captura ubicación.")
+        scannerButton = button("Escanear QR de invitación") {
+            qrScanner.launch(ScanOptions().apply {
+                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                setPrompt("Escanea el QR de inscripción mostrado en GEOPS Web")
+                setBeepEnabled(false)
+                setBarcodeImageEnabled(false)
+                setOrientationLocked(false)
+            })
+        }
         deviceField = field("ID de dispositivo GEOPS", saved.getString("device_id", "") ?: "")
         mdmField = field("ID MDM sintético")
         invitationField = field("ID de invitación")
-        secretField = field("Código de inscripción de un solo uso")
-        button("Reclamar invitación") { enroll() }
+        secretField = field("Código de inscripción de un solo uso").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        }
+        claimButton = button("Reclamar invitación") { enroll() }
         paragraph("Tras la confirmación en GEOPS Web, introduce los identificadores de activación. No son credenciales.")
         keyField = field("ID de clave activada", saved.getString("key_id", "") ?: "")
         installationField = field("ID de instalación GPS", saved.getString("installation_id", "") ?: "")
         button("Consultar política e iniciar seguimiento autorizado") { startTracking() }
-        status = paragraph("Sin inscripción confirmada. No se captura ubicación.")
         setContentView(ScrollView(this).apply { addView(content) })
     }
 
@@ -105,9 +144,17 @@ class EnrollmentActivity : Activity() {
     private fun show(message: String) = runOnUiThread { status.text = message }
 
     private fun enroll() {
+        val invitationId = invitationField.text.toString().trim()
+        if (completedInvitationId == invitationId) {
+            completionMessage?.let(::show)
+            return
+        }
+        if (enrollmentInFlight) return
+        enrollmentInFlight = true
+        claimButton.isEnabled = false
+        scannerButton.isEnabled = false
         val deviceId = deviceField.text.toString().trim()
         val mdmId = mdmField.text.toString().trim()
-        val invitationId = invitationField.text.toString().trim()
         val secret = secretField.text.toString().trim()
         show("Solicitando inscripción…")
         work.execute {
@@ -124,12 +171,40 @@ class EnrollmentActivity : Activity() {
                 val proof = enrollment.prove(ticket, enrollment.claim(ticket, signer), signer)
                 getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE).edit()
                     .putString("device_id", deviceId).apply()
-                show("Pendiente de confirmación administrativa. Código de emparejamiento: ${proof.pairingCode}. Vence ${proof.expiresAt}.")
-                runOnUiThread { secretField.text.clear() }
+                val message = "Pendiente de confirmación administrativa. Código de emparejamiento: ${proof.pairingCode}. Vence ${proof.expiresAt}."
+                runOnUiThread {
+                    completedInvitationId = invitationId
+                    completionMessage = message
+                    status.text = message
+                    secretField.text.clear()
+                }
             } catch (failure: Exception) {
-                show("Inscripción no completada: ${failure.message ?: "error"}. Verifica la invitación y vuelve a intentarlo.")
+                show(enrollmentFailureMessage(failure))
+            } finally {
+                runOnUiThread {
+                    enrollmentInFlight = false
+                    claimButton.isEnabled = true
+                    scannerButton.isEnabled = true
+                }
             }
         }
+    }
+
+    private fun enrollmentFailureMessage(failure: Exception): String {
+        if (failure is EnrollmentHttpException) {
+            if (failure.operation == "claim") return when (failure.status) {
+                409 -> "La invitación no puede reclamarse por un conflicto (${failure.code ?: "estado_desconocido"}). Actualiza el dispositivo en GEOPS Web y comprueba su estado antes de generar otra invitación."
+                410 -> "La invitación venció. Revócala y genera una nueva en GEOPS Web."
+                401 -> "La invitación no fue validada. Comprueba que el QR corresponda a la invitación vigente del dispositivo."
+                403 -> "El vínculo del dispositivo no coincide con la invitación. Revisa el registro en GEOPS Web."
+                429 -> "Demasiados intentos. Espera antes de volver a intentarlo."
+                else -> "No se pudo reclamar la invitación (HTTP ${failure.status}). Comprueba el estado en GEOPS Web."
+            }
+            return "La invitación pudo haberse reclamado, pero no se confirmó la prueba (${failure.code ?: "HTTP ${failure.status}"}). Comprueba el estado en GEOPS Web antes de volver a intentarlo."
+        }
+        if (failure.message == "ticket_expired")
+            return "La invitación venció. Genera una nueva en GEOPS Web."
+        return "No se completó la inscripción. Comprueba el estado de la invitación en GEOPS Web antes de volver a intentarlo."
     }
 
     private fun startTracking() {

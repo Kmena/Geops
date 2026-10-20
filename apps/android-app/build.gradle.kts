@@ -14,8 +14,8 @@ android {
         applicationId = "com.geops.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-test"
+        versionCode = 3
+        versionName = "0.1.2-test"
     }
     sourceSets.getByName("main") {
         java.srcDirs("../android-agent/src/main/kotlin", "../android-agent/src/android/kotlin")
@@ -45,3 +45,8 @@ android {
 }
 
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+
+dependencies {
+    implementation("androidx.activity:activity:1.13.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+}

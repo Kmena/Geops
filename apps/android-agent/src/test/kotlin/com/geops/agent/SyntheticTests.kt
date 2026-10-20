@@ -253,6 +253,45 @@ fun main() {
         check(store.read().pending.single().id == id && store.read().pending.single().attempts == 1)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY)
     }
+    test("web invitation QR is accepted only for staging and before expiry") {
+        val now = Instant.parse("2026-10-19T12:00:00Z")
+        val secret = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(ByteArray(32) { 7 })
+        val qr = JSONObject().put("format", "geops-enrollment-v1")
+            .put("origin", "https://geops-staging.duckdns.org")
+            .put("geops_device_id", device).put("mdm_device_id", "synthetic-$device")
+            .put("invitation_id", scheduled).put("invitation_secret", secret)
+            .put("expires_at", "2026-10-19T12:10:00Z")
+        val ticket = EnrollmentTicket.parseActive(qr.toString(), now)
+        check(ticket.deviceId == device && ticket.mdmDeviceId == "synthetic-$device")
+        check(ticket.invitationId == scheduled && ticket.invitationSecret == secret)
+        check(runCatching { EnrollmentTicket.parseActive(qr.toString(), now.plusSeconds(600)) }.isFailure)
+        check(runCatching { EnrollmentTicket.parseActive(qr.put("origin", "https://evil.invalid").toString(), now) }.isFailure)
+        check(runCatching { EnrollmentTicket.parseActive("https://geops-staging.duckdns.org", now) }.isFailure)
+        qr.put("origin", "https://geops-staging.duckdns.org")
+        check(runCatching { EnrollmentTicket.parseActive(qr.put("invitation_secret", "invalid").toString(), now) }.isFailure)
+    }
+    test("claim conflict keeps only an allowlisted code and never echoes the response") {
+        val now = Instant.parse("2026-10-19T12:00:00Z")
+        val secret = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(ByteArray(32) { 7 })
+        val ticket = EnrollmentTicket(device, "synthetic-$device", scheduled, secret, now.plusSeconds(600))
+        val signer = object : EnrollmentSigner {
+            override val publicSpki = byteArrayOf(1)
+            override fun sign(message: ByteArray) = byteArrayOf()
+        }
+        fun rejected(code: String): EnrollmentHttpException {
+            val client = EnrollmentClient(object : EnrollmentTransport {
+                override fun post(path: String, body: String) = HttpResult(409,
+                    JSONObject().put("code", code).put("secret", "must-not-echo").toString(), null)
+            }) { now }
+            return runCatching { client.claim(ticket, signer) }.exceptionOrNull() as EnrollmentHttpException
+        }
+        val conflict = rejected("invitation_consumed")
+        check(conflict.operation == "claim" && conflict.status == 409 && conflict.code == "invitation_consumed")
+        check("must-not-echo" !in conflict.message.orEmpty())
+        check(rejected("untrusted-secret-value").code == null)
+    }
     test("enrollment ticket rejects foreign origin and proof signs canonical bytes") {
         val now = Instant.parse("2026-10-19T12:00:00Z")
         val enc = java.util.Base64.getUrlEncoder().withoutPadding()

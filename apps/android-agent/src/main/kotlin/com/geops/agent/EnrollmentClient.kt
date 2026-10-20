@@ -34,6 +34,9 @@ data class EnrollmentTicket(
             return EnrollmentTicket(deviceId, mdmId, invitationId, secret,
                 Instant.parse(value.getString("expires_at")))
         }
+
+        fun parseActive(raw: String, now: Instant = Instant.now()): EnrollmentTicket =
+            parse(raw).also { require(it.expiresAt.isAfter(now)) { "ticket_expired" } }
     }
 }
 
@@ -88,6 +91,19 @@ data class EnrollmentClaim(val claimId: String, val challengeId: String, val cha
     val clientNonce: String, val publicSpki: ByteArray)
 data class EnrollmentProof(val pairingCode: String, val expiresAt: Instant)
 
+/** Only an allowlisted server code is retained; the response body is never shown or logged. */
+class EnrollmentHttpException(val operation: String, val status: Int, val code: String?) :
+    IllegalStateException("${operation}_http_$status")
+
+private fun enrollmentHttpError(operation: String, result: HttpResult): EnrollmentHttpException {
+    val allowed = setOf("invitation_consumed", "device_state", "invitation_expired",
+        "invalid_invitation", "binding_mismatch", "claim_unavailable", "claim_consumed",
+        "claim_expired", "challenge_consumed")
+    val code = runCatching { JSONObject(result.body).optString("code") }.getOrNull()
+        ?.takeIf { it in allowed }
+    return EnrollmentHttpException(operation, result.status, code)
+}
+
 class EnrollmentClient(private val transport: EnrollmentTransport,
     private val clock: () -> Instant = { Instant.now() }) {
     private val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -103,7 +119,7 @@ class EnrollmentClient(private val transport: EnrollmentTransport,
             .put("public_key_spki", encoder.encodeToString(signer.publicSpki))
             .put("client_nonce", clientNonce).toString()
         val result = transport.post("/v1/device/enrollment/claims", body)
-        require(result.status == 201) { "claim_http_${result.status}" }
+        if (result.status != 201) throw enrollmentHttpError("claim", result)
         val response = JSONObject(result.body)
         val id = response.getString("claim_id")
         val challengeId = response.getString("challenge_id")
@@ -122,7 +138,7 @@ class EnrollmentClient(private val transport: EnrollmentTransport,
         val body = JSONObject().put("challenge_id", claim.challengeId)
             .put("signature", encoder.encodeToString(signer.sign(bytes))).toString()
         val result = transport.post("/v1/device/enrollment/claims/${claim.claimId}/proof", body)
-        require(result.status == 200) { "proof_http_${result.status}" }
+        if (result.status != 200) throw enrollmentHttpError("proof", result)
         val response = JSONObject(result.body)
         require(response.getString("status") == "PENDING_CONFIRMATION") { "proof_state" }
         val code = response.getString("pairing_code")

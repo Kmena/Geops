@@ -408,7 +408,10 @@ export function EnrollmentPanel({
             {new Date(currentInvitation.expires_at).toLocaleString('es-GT')}; no lo compartas por
             canales públicos.
           </p>
-          <p>La APK actual permite introducir los identificadores y el código manualmente.</p>
+          <p>
+            Escanea el QR con la APK GEOPS actualizada o introduce los datos manualmente. El escaneo
+            no reclama la invitación hasta que lo confirmes en el teléfono.
+          </p>
           {qr && (
             <img src={qr} alt="Código QR de inscripción GEOPS de prueba" width="320" height="320" />
           )}
