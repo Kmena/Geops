@@ -1,6 +1,12 @@
 # ADR-015 — Capacidades administrativas GPS
 
+**Enmienda propuesta ADR-019 (decisión de negocio posterior):** se conserva `admin_permission` y la denegación por defecto. Para una empresa y usuarios con permisos distintos, la concesión/revocación ordinaria puede realizarla el principal con `gps.user.manage`, motivo, sesión, CSRF y auditoría; ya no depende de un segundo administrador. El bootstrap y la recuperación crítica mantienen doble custodia. La redacción histórica de doble persona abajo documenta la decisión anterior hasta aprobación SDD/Seguridad.
+
 **Nota W1-E1 Corte 3:** [ADR-018 propuesto](ADR-018-operaciones-gps-sinteticas-propuesto.md) documenta dos capacidades adicionales implementadas solo para activación/concesión sintéticas. El conjunto inicial aprobado en este ADR se conserva; la extensión requiere revisión SDD y seguridad antes de uso operativo.
+
+**Nota de implementación 2026-10-19:** la [ceremonia inicial sintética propuesta](../../spec-02-android-agent-wave-1/gps-capability-grants-proposal-2026-10-19.md) usa los dos custodios de recuperación existentes, contraseña del administrador y auditoría transaccional; no cambia la decisión aprobada ni autoriza todavía una concesión real.
+
+**Extensión sintética propuesta:** un [segundo administrador](../../spec-02-android-agent-wave-1/admin-tenant-bootstrap-runbook-2026-10-19.md) puede crearse `LOCKED` bajo la misma doble custodia y activarse mediante recuperación supervisada, sin compartir contraseña ni crear rol de negocio. Su conjunto GPS sigue separado de concesiones tenant. Revisión independiente pendiente.
 
 **Fecha:** 2026-10-19. **Estado:** aceptado como contrato de diseño para implementación sintética W1-B; ejecución de middleware y concesión real pendientes. **Ámbito:** SPEC-02. Complementa [SPEC-01](../../spec-01-foundation-wave-0a/api-contracts.md); no cambia su autenticación.
 

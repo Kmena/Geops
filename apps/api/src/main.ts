@@ -1,4 +1,5 @@
 import { AdminAuthService } from './admin-auth/service.js';
+import { AdminUserAdministrationService } from './admin-auth/user-administration.js';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { checkReadiness } from './db/migration-manager.js';
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
     restoreGate,
     logLevel: config.logLevel,
     adminAuth: auth,
+    adminUsers: new AdminUserAdministrationService(pool),
     gpsPolicies,
     gpsHealth,
     gpsDeviceConfig: new GpsDeviceConfigService(pool),

@@ -21,6 +21,27 @@ function page(query: PageQuery): { cursor: string | undefined; limit: number } {
   return { cursor: query.cursor, limit };
 }
 
+async function requireInstallationCapability(
+  devices: DeviceRepository,
+  adminId: string,
+  requestId: string,
+  action: string,
+): Promise<void> {
+  const granted = await devices.pool.query(
+    "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL",
+    [adminId],
+  );
+  if (granted.rowCount) return;
+  await appendAudit(devices.pool, {
+    actorType: 'ADMIN',
+    actorId: adminId,
+    action,
+    outcome: 'rejected',
+    correlationId: requestId,
+  });
+  throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+}
+
 export function registerInventoryRoutes(
   app: FastifyInstance,
   auth: AdminAuthService,
@@ -29,6 +50,7 @@ export function registerInventoryRoutes(
 ): void {
   app.get<{ Querystring: PageQuery }>('/v1/admin/devices', async (request) => {
     const admin = await requireAdmin(request, auth);
+    await requireInstallationCapability(devices, admin.id, request.id, 'device.inventory.read');
     const args = page(request.query);
     const result = await devices.list(args.cursor, args.limit);
     await appendAudit(devices.pool, {
@@ -44,20 +66,12 @@ export function registerInventoryRoutes(
 
   app.get<{ Querystring: PageQuery }>('/v1/admin/enrollment/devices', async (request) => {
     const admin = await requireAdmin(request, auth);
-    const granted = await devices.pool.query(
-      "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL",
-      [admin.id],
+    await requireInstallationCapability(
+      devices,
+      admin.id,
+      request.id,
+      'device.enrollment.inventory.read',
     );
-    if (!granted.rowCount) {
-      await appendAudit(devices.pool, {
-        actorType: 'ADMIN',
-        actorId: admin.id,
-        action: 'device.enrollment.inventory.read',
-        outcome: 'rejected',
-        correlationId: request.id,
-      });
-      throw new ApiError(403, 'gps_forbidden', 'Forbidden');
-    }
     const args = page(request.query);
     const result = await devices.listEnrollment(args.cursor, args.limit);
     await appendAudit(devices.pool, {
@@ -85,6 +99,7 @@ export function registerInventoryRoutes(
     },
     async (request, reply) => {
       const admin = await requireAdmin(request, auth, true);
+      await requireInstallationCapability(devices, admin.id, request.id, 'device.draft.create');
       const record = await devices.createDraft(request.body.display_label, admin.id, request.id);
       reply.code(201);
       return record;

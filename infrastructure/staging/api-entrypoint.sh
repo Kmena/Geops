@@ -24,12 +24,27 @@ case "${1:-}" in
   server) exec node apps/api/dist/main.js ;;
   migrate) exec node apps/api/dist/db/migrate.js ;;
   gate)
-    [ "${2:-}" = init ] || exit 1
-    exec node apps/api/dist/db/security-gate-cli.js init
+    case "${2:-}" in
+      init|maintenance-start|maintenance-verify|maintenance-finish)
+        exec node apps/api/dist/db/security-gate-cli.js "$2" ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  maintenance-recover)
+    shift
+    exec node apps/api/dist/db/maintenance-recovery-cli.js "$@"
     ;;
   bootstrap)
     [ -n "${2:-}" ] || exit 1
     exec node apps/api/dist/admin-auth/bootstrap.js "$2"
+    ;;
+  recovery)
+    shift
+    exec node apps/api/dist/admin-auth/recovery.js "$@"
+    ;;
+  gps-capabilities)
+    shift
+    exec node apps/api/dist/admin-auth/gps-capability-cli.js "$@"
     ;;
   *) exit 1 ;;
 esac

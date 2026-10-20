@@ -84,6 +84,20 @@ async function main() {
     const password = randomBytes(24).toString('base64url');
     const adminId = await auth.bootstrap('gate@example.test', password);
     const admin = await auth.login('gate@example.test', password, '192.0.2.10', randomUUID());
+    await pool.query(
+      "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.policy.read',$1,'Synthetic restore grant')",
+      [adminId],
+    );
+    for (const table of ['gps_data_tenant_access', 'gps_health_tenant_access'])
+      await pool.query(
+        `INSERT INTO ${table}(admin_id,tenant_id,granted_by,reason) VALUES($1,'synthetic',$1,'Synthetic restore grant')`,
+        [adminId],
+      );
+    const invitationId = randomUUID();
+    await pool.query(
+      "INSERT INTO admin_user_invitation(id,admin_id,token_hash,issued_by,expires_at) VALUES($1,$2,$3,$2,now()+interval '1 day')",
+      [invitationId, adminId, randomBytes(32)],
+    );
     const repo = new DeviceRepository(pool);
     const device = await repo.createDraft('Synthetic restore gate');
     const key = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
@@ -191,6 +205,19 @@ async function main() {
     assert.equal((await readGate(path)).phase, 'closed');
     await quarantineSyntheticRestore(pool, name, path);
     await quarantineSyntheticRestore(pool, name, path);
+    const access = await pool.query(
+      `SELECT
+        (SELECT count(*)::int FROM admin_user_invitation WHERE consumed_at IS NULL) AS invitations,
+        (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS permissions,
+        (SELECT count(*)::int FROM gps_data_tenant_access WHERE revoked_at IS NULL) AS data_grants,
+        (SELECT count(*)::int FROM gps_health_tenant_access WHERE revoked_at IS NULL) AS health_grants`,
+    );
+    assert.deepEqual(access.rows[0], {
+      invitations: 0,
+      permissions: 0,
+      data_grants: 0,
+      health_grants: 0,
+    });
     assert.equal(await verifyForReopen(pool, path), true);
     await assert.rejects(openGateAfterQuarantine(pool, path));
     await assert.rejects(

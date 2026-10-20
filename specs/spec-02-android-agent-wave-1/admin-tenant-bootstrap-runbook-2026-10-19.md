@@ -1,0 +1,30 @@
+# SPEC-02 — Bootstrap administrativo y primer tenant sintético
+
+**Estado:** procedimiento implementado y probado localmente; su ejecución en Staging requiere aprobación de Seguridad y una ventana de cambio. Ninguna concesión se ejecutó en Staging. No autoriza teléfonos ni GPS real.
+
+## Invariantes
+
+- SPEC-01 conserva `admin_user` y su sesión. No se crea un sistema de roles ni un endpoint de bootstrap HTTP.
+- Las nueve capacidades GPS de ADR-015/018 se guardan en `admin_permission`; los datos GPS exigen además filas separadas en `gps_data_tenant_access` y `gps_health_tenant_access`.
+- Los dos custodios de recuperación existentes deben ser personas distintas, activas y distintas de los administradores. Las ceremonias son locales, interactivas y exigen gate abierto/epoch coincidente. Los passwords nunca son argumentos ni aparecen en la salida.
+- Solo `synthetic` con binding `provider=fake` y estado `PENDING` puede anclar una concesión tenant antes de inscripción. Otros tenants requieren binding `ACTIVE`. La aprobación tenant sigue exigiendo dos administradores autenticados distintos y `gps.tenant.grant` vigente.
+- `GET`/`POST /v1/admin/devices` y el inventario de inscripción requieren `gps.installation.manage`; el inventario básico se limita al tenant fake `synthetic`. La creación de borrador no activa el teléfono ni MDM.
+
+## Secuencia autorizable
+
+1. **Preparación.** Identificar por escrito al administrador inicial, al segundo administrador, a dos custodios independientes, el tenant literal `synthetic`, motivo, UUID distintos para cada ceremonia y la ventana. Aprobar custodios, custodia de contraseñas y las dos capacidades propuestas por ADR-018. Verificar backup, las 14 migraciones existentes, gate abierto y epoch idéntico al de DB. No ejecutar `migrate`, `gate init` ni SQL de concesión.
+2. **Custodios.** Si no están aprovisionados por un proceso aprobado, provisionar cada uno con `geops-api recovery provision <correo>` y el flag temporal `GEOPS_ALLOW_SYNTHETIC_CUSTODIAN_SETUP=YES`. El comando existente es sintético; sus cuentas no constituyen aprobación organizativa por sí mismas.
+3. **Administrador inicial.** Ejecutar una vez `geops-api gps-capabilities grant-initial <admin1> <custodio1> <custodio2> <UUID> <motivo>` con `GEOPS_ALLOW_SYNTHETIC_GPS_CAPABILITY_CEREMONY=YES`. Se solicita la contraseña vigente de admin1 y las de ambos custodios. Confirmar por API que las nueve capacidades están vigentes; si falla, obtener un UUID nuevo tras revisar la auditoría. El bootstrap queda cerrado incluso tras revocación.
+4. **Segundo administrador.** Ejecutar `gps-capabilities add-secondary <admin1> <custodio1> <custodio2> <UUID> <admin2> <motivo>` con el mismo flag temporal. La cuenta admin2 queda `LOCKED` con un hash aleatorio no divulgado y las mismas nueve capacidades, sin sesión utilizable. Dos custodios y la contraseña de admin1 autorizan el alta. Solo se admite una segunda cuenta por esta vía.
+5. **Activación supervisada.** Ejecutar `gps-capabilities activate-secondary <admin1> <custodio1> <custodio2> <UUID> <admin2> <motivo>`. Admin1 y cada custodio introducen sus contraseñas; admin2 define una contraseña nueva con confirmación. El comando usa solicitud, dos aprobaciones y consumo de recuperación de SPEC-01; el código de recuperación solo vive en memoria, nunca se imprime. Comprobar login individual de admin2 y auditoría de recuperación. Un fallo requiere revisar el estado y usar otro UUID; las solicitudes incompletas vencen según SPEC-01.
+6. **Ancla sintética.** Con sesión de admin1 y CSRF/Origin válidos, crear un DRAFT por `POST /v1/admin/devices`. Esto crea binding fake `PENDING` del tenant `synthetic`. Un administrador sin `gps.installation.manage` recibe 403. No hace falta conectar ManageEngine ni un teléfono.
+7. **Concesión tenant.** Admin1 propone `POST /v1/admin/gps-tenant-grants/proposals` con `request_id` UUID, `target_admin_id` de admin1, `tenant_id:"synthetic"`, `action:"GRANT"` y motivo. Admin2, en sesión distinta y con CSRF/Origin, aprueba `POST /v1/admin/gps-tenant-grants/{id}/approve` dentro de 24 h. Admin1 no puede aprobar su propia propuesta. Se crean juntas las concesiones de datos y salud, y quedan auditadas. La misma vía sirve para conceder acceso a admin2 si se aprueba expresamente; no se concede por ser administrador.
+8. **Verificación y revocación.** Comprobar `GET /v1/admin/gps-capabilities`, `GET /v1/admin/gps-policies` y `GET /v1/admin/enrollment/devices`; tras inscripción sintética activa, `GET /v1/admin/gps-devices` muestra solo el tenant concedido. Para revocar tenant, uno propone `REVOKE` y el otro aprueba. `gps-capabilities revoke-secondary` invalida cuenta, sesiones, capacidades, acceso tenant y recuperación pendiente de admin2; `gps-capabilities revoke` retira capacidades y acceso tenant de admin1. Verificar 401/403 o lista vacía y auditoría.
+
+Cada comando de ceremonia se invoca como `docker compose [configuración Staging] run --rm -it -e GEOPS_ALLOW_SYNTHETIC_GPS_CAPABILITY_CEREMONY=YES geops-api gps-capabilities ...`; el entrypoint existente carga secretos del contenedor y monta el gate en solo lectura. No incluir passwords, cookies, tokens ni códigos en argumentos, tickets, logs o capturas.
+
+## Actualización y rollback
+
+La actualización propuesta publica API y Web revisadas con los mismos 14 checksums, PostgreSQL/volúmenes y gate/epoch. Backup y smoke de login, capacidades, políticas, inscripción y aislamiento preceden a cualquier ceremonia. Revertir solo la imagen no revoca permisos persistidos: ante un problema de autorización, usar primero la revocación supervisada y de tenant, aislar tráfico y seguir el plan de restore aprobado; no restaurar una copia antigua con el gate abierto.
+
+**Gates pendientes:** aprobación de custodios y entrega de credenciales, aprobación SDD/Seguridad de ADR-018 y del alcance `synthetic`, revisión independiente, E2E de navegador contra Staging y autorización de actualización. W1-E2 físico continúa bloqueado; no se necesita MDM para este recorrido sintético.

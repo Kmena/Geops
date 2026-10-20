@@ -1,5 +1,7 @@
 # Contratos HTTP y OpenAPI — propuesta 0A
 
+**Enmienda sintética SPEC-02 (2026-10-19):** `GET` y `POST /v1/admin/devices` ahora exigen `gps.installation.manage` y el inventario de esta ruta se limita a bindings fake del tenant `synthetic`. La sesión administrativa sola no permite registrar ni enumerar dispositivos. La enmienda preserva cookie, Origin y CSRF de SPEC-01; se documenta también en el OpenAPI distribuido.
+
 El archivo [openapi.yaml](openapi.yaml) define OpenAPI 3.1 para health, autenticación admin, aprovisionamiento/identidad, inventario y estado MDM. Se versiona el prefijo /v1; health usa /health. Todas las respuestas son JSON UTF-8 y cada solicitud tiene X-Request-Id generado/normalizado por servidor. Para identidad, [contrato v1 de SPEC-00](../spec-00-technical-feasibility/identity-api-contract.md) prevalece si hay discrepancia; antes de codificar se deben generar/validar esquemas contra él.
 
 ## Autenticación y errores

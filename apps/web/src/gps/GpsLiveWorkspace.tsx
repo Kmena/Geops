@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiClientError } from '../api/client.js';
+import { useAuth } from '../auth.js';
+import { gpsReadErrorMessage, loadGpsOverview } from './load.js';
 import {
   GpsRemote,
   type RemoteGpsDevice,
@@ -74,18 +76,6 @@ function PositionTrack({ positions }: { positions: RemotePosition[] }) {
     </figure>
   );
 }
-function message(error: unknown): string {
-  if (!(error instanceof ApiClientError))
-    return 'No se pudo completar la consulta. Inténtalo de nuevo.';
-  if (error.status === 401) return 'La sesión expiró. Vuelve a iniciar sesión.';
-  if (error.status === 403) return 'No tienes la capacidad necesaria para esta consulta.';
-  if (error.status === 409) return 'Los datos cambiaron. Actualiza la vista antes de continuar.';
-  if (error.status === 429) return 'Se alcanzó la cuota. Espera antes de reintentar.';
-  return error.status === 404
-    ? 'El dispositivo no está disponible en tu tenant.'
-    : 'Consulta inválida o servicio no disponible.';
-}
-
 export function GpsLiveWorkspace({ section }: { section: Section }) {
   const [revision, setRevision] = useState(0);
   return (
@@ -98,7 +88,9 @@ export function GpsLiveWorkspace({ section }: { section: Section }) {
 }
 
 function GpsLiveContent({ section, refresh }: { section: Section; refresh: () => void }) {
-  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const { profile } = useAuth();
+  const [capabilities, setCapabilities] = useState<string[] | null>(null);
+  const [tenantIds, setTenantIds] = useState<string[]>([]);
   const [policies, setPolicies] = useState<RemotePolicy[]>([]);
   const [devices, setDevices] = useState<RemoteGpsDevice[]>([]);
   const [selected, setSelected] = useState('');
@@ -116,34 +108,33 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
   const [error, setError] = useState<unknown>(null);
   const [detailError, setDetailError] = useState<unknown>(null);
   const allowed = useCallback(
-    (permission: string) => capabilities.includes(permission),
+    (permission: string) => capabilities?.includes(permission) ?? false,
     [capabilities],
   );
   useEffect(() => {
+    if (!profile) {
+      setError(new ApiClientError(401, 'unauthorized'));
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     void (async () => {
       try {
-        await remote.session(controller.signal);
-        const access = await remote.capabilities(controller.signal);
-        const rights = access.capabilities;
-        setCapabilities(rights);
-        const [policyPage, devicePage] = await Promise.all([
-          rights.includes('gps.policy.read')
-            ? remote.policies(undefined, controller.signal)
-            : Promise.resolve({ items: [], next_cursor: null }),
-          rights.includes('gps.session.read')
-            ? remote.devices(controller.signal)
-            : Promise.resolve({ items: [] }),
-        ]);
+        const overview = await loadGpsOverview(remote, controller.signal, (rights, tenants) => {
+          if (!controller.signal.aborted) {
+            setCapabilities(rights);
+            setTenantIds(tenants);
+          }
+        });
         if (controller.signal.aborted) return;
-        setPolicies(policyPage.items);
-        setDevices(devicePage.items);
+        setPolicies(overview.policies);
+        setDevices(overview.devices);
         setSelected((current) =>
-          devicePage.items.some((item) => item.device_id === current)
+          overview.devices.some((item) => item.device_id === current)
             ? current
-            : (devicePage.items[0]?.device_id ?? ''),
+            : (overview.devices[0]?.device_id ?? ''),
         );
       } catch (failure) {
         if (!controller.signal.aborted) setError(failure);
@@ -152,7 +143,7 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
       }
     })();
     return () => controller.abort();
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     if (!selected || !allowed('gps.session.read')) return;
@@ -231,10 +222,29 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
         <button type="button" onClick={refresh}>
           Actualizar datos
         </button>
-        <span>{capabilities.length} capacidades GPS vigentes</span>
+        <span>
+          {capabilities === null
+            ? 'Capacidades GPS sin confirmar'
+            : `${capabilities.length} capacidades GPS vigentes`}
+        </span>
       </div>
+      {capabilities !== null && (
+        <section aria-label="Permisos efectivos de esta cuenta">
+          <h2>Permisos efectivos</h2>
+          <p>{capabilities.length ? capabilities.join(' · ') : 'Sin capacidades GPS concedidas'}</p>
+          <p>
+            Empresa autorizada: {tenantIds.length ? tenantIds.join(', ') : 'sin acceso a datos GPS'}
+          </p>
+        </section>
+      )}
       {loading && <p role="status">Cargando datos autorizados…</p>}
-      {error !== null && <p role="alert">{message(error)}</p>}
+      {error !== null && <p role="alert">{gpsReadErrorMessage(error)}</p>}
+      {!loading && error === null && capabilities?.length === 0 && (
+        <p>
+          Esta cuenta no tiene capacidades GPS concedidas. Solicita una concesión administrativa
+          aprobada.
+        </p>
+      )}
       {!loading && !error && section === 'policies' && (
         <div>
           <h2>Políticas publicadas y borradores</h2>
@@ -255,7 +265,7 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
           <GpsPolicyEditor
             policies={policies}
             devices={devices}
-            capabilities={capabilities}
+            capabilities={capabilities ?? []}
             refresh={refresh}
           />
         </div>
@@ -294,7 +304,7 @@ function GpsLiveContent({ section, refresh }: { section: Section; refresh: () =>
                 </p>
               )}
               {detailLoading && <p role="status">Cargando historial…</p>}
-              {detailError !== null && <p role="alert">{message(detailError)}</p>}
+              {detailError !== null && <p role="alert">{gpsReadErrorMessage(detailError)}</p>}
               {section === 'sessions' && (
                 <>
                   {sessions.length === 0 && !detailLoading ? (

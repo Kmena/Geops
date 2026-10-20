@@ -44,6 +44,7 @@ services:
       GEOPS_MIGRATION_TARGET: geops_dev
       GEOPS_CONFIRM_MIGRATION_TARGET: geops_dev
       GEOPS_ALLOW_NONDISPOSABLE_MIGRATION: "YES"
+      GEOPS_CONFIRM_MAINTENANCE_EPOCH: ${GEOPS_MAINTENANCE_EPOCH:-}
       GEOPS_SECURITY_GATE_PATH: /geops-security/security-gate.json
     secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]
     volumes:

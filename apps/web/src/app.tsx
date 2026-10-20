@@ -19,6 +19,7 @@ import { webBase } from './api/base.js';
 import { AuthProvider, useAuth } from './auth.js';
 import { GpsWorkspace, type GpsSection } from './gps/GpsWorkspace.js';
 import { EnrollmentPanel } from './EnrollmentPanel.js';
+import { ActivateAdmin, AdminUsers } from './AdminUsers.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -100,11 +101,27 @@ function Shell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [exitError, setExitError] = useState(false);
+  const [canManageUsers, setCanManageUsers] = useState(false);
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
     document.title = `GEOPS · ${location.pathname.startsWith('/gps/') ? 'Administración GPS' : 'Consola administrativa'}`;
     main.current?.focus();
   }, [location.pathname]);
+  useEffect(() => {
+    let active = true;
+    if (profile)
+      void api
+        .gpsCapabilities()
+        .then((value) => {
+          if (active) setCanManageUsers(value.capabilities.includes('gps.user.manage'));
+        })
+        .catch(() => {
+          if (active) setCanManageUsers(false);
+        });
+    return () => {
+      active = false;
+    };
+  }, [profile]);
   async function exit() {
     setExitError(false);
     try {
@@ -141,6 +158,14 @@ function Shell({ children }: { children: React.ReactNode }) {
               Integración MDM
             </Link>
             <span className="sidebar-heading">Administración GPS · W1-D</span>
+            {canManageUsers && (
+              <Link
+                aria-current={location.pathname === '/admin/users' ? 'page' : undefined}
+                to="/admin/users"
+              >
+                Usuarios y permisos
+              </Link>
+            )}
             {(
               [
                 ['/gps/policies', 'Políticas GPS'],
@@ -339,6 +364,17 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Navigate to="/inventory" replace />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/activate-admin" element={<ActivateAdmin />} />
+      <Route
+        path="/admin/users"
+        element={
+          <Protected>
+            <Shell>
+              <AdminUsers />
+            </Shell>
+          </Protected>
+        }
+      />
       <Route
         path="/inventory"
         element={

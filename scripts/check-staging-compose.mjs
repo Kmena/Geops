@@ -46,6 +46,17 @@ assert.equal(
 );
 assert.equal(compose.services['geops-web'].build.args.GEOPS_WEB_BASE, '/');
 assert.equal(compose.services['geops-api'].environment.GEOPS_INSECURE_LOCAL_COOKIE, undefined);
+assert.equal(compose.services['geops-migrate'].environment.GEOPS_CONFIRM_MAINTENANCE_EPOCH, '');
+assert.equal(
+  compose.services['geops-migrate'].volumes.find((volume) => volume.target === '/geops-security')
+    ?.read_only,
+  true,
+);
+assert.notEqual(
+  compose.services['geops-gate-init'].volumes.find((volume) => volume.target === '/geops-security')
+    ?.read_only,
+  true,
+);
 assert.equal(compose.services['geops-api'].environment.MDM_CLIENT_SECRET, undefined);
 for (const [key, name] of [
   ['stage_db', 'geops_spec02_stage_db'],

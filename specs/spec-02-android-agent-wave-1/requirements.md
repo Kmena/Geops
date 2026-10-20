@@ -1,5 +1,9 @@
 # Specify — requisitos de SPEC-02
 
+## Enmienda propuesta: empresa única y capacidades por usuario (2026-10-19)
+
+La decisión de negocio fija una empresa inicial, con varios administradores y conjuntos independientes de capacidades. Se propone [ADR-019](../architecture/adr/ADR-019-empresa-unica-administracion-por-capacidades-propuesto.md): un principal obtiene `gps.user.manage` mediante ceremonia local supervisada; establece explícitamente el tenant `synthetic` y gestiona invitaciones, capacidades y acceso tenant por usuario. No se conceden permisos al crear una cuenta, ni se delega `gps.user.manage` mediante la API ordinaria. Cada operación exige su capacidad en backend; `gps.location.read` y acceso tenant siguen siendo requisitos independientes para leer posiciones. Las operaciones ordinarias dentro del tenant no requieren un segundo administrador. Recuperación crítica y transferencia conservan controles reforzados. Las notas anteriores sobre admin2 y doble control de concesiones ordinarias son históricas; no se modifican requisitos de MDM ni se autoriza GPS real.
+
 **Estado:** propuesta para revisión. Fuentes: [PRD v1.1](../prd/GEOPS-PRD-v1.1.md) RF-03–RF-07, RF-14–RF-15, RN-05/RN-07 y CA-02–CA-05; [SPEC-00](../spec-00-technical-feasibility/requirements.md); [SPEC-01](../spec-01-foundation-wave-0a/spec.md); [ADR-002](../architecture/adr/ADR-002-gps-propio.md), [ADR-003](../architecture/adr/ADR-003-ingesta-gps.md), [ADR-008](../architecture/adr/ADR-008-buffer-offline.md) y [ADR-012](../architecture/adr/ADR-012-identidad-dispositivo.md).
 
 ## Requisitos funcionales

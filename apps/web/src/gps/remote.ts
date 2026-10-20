@@ -109,13 +109,20 @@ export class GpsRemote {
     headers?: HeadersInit,
     signal?: AbortSignal,
   ): Promise<T> {
-    const response = await this.send(apiPath(path), {
-      method: 'GET',
-      credentials: 'same-origin',
-      cache: 'no-store',
-      ...(headers ? { headers } : {}),
-      ...(signal ? { signal } : {}),
-    });
+    const url = apiPath(path);
+    let response: Response;
+    try {
+      response = await this.send(url, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        ...(headers ? { headers } : {}),
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new ApiClientError(0, 'network_error');
+    }
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
       const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
@@ -225,8 +232,26 @@ export class GpsRemote {
     return this.get('/v1/admin/auth/me', undefined, signal);
   }
 
-  capabilities(signal?: AbortSignal): Promise<{ capabilities: string[] }> {
-    return this.get('/v1/admin/gps-capabilities', undefined, signal);
+  async capabilities(
+    signal?: AbortSignal,
+  ): Promise<{ capabilities: string[]; tenant_ids: string[] }> {
+    const body = await this.get<{ capabilities?: unknown; tenant_ids?: unknown }>(
+      '/v1/admin/gps-capabilities',
+      undefined,
+      signal,
+    );
+    if (
+      !Array.isArray(body.capabilities) ||
+      !body.capabilities.every((item) => typeof item === 'string')
+    )
+      throw new ApiClientError(502, 'invalid_response');
+    if (
+      body.tenant_ids !== undefined &&
+      (!Array.isArray(body.tenant_ids) ||
+        !body.tenant_ids.every((item) => typeof item === 'string'))
+    )
+      throw new ApiClientError(502, 'invalid_response');
+    return { capabilities: body.capabilities, tenant_ids: (body.tenant_ids ?? []) as string[] };
   }
 
   devices(signal?: AbortSignal): Promise<{ items: RemoteGpsDevice[] }> {

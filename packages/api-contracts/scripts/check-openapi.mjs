@@ -49,6 +49,12 @@ for (const path of [
   '/v1/admin/devices/{device_id}/locations',
   '/v1/admin/devices/{id}/health',
   '/v1/admin/gps-capabilities',
+  '/v1/admin/users',
+  '/v1/admin/users/invitations/accept',
+  '/v1/admin/users/{id}/invitations',
+  '/v1/admin/users/{id}/capabilities',
+  '/v1/admin/users/{id}/tenant-access',
+  '/v1/admin/users/{id}/revoke',
   '/v1/admin/gps-devices',
   '/v1/admin/gps-installations',
   '/v1/admin/gps-installations/{id}/retire',
@@ -64,6 +70,11 @@ for (const path of [
   '/v1/admin/gps-installations/{id}/retire',
   '/v1/admin/gps-tenant-grants/proposals',
   '/v1/admin/gps-tenant-grants/{id}/approve',
+  '/v1/admin/users',
+  '/v1/admin/users/{id}/invitations',
+  '/v1/admin/users/{id}/capabilities',
+  '/v1/admin/users/{id}/tenant-access',
+  '/v1/admin/users/{id}/revoke',
 ])
   assert.deepEqual(gpsPackaged.paths[path].post.security, [{ adminCookie: [], csrfHeader: [] }]);
 const healthPost = gpsPackaged.paths['/v1/device/health/batches'].post;

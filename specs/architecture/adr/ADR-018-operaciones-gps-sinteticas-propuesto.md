@@ -1,5 +1,9 @@
 # ADR-018 — Operaciones administrativas GPS y scheduler sintético
 
+**Enmienda propuesta ADR-019 (decisión de negocio posterior):** el tenant único `synthetic` se establece por ceremonia local auditada; el principal concede acceso tenant por usuario bajo `gps.user.manage` sin segundo administrador para operaciones ordinarias. Las rutas antiguas de propuesta/aprobación permanecen por compatibilidad y se limitan al tenant establecido. El resto del contrato de identidad, PoP, scheduler y retención no cambia. Revisión independiente pendiente.
+
+**Enmienda propuesta 2026-10-19:** el [bootstrap del primer tenant sintético](../../spec-02-android-agent-wave-1/admin-tenant-bootstrap-runbook-2026-10-19.md) conserva propuesta y aprobación por administradores distintos. Únicamente un binding `provider=fake`, `customer_id=synthetic`, `state=PENDING` puede demostrar existencia del tenant antes de la inscripción; los demás tenants siguen requiriendo binding `ACTIVE`. No hay concesión automática por bootstrap de cuenta o creación de DRAFT. Esta enmienda permanece pendiente de aprobación SDD y Seguridad.
+
 **Fecha:** 2026-10-19. **Estado:** propuesto para revisión de seguridad y aprobación SDD; implementado solo en entorno sintético W1-E1 Corte 3. No autoriza activación real ni cambia las siete capacidades iniciales aprobadas en ADR-015 para operación.
 
 ## Contexto

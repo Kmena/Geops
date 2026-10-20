@@ -96,6 +96,26 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Explicit disposable migrations
         run: node apps/api/dist/db/migrate.js
+      - name: Populated schema upgrade 14 to 15
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261021
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
+      - name: Supervised 0015 forward recovery fault injection
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261024
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run migration:0015:integration --workspace @geops/api -- prepare-14
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run maintenance:recovery:integration --workspace @geops/api
+      - name: Isolated persistent-name maintenance rehearsal
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261022
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261022 npm run migration:0015:integration --workspace @geops/api -- prepare-14
+          docker exec "$container" pg_dump -U postgres -d geops_verify_20261022 -Fc -f /tmp/geops-pre0015.dump
+          docker exec "$container" createdb -U postgres geops_dev
+          docker exec "$container" pg_restore -U postgres -d geops_dev /tmp/geops-pre0015.dump
+          GEOPS_DISPOSABLE_MAINTENANCE_REHEARSAL=YES DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_dev npm run maintenance:cli:rehearsal --workspace @geops/api
       - name: Authenticated synthetic PostgreSQL regressions
         run: |
           npm run device:enrollment:integration --workspace @geops/api
@@ -104,6 +124,10 @@ jobs:
           npm run gps:health:integration --workspace @geops/api
           npm run gps:events:integration --workspace @geops/api
           npm run gps:operations:integration --workspace @geops/api
+          npm run gps:capability:integration --workspace @geops/api
+          npm run admin:tenant:integration --workspace @geops/api
+          npm run admin:users:integration --workspace @geops/api
+          npm run maintenance:integration --workspace @geops/api
           npm run gps:scheduler:load --workspace @geops/api
       - name: Backup, isolated restore and rollback probe
         run: |
@@ -113,8 +137,11 @@ jobs:
           docker exec "$container" pg_restore -U postgres -d geops_verify_20261019_restore /tmp/spec02.dump
           source_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019 -Atc 'SELECT count(*) FROM geops_schema_migrations')
           restore_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -Atc 'SELECT count(*) FROM geops_schema_migrations')
-          test "$source_count" = 14
+          test "$source_count" = 15
           test "$source_count" = "$restore_count"
           docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -v ON_ERROR_STOP=1 -c 'BEGIN; ALTER TABLE gps_scheduler_run ADD COLUMN ci_rollback_probe boolean; ROLLBACK;'
           probe_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='gps_scheduler_run' AND column_name='ci_rollback_probe'")
           test "$probe_count" = 0
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261019_restore npm run release:restore:integration --workspace @geops/api
+          docker exec "$container" createdb -U postgres geops_verify_20261023_restore
+          GEOPS_TEST_DB=geops_verify_20261023_restore DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261023_restore node apps/api/test/restore-gate.mjs

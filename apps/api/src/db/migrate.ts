@@ -2,6 +2,7 @@ import { applyMigrations } from './migration-manager.js';
 import { resolveMigrationTarget } from './migration-target.js';
 import { createPool } from './pool.js';
 import { readGate } from './restore-gate.js';
+import { verifyMaintenance } from './maintenance-gate.js';
 
 async function main(): Promise<void> {
   const target = resolveMigrationTarget(process.env);
@@ -18,8 +19,16 @@ async function main(): Promise<void> {
       );
       if (state.rows[0]?.existing) {
         const gate = await readGate(process.env.GEOPS_SECURITY_GATE_PATH ?? '');
-        if (gate.phase !== 'closed')
-          throw new Error('Non-disposable migration requires closed gate');
+        if (
+          gate.phase !== 'maintenance' ||
+          !(await verifyMaintenance(
+            pool,
+            process.env.GEOPS_SECURITY_GATE_PATH ?? '',
+            target.name,
+            process.env.GEOPS_CONFIRM_MAINTENANCE_EPOCH ?? '',
+          ))
+        )
+          throw new Error('Non-disposable migration requires verified maintenance gate');
       }
     }
     process.stdout.write(`GEOPS migration destination verified: ${target.name}\n`);

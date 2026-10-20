@@ -42,6 +42,8 @@ try {
   const adminId = await auth.bootstrap('operator@example.invalid', 'synthetic-password-12345678');
   const secondId = randomUUID();
   await pool.query("INSERT INTO admin_user(id,email_normalized,password_hash,state) SELECT $1,'approver@example.invalid',password_hash,'ACTIVE' FROM admin_user WHERE id=$2", [secondId, adminId]);
+  const unprivilegedId = randomUUID();
+  await pool.query("INSERT INTO admin_user(id,email_normalized,password_hash,state) SELECT $1,'no-gps@example.invalid',password_hash,'ACTIVE' FROM admin_user WHERE id=$2", [unprivilegedId, adminId]);
   for (const permission of ['gps.policy.read','gps.policy.write','gps.policy.assign','gps.policy.activate',
     'gps.session.read','gps.location.read','gps.installation.manage','gps.tenant.grant'])
     await pool.query('INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,$2,$1,$3)',
@@ -57,10 +59,23 @@ try {
   }
   const operator = await login('operator@example.invalid');
   const approver = await login('approver@example.invalid');
+  const unprivileged = await login('no-gps@example.invalid');
   const admin = (session, method, path, payload, extra = {}) => app.inject({ method, url: path,
     headers: { cookie: session.cookie, origin: 'https://geops.example.invalid',
       'x-csrf-token': session.csrf, 'idempotency-key': randomUUID(), ...extra },
     ...(payload === undefined ? {} : { payload }) });
+  check((await admin(unprivileged, 'GET', '/v1/admin/auth/me')).statusCode === 200,
+    'admin without GPS capability remains authenticated');
+  const emptyCapabilities = await admin(unprivileged, 'GET', '/v1/admin/gps-capabilities');
+  check(emptyCapabilities.statusCode === 200 &&
+    JSON.stringify(emptyCapabilities.json()) === JSON.stringify({ capabilities: [], tenant_ids: [] }),
+  'capability discovery returns an empty list rather than a denial');
+  check((await admin(unprivileged, 'GET', '/v1/admin/gps-policies')).statusCode === 403,
+    'policy read still requires an explicit capability');
+  const grantedCapabilities = await admin(operator, 'GET', '/v1/admin/gps-capabilities');
+  check(grantedCapabilities.statusCode === 200 &&
+    grantedCapabilities.json().capabilities.includes('gps.policy.read'),
+  'granted admin sees the current policy capability');
   const deviceId = randomUUID(), bindingId = randomUUID(), keyId = randomUUID();
   const token = randomBytes(32).toString('base64url');
   const pair = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });

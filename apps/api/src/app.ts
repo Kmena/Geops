@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import fastify, { LogController, type FastifyInstance } from 'fastify';
 import { registerAdminRoutes } from './admin-auth/routes.js';
 import type { AdminAuthService } from './admin-auth/service.js';
+import { registerUserAdministrationRoutes } from './admin-auth/user-routes.js';
+import type { AdminUserAdministrationService } from './admin-auth/user-administration.js';
 import type { DeviceRepository } from './device-identity/repository.js';
 import type { EnrollmentService } from './device-identity/enrollment.js';
 import type { DeviceSessionService } from './device-identity/session.js';
@@ -32,6 +34,7 @@ export interface AppOptions {
   logLevel?: 'silent' | 'info';
   logStream?: Writable;
   adminAuth?: AdminAuthService;
+  adminUsers?: AdminUserAdministrationService;
   devices?: DeviceRepository;
   mdm?: MdmProvider;
   enrollment?: EnrollmentService;
@@ -73,6 +76,8 @@ export function createApp(options: AppOptions): FastifyInstance {
       options.secureCookie ?? true,
       options.adminCookiePath,
     );
+    if (options.adminUsers)
+      registerUserAdministrationRoutes(app, options.adminAuth, options.adminUsers);
     if (options.gpsPolicies) registerGpsPolicyRoutes(app, options.adminAuth, options.gpsPolicies);
     if (options.gpsHealth && options.deviceSessions)
       registerGpsHealthRoutes(app, options.adminAuth, options.deviceSessions, options.gpsHealth);

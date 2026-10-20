@@ -4,12 +4,10 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { Pool } from 'pg';
 import { checkReadiness } from './migration-manager.js';
 
-type Phase = 'closed' | 'open';
-export interface GateState {
-  version: 1;
-  phase: Phase;
-  epoch: string;
-}
+export type GateState =
+  | { version: 1; phase: 'closed'; epoch: string }
+  | { version: 1; phase: 'open'; epoch: string; nonce?: string }
+  | { version: 1; phase: 'maintenance'; epoch: string; nonce: string };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function gatePath(path: string): void {
@@ -36,11 +34,16 @@ export async function readGate(path: string): Promise<GateState> {
   if (!state || typeof state !== 'object') throw new Error('External security gate is invalid');
   const value = state as Record<string, unknown>;
   if (
-    Object.keys(value).sort().join(',') !== 'epoch,phase,version' ||
+    Object.keys(value).sort().join(',') !==
+      (value.phase === 'maintenance' || (value.phase === 'open' && 'nonce' in value)
+        ? 'epoch,nonce,phase,version'
+        : 'epoch,phase,version') ||
     value.version !== 1 ||
-    (value.phase !== 'open' && value.phase !== 'closed') ||
+    (value.phase !== 'open' && value.phase !== 'closed' && value.phase !== 'maintenance') ||
     typeof value.epoch !== 'string' ||
-    !UUID.test(value.epoch)
+    !UUID.test(value.epoch) ||
+    ((value.phase === 'maintenance' || 'nonce' in value) &&
+      (typeof value.nonce !== 'string' || !UUID.test(value.nonce)))
   )
     throw new Error('External security gate is invalid');
   return value as unknown as GateState;
@@ -73,7 +76,18 @@ export async function epochMatches(pool: Pool, expected: string): Promise<boolea
 export async function gateAllowsTraffic(pool: Pool, path: string): Promise<boolean> {
   try {
     const state = await readGate(path);
-    return state.phase === 'open' && (await epochMatches(pool, state.epoch));
+    if (state.phase !== 'open' || !(await epochMatches(pool, state.epoch))) return false;
+    if (!state.nonce) return true;
+    const result = await pool.query<{ epoch: string; nonce: string; same_database: boolean }>(
+      `SELECT epoch::text,nonce::text,
+        database_oid=(SELECT oid FROM pg_database WHERE datname=current_database()) AS same_database
+       FROM geops_maintenance_marker WHERE singleton=true`,
+    );
+    return (
+      result.rows[0]?.epoch === state.epoch &&
+      result.rows[0]?.nonce === state.nonce &&
+      result.rows[0]?.same_database === true
+    );
   } catch {
     return false;
   }
@@ -167,6 +181,10 @@ export async function verifyForReopen(pool: Pool, path: string): Promise<boolean
       active_grants: number;
       active_custodians: number;
       pending_recovery: number;
+      pending_admin_invitations: number;
+      active_admin_permissions: number;
+      active_data_grants: number;
+      active_health_grants: number;
       other_connections: number;
     }>(`SELECT e.epoch,e.quarantine_id,
       (SELECT count(*)::int FROM geops_device WHERE status='ACTIVE') AS active_devices,
@@ -183,6 +201,10 @@ export async function verifyForReopen(pool: Pool, path: string): Promise<boolean
       (SELECT count(*)::int FROM mdm_integration WHERE status<>'DISCONNECTED') AS active_grants,
       (SELECT count(*)::int FROM recovery_custodian WHERE state='ACTIVE') AS active_custodians,
       (SELECT count(*)::int FROM recovery_request WHERE status IN ('PENDING','AUTHORIZED')) AS pending_recovery,
+      (SELECT count(*)::int FROM admin_user_invitation WHERE consumed_at IS NULL AND expires_at>now()) AS pending_admin_invitations,
+      (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS active_admin_permissions,
+      (SELECT count(*)::int FROM gps_data_tenant_access WHERE revoked_at IS NULL) AS active_data_grants,
+      (SELECT count(*)::int FROM gps_health_tenant_access WHERE revoked_at IS NULL) AS active_health_grants,
       (SELECT count(*)::int FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()) AS other_connections
       FROM security_epoch e WHERE e.singleton=true`);
     const row = result.rows[0];
@@ -204,6 +226,10 @@ export async function verifyForReopen(pool: Pool, path: string): Promise<boolean
       row.active_grants === 0 &&
       row.active_custodians === 0 &&
       row.pending_recovery === 0 &&
+      row.pending_admin_invitations === 0 &&
+      row.active_admin_permissions === 0 &&
+      row.active_data_grants === 0 &&
+      row.active_health_grants === 0 &&
       row.other_connections === 0
     );
   } catch {

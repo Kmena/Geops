@@ -132,6 +132,11 @@ async function main() {
       (await call('GET', '/v1/admin/auth/me', undefined, { cookie: extraCookie })).statusCode,
       401,
     );
+    // Explicit synthetic fixture: an authenticated administrator alone cannot create a device.
+    await pool.query(
+      "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.installation.manage',$1,$2)",
+      [adminId, 'Synthetic SPEC-01 integration fixture'],
+    );
     step = 'device';
     const created = await call(
       'POST',

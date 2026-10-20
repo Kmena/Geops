@@ -43,6 +43,10 @@ export async function applyMigrations(pool: Pool): Promise<string[]> {
       'SELECT version, checksum FROM geops_schema_migrations',
     );
     const existing = new Map(rows.rows.map((row) => [row.version, row.checksum]));
+    if (
+      [...existing.keys()].some((version) => !migrations.some((item) => item.version === version))
+    )
+      throw new Error('Unknown migration version');
     for (const migration of migrations) {
       const checksum = existing.get(migration.version);
       if (checksum !== undefined) {
@@ -75,7 +79,10 @@ export async function checkReadiness(pool: Pool): Promise<boolean> {
       'SELECT m.version, m.checksum, PostGIS_Version() AS postgis FROM geops_schema_migrations m',
     );
     const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
-    return expected.every((migration) => actual.get(migration.version) === migration.checksum);
+    return (
+      actual.size === expected.length &&
+      expected.every((migration) => actual.get(migration.version) === migration.checksum)
+    );
   } catch {
     return false;
   }

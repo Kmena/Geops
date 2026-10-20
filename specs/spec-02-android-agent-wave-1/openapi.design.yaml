@@ -1486,11 +1486,75 @@
         }
       }
     },
+    "/v1/admin/users": {
+      "get": {
+        "operationId": "listAdminUsers",
+        "description": "Requires gps.user.manage; lists effective capabilities and single-company tenant access, without secrets.",
+        "security": [{ "adminCookie": [] }],
+        "responses": { "200": { "description": "Authorized user directory" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Missing manager capability" } }
+      },
+      "post": {
+        "operationId": "createAdminUser",
+        "description": "Requires gps.user.manage, Origin and CSRF. Creates a locked account and returns one invitation secret once; no permissions are inherited.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["email", "reason"], "properties": { "email": { "type": "string", "format": "email" }, "reason": { "type": "string", "minLength": 8, "maxLength": 240 } } } } } },
+        "responses": { "201": { "description": "Locked account and one-time invitation" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Missing manager capability" }, "409": { "description": "User exists or tenant not established" } }
+      }
+    },
+    "/v1/admin/users/invitations/accept": {
+      "post": {
+        "operationId": "acceptAdminInvitation",
+        "description": "One-time 256-bit invitation token and allowed Origin required; five failed attempts maximum per invitation. No admin cookie is used.",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["invitation_id", "invitation_token", "password"], "properties": { "invitation_id": { "type": "string", "format": "uuid" }, "invitation_token": { "type": "string" }, "password": { "type": "string", "minLength": 16 } } } } } },
+        "responses": { "204": { "description": "Account activated" }, "403": { "description": "Invalid or expired invitation, or rejected Origin" } }
+      }
+    },
+    "/v1/admin/users/{id}/invitations": {
+      "post": {
+        "operationId": "reissueAdminInvitation",
+        "description": "Requires gps.user.manage, Origin and CSRF; invalidates prior invitation for a locked user.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 8, "maxLength": 240 } } } } } },
+        "responses": { "201": { "description": "New one-time invitation" }, "403": { "description": "Forbidden" }, "409": { "description": "User is not locked" } }
+      }
+    },
+    "/v1/admin/users/{id}/capabilities": {
+      "post": {
+        "operationId": "changeAdminCapabilities",
+        "description": "Requires gps.user.manage, Origin and CSRF. Atomic multi-capability grant/revoke; gps.user.manage cannot be delegated through this API.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["request_id", "action", "capabilities", "reason"], "properties": { "request_id": { "type": "string", "format": "uuid" }, "action": { "enum": ["GRANT", "REVOKE"] }, "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }, "reason": { "type": "string", "minLength": 8, "maxLength": 240 } } } } } },
+        "responses": { "204": { "description": "Change persisted or exact retry" }, "403": { "description": "Forbidden" }, "409": { "description": "Conflict or differing retry" }, "422": { "description": "Invalid capability" } }
+      }
+    },
+    "/v1/admin/users/{id}/tenant-access": {
+      "post": {
+        "operationId": "changeAdminTenantAccess",
+        "description": "Requires gps.user.manage, Origin and CSRF. Grants or revokes data and health access for the sole established tenant in one transaction.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["request_id", "action", "reason"], "properties": { "request_id": { "type": "string", "format": "uuid" }, "action": { "enum": ["GRANT", "REVOKE"] }, "reason": { "type": "string", "minLength": 8, "maxLength": 240 } } } } } },
+        "responses": { "204": { "description": "Access changed or exact retry" }, "403": { "description": "Forbidden" }, "409": { "description": "Conflict" } }
+      }
+    },
+    "/v1/admin/users/{id}/revoke": {
+      "post": {
+        "operationId": "revokeAdminUser",
+        "description": "Requires gps.user.manage, Origin and CSRF. Revokes account, sessions, permissions, tenant access and pending invitations.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["request_id", "reason"], "properties": { "request_id": { "type": "string", "format": "uuid" }, "reason": { "type": "string", "minLength": 8, "maxLength": 240 } } } } } },
+        "responses": { "204": { "description": "Account revoked or exact retry" }, "403": { "description": "Forbidden" }, "409": { "description": "Conflict" } }
+      }
+    },
     "/v1/admin/gps-capabilities": {
       "get": {
         "operationId": "listOwnGpsCapabilities",
         "security": [{ "adminCookie": [] }],
-        "responses": { "200": { "description": "Current active GPS capabilities" }, "401": { "description": "Unauthenticated" } }
+        "responses": { "200": { "description": "Current active GPS capabilities and tenant_ids; tenant IDs require both data and health grants" }, "401": { "description": "Unauthenticated" } }
       }
     },
     "/v1/admin/gps-devices": {

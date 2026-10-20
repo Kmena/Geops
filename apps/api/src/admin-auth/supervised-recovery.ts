@@ -70,13 +70,14 @@ export class SupervisedRecoveryService {
       client.release();
     }
   }
-  async request(adminId: string, ref = randomUUID()): Promise<string> {
+  async request(adminId: string, ref: string = randomUUID()): Promise<string> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const target = await client.query('SELECT id FROM admin_user WHERE id=$1 FOR UPDATE', [
-        adminId,
-      ]);
+      const target = await client.query(
+        "SELECT id FROM admin_user WHERE id=$1 AND state IN ('ACTIVE','LOCKED') FOR UPDATE",
+        [adminId],
+      );
       if (target.rowCount !== 1) throw bad();
       await client.query(
         "UPDATE recovery_request SET status='CANCELLED',code_hash=NULL WHERE admin_id=$1 AND status IN ('PENDING','AUTHORIZED')",
@@ -210,6 +211,11 @@ export class SupervisedRecoveryService {
       );
       const request = row.rows[0];
       if (request?.status !== 'AUTHORIZED' || request.expires_at <= this.now()) throw bad();
+      const target = await client.query(
+        "SELECT 1 FROM admin_user WHERE id=$1 AND state IN ('ACTIVE','LOCKED') FOR UPDATE",
+        [request.admin_id],
+      );
+      if (!target.rowCount) throw bad();
       const approvals = await client.query<{ n: number }>(
         "SELECT count(DISTINCT c.id)::int AS n FROM recovery_approval p JOIN recovery_custodian c ON c.id=p.custodian_id JOIN admin_user a ON a.id=$2 WHERE p.request_id=$1 AND p.revoked_at IS NULL AND c.state='ACTIVE' AND c.email_normalized<>a.email_normalized",
         [request.id, request.admin_id],

@@ -56,9 +56,18 @@ export class GpsAdministrationService {
     if (!found.rowCount) throw new ApiError(403, 'gps_forbidden', 'Forbidden');
   }
 
-  async capabilities(adminId: string, requestId: string): Promise<{ capabilities: string[] }> {
+  async capabilities(
+    adminId: string,
+    requestId: string,
+  ): Promise<{ capabilities: string[]; tenant_ids: string[] }> {
     const rows = await this.pool.query<{ permission: string }>(
       "SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL AND permission LIKE 'gps.%' ORDER BY permission",
+      [adminId],
+    );
+    const tenants = await this.pool.query<{ tenant_id: string }>(
+      `SELECT d.tenant_id FROM gps_data_tenant_access d
+       JOIN gps_health_tenant_access h ON h.admin_id=d.admin_id AND h.tenant_id=d.tenant_id AND h.revoked_at IS NULL
+       WHERE d.admin_id=$1 AND d.revoked_at IS NULL ORDER BY d.tenant_id`,
       [adminId],
     );
     await appendAudit(this.pool, {
@@ -69,7 +78,10 @@ export class GpsAdministrationService {
       correlationId: requestId,
       metadata: { count: rows.rowCount ?? 0 },
     });
-    return { capabilities: rows.rows.map((row) => row.permission) };
+    return {
+      capabilities: rows.rows.map((row) => row.permission),
+      tenant_ids: tenants.rows.map((row) => row.tenant_id),
+    };
   }
 
   async devices(adminId: string, requestId: string): Promise<{ items: Record<string, unknown>[] }> {
@@ -257,8 +269,13 @@ export class GpsAdministrationService {
       const target = await db.query("SELECT 1 FROM admin_user WHERE id=$1 AND state='ACTIVE'", [
         data.target_admin_id,
       ]);
+      const operating = await db.query<{ tenant_id: string }>(
+        'SELECT tenant_id FROM geops_operating_tenant WHERE singleton=true',
+      );
+      if (operating.rows[0] && operating.rows[0].tenant_id !== data.tenant_id)
+        throw new ApiError(403, 'gps_forbidden', 'Forbidden');
       const tenant = await db.query(
-        "SELECT 1 FROM mdm_binding WHERE customer_id=$1 AND state='ACTIVE' LIMIT 1",
+        "SELECT 1 FROM mdm_binding WHERE customer_id=$1 AND (state='ACTIVE' OR (customer_id='synthetic' AND provider='fake' AND state='PENDING')) LIMIT 1",
         [data.tenant_id],
       );
       if (!target.rowCount || !tenant.rowCount)
@@ -329,8 +346,13 @@ export class GpsAdministrationService {
       );
       if (!target.rowCount) throw new ApiError(409, 'target_inactive', 'Conflict');
       if (row.action === 'GRANT') {
+        const operating = await db.query<{ tenant_id: string }>(
+          'SELECT tenant_id FROM geops_operating_tenant WHERE singleton=true',
+        );
+        if (operating.rows[0] && operating.rows[0].tenant_id !== row.tenant_id)
+          throw new ApiError(403, 'gps_forbidden', 'Forbidden');
         const tenant = await db.query(
-          "SELECT 1 FROM mdm_binding WHERE customer_id=$1 AND state='ACTIVE' LIMIT 1",
+          "SELECT 1 FROM mdm_binding WHERE customer_id=$1 AND (state='ACTIVE' OR (customer_id='synthetic' AND provider='fake' AND state='PENDING')) LIMIT 1",
           [row.tenant_id],
         );
         if (!tenant.rowCount) throw new ApiError(409, 'tenant_inactive', 'Conflict');

@@ -63,6 +63,13 @@ export class DeviceRepository {
       throw new ApiError(400, 'invalid_request', 'Invalid request');
     }
     return transaction(this.pool, async (db) => {
+      if (adminId) {
+        const permission = await db.query(
+          "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.installation.manage' AND revoked_at IS NULL FOR SHARE",
+          [adminId],
+        );
+        if (!permission.rowCount) throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+      }
       const id = randomUUID();
       const bindingId = randomUUID();
       await db.query("INSERT INTO geops_device(id,status,display_label) VALUES($1,'DRAFT',$2)", [
@@ -109,7 +116,7 @@ export class DeviceRepository {
         throw new ApiError(400, 'invalid_cursor', 'Invalid cursor');
     }
     const result = await this.pool.query<DeviceRecord>(
-      "SELECT d.id,d.display_label,d.status,b.id AS mdm_binding_id FROM geops_device d JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state IN ('PENDING','ACTIVE') WHERE ($1::uuid IS NULL OR d.id>$1::uuid) ORDER BY d.id LIMIT $2",
+      "SELECT d.id,d.display_label,d.status,b.id AS mdm_binding_id FROM geops_device d JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state IN ('PENDING','ACTIVE') WHERE b.provider='fake' AND b.customer_id='synthetic' AND ($1::uuid IS NULL OR d.id>$1::uuid) ORDER BY d.id LIMIT $2",
       [after, limit + 1],
     );
     const items = result.rows.slice(0, limit);

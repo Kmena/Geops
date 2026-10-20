@@ -100,6 +100,7 @@ paths:
     get:
       tags: [Inventory]
       operationId: listGeopsDevices
+      description: Synthetic enrollment inventory only; requires gps.installation.manage.
       security:
         - adminCookie: []
       parameters:
@@ -117,7 +118,7 @@ paths:
     post:
       tags: [Inventory]
       operationId: createGeopsDevice
-      description: Crea DRAFT; no inscribe dispositivo MDM.
+      description: Creates a synthetic DRAFT; requires gps.installation.manage and does not enroll MDM.
       security:
         - adminCookie: []
           csrfHeader: []

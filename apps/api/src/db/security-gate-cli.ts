@@ -1,4 +1,5 @@
 import { createPool } from './pool.js';
+import { beginMaintenance, finishMaintenance, verifyMaintenance } from './maintenance-gate.js';
 import {
   closeGate,
   epochMatches,
@@ -18,7 +19,16 @@ async function main(): Promise<void> {
     process.env.GEOPS_DATA_MODE !== 'synthetic' ||
     !gatePath ||
     !databaseUrl ||
-    !['init', 'close', 'verify', 'open', 'recover-missing'].includes(mode ?? '')
+    ![
+      'init',
+      'close',
+      'verify',
+      'open',
+      'recover-missing',
+      'maintenance-start',
+      'maintenance-verify',
+      'maintenance-finish',
+    ].includes(mode ?? '')
   )
     throw new Error('Synthetic gate configuration required');
   const url = new URL(databaseUrl);
@@ -31,7 +41,23 @@ async function main(): Promise<void> {
   }
   const pool = createPool(url.toString());
   try {
-    if (mode === 'init') await initializeFreshGate(pool, gatePath);
+    if (
+      mode === 'maintenance-start' ||
+      mode === 'maintenance-verify' ||
+      mode === 'maintenance-finish'
+    ) {
+      const target = process.env.GEOPS_CONFIRM_MAINTENANCE_TARGET ?? '';
+      const epoch = process.env.GEOPS_CONFIRM_MAINTENANCE_EPOCH ?? '';
+      if (target !== decodeURIComponent(url.pathname.slice(1)) || !epoch)
+        throw new Error('Explicit maintenance target and epoch required');
+      if (mode === 'maintenance-start') await beginMaintenance(pool, gatePath, target, epoch);
+      else if (mode === 'maintenance-finish') {
+        if (target === 'geops_dev')
+          throw new Error('Persistent maintenance requires supervised forward recovery');
+        await finishMaintenance(pool, gatePath, target, epoch);
+      } else if (!(await verifyMaintenance(pool, gatePath, target, epoch)))
+        throw new Error('Maintenance verification failed');
+    } else if (mode === 'init') await initializeFreshGate(pool, gatePath);
     else if (mode === 'recover-missing') {
       if (process.env.GEOPS_CONFIRM_LOST_GATE !== 'YES' || !testName)
         throw new Error('Missing gate recovery confirmation required');

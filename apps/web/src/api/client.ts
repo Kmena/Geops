@@ -6,6 +6,20 @@ export interface AdminProfile {
   csrf_token: string;
 }
 
+export interface AdminUserRecord {
+  id: string;
+  email: string;
+  state: 'ACTIVE' | 'LOCKED' | 'REVOKED';
+  capabilities: string[];
+  tenant_access: boolean;
+}
+
+export interface AdminInvitation {
+  invitation_id: string;
+  invitation_token: string;
+  expires_at: string;
+}
+
 export interface BasicDevice {
   id: string;
   display_label: string;
@@ -99,6 +113,50 @@ export const api = {
     read<void>('/v1/admin/auth/sessions/current', {
       method: 'DELETE',
       headers: { 'x-csrf-token': csrf },
+    }),
+  adminUsers: () => read<{ users: AdminUserRecord[]; tenant_id: string }>('/v1/admin/users'),
+  createAdminUser: (email: string, reason: string, csrf: string) =>
+    read<AdminInvitation & { admin_id: string }>('/v1/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ email, reason }),
+    }),
+  reissueAdminInvitation: (id: string, reason: string, csrf: string) =>
+    read<AdminInvitation>(`/v1/admin/users/${id}/invitations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ reason }),
+    }),
+  acceptAdminInvitation: (invitationId: string, token: string, password: string) =>
+    read<void>('/v1/admin/users/invitations/accept', {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ invitation_id: invitationId, invitation_token: token, password }),
+    }),
+  changeAdminCapabilities: (
+    id: string,
+    action: 'GRANT' | 'REVOKE',
+    capabilities: string[],
+    reason: string,
+    csrf: string,
+  ) =>
+    read<void>(`/v1/admin/users/${id}/capabilities`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ request_id: crypto.randomUUID(), action, capabilities, reason }),
+    }),
+  changeAdminTenantAccess: (id: string, action: 'GRANT' | 'REVOKE', reason: string, csrf: string) =>
+    read<void>(`/v1/admin/users/${id}/tenant-access`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ request_id: crypto.randomUUID(), action, reason }),
+    }),
+  revokeAdminUser: (id: string, reason: string, csrf: string) =>
+    read<void>(`/v1/admin/users/${id}/revoke`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ request_id: crypto.randomUUID(), reason }),
     }),
   geopsDevices: (cursor?: string) =>
     read<Page<BasicDevice>>(

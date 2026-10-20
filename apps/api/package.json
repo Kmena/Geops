@@ -17,10 +17,20 @@
     "gps:config:integration": "node --import tsx test/gps-config.integration.mjs",
     "gps:events:integration": "node --import tsx test/gps-events.integration.mjs",
     "gps:operations:integration": "node --import tsx test/gps-operations.integration.mjs",
+    "gps:capability:integration": "node --import tsx test/gps-capability-bootstrap.integration.mjs",
+    "admin:tenant:integration": "node --import tsx test/admin-tenant-bootstrap.integration.mjs",
+    "admin:users:integration": "node --import tsx test/single-tenant-users.integration.mjs",
+    "maintenance:integration": "node --import tsx test/maintenance-upgrade.integration.mjs",
+    "maintenance:recovery:integration": "node --import tsx test/maintenance-recovery.integration.mjs",
+    "migration:0015:integration": "node --import tsx test/migration-0015-upgrade.integration.mjs",
+    "release:restore:integration": "node --import tsx test/single-tenant-release-restore.integration.mjs",
+    "maintenance:cli:rehearsal": "node --import tsx test/maintenance-cli-rehearsal.integration.mjs",
+    "maintenance:recover": "node dist/db/maintenance-recovery-cli.js",
     "gps:scheduler:load": "node --import tsx test/gps-scheduler-load.integration.mjs",
     "mdm:dev": "node mdm-oauth-dev.mjs",
     "admin:bootstrap": "node dist/admin-auth/bootstrap.js",
-    "admin:recovery": "node dist/admin-auth/recovery.js"
+    "admin:recovery": "node dist/admin-auth/recovery.js",
+    "admin:gps-capabilities": "node dist/admin-auth/gps-capability-cli.js"
   },
   "dependencies": {
     "@geops/api-contracts": "0.1.0",

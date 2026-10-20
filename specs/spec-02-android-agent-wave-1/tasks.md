@@ -1,5 +1,7 @@
 # Tasks — backlog verificable
 
+**Enmienda ADR-019:** implementar y verificar ceremonia local de principal y tenant, migración 0015, API de usuarios/capacidades/acceso tenant, vista Web de permisos efectivos y runbook de mantenimiento. Implementación local sintética terminada; permanecen abiertos aprobación de ADR-019, revisión independiente de Seguridad, ensayo de actualización/restore de Staging y E2E autenticado. La dependencia ordinaria de admin2 del corte anterior queda sustituida por el principal explícito; recuperación excepcional mantiene control reforzado.
+
 **W1-E2 primer dispositivo (2026-10-19):** [implementación local y evidencia](w1-e2-first-device-2026-10-19.md). T05/T06–T10 recibieron conexiones Web/API y empaquetado Android, con pruebas sintéticas; T12 cuenta con APK firmada de prueba pero **no** con instalación ni evidencia física. T11, E2E único en Android/navegador y gates operativos siguen abiertos. No se altera el estado de SPEC-00 ni se cierra W1-E2.
 
 **W1-E1 Corte 3 (2026-10-19):** T09 incorpora tick de ventanas/versiones, MISSED/UNKNOWN_END, purga programada, activación de instalación y doble control de concesiones; T10 conecta vistas Web de lectura a API autenticada, con filtros/motivo y acciones deshabilitadas. [Evidencia](w1-e1-c3-scheduler-activation-web-2026-10-19.md). T09/T10 **siguen abiertos** para migración y retención operativas, E2E de navegador y carga sostenida; T11 sigue abierto por revisión independiente y aprobación de ADR-018. Los estados anteriores abajo son históricos.

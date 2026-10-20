@@ -47,6 +47,16 @@ export async function quarantineSyntheticRestore(
     await client.query('UPDATE device_challenge SET consumed_at=now() WHERE consumed_at IS NULL');
     await client.query('UPDATE admin_session SET revoked_at=now() WHERE revoked_at IS NULL');
     await client.query(
+      'UPDATE admin_user_invitation SET consumed_at=now() WHERE consumed_at IS NULL',
+    );
+    await client.query('UPDATE admin_permission SET revoked_at=now() WHERE revoked_at IS NULL');
+    await client.query(
+      'UPDATE gps_data_tenant_access SET revoked_at=now() WHERE revoked_at IS NULL',
+    );
+    await client.query(
+      'UPDATE gps_health_tenant_access SET revoked_at=now() WHERE revoked_at IS NULL',
+    );
+    await client.query(
       "UPDATE admin_user SET state='LOCKED',version=version+1,updated_at=now() WHERE state='ACTIVE'",
     );
     await client.query('UPDATE admin_recovery SET consumed_at=now() WHERE consumed_at IS NULL');
