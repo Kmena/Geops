@@ -48,6 +48,21 @@ export interface DeviceInvitation {
   expires_at: string;
 }
 
+function validInvitation(value: unknown, deviceId: string): value is DeviceInvitation {
+  if (!value || typeof value !== 'object') return false;
+  const invite = value as Record<string, unknown>;
+  return (
+    typeof invite.invitation_id === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invite.invitation_id) &&
+    invite.geops_device_id === deviceId &&
+    typeof invite.invitation_secret === 'string' &&
+    /^[A-Za-z0-9_-]{43}$/.test(invite.invitation_secret) &&
+    typeof invite.expires_at === 'string' &&
+    Number.isFinite(Date.parse(invite.expires_at)) &&
+    Date.parse(invite.expires_at) > Date.now()
+  );
+}
+
 export interface MdmDevice {
   mdm_device_id: string;
   status: string;
@@ -172,15 +187,20 @@ export const api = {
       headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
       body: JSON.stringify({ display_label: label }),
     }),
-  issueInvitation: (device: Device, csrf: string) =>
-    read<DeviceInvitation>(`/v1/admin/devices/${device.id}/invitations`, {
+  issueInvitation: async (device: Device, csrf: string) => {
+    const response = await read<unknown>(`/v1/admin/devices/${device.id}/invitations`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
       body: JSON.stringify({
         mdm_binding_id: device.mdm_binding_id,
         delivery_mode: 'supervised_qr',
       }),
-    }),
+    });
+    if (!validInvitation(response, device.id)) {
+      throw new ApiClientError(502, 'invalid_invitation_response');
+    }
+    return response;
+  },
   cancelInvitation: (device: Device & { invitation_id: string }, csrf: string) =>
     read<{ status: 'CANCELLED' }>(
       `/v1/admin/devices/${device.id}/invitations/${device.invitation_id}`,

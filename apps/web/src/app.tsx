@@ -214,7 +214,16 @@ function useLoad<T>(load: () => Promise<T>) {
     setState((current) => ({ ...current, loading: true, error: null }));
     void load()
       .then((data) => setState({ loading: false, data, error: null }))
-      .catch((error) => setState({ loading: false, data: null, error }));
+      .catch((error) =>
+        setState((current) => ({
+          loading: false,
+          data:
+            error instanceof ApiClientError && (error.status === 401 || error.status === 403)
+              ? null
+              : current.data,
+          error,
+        })),
+      );
   };
   useEffect(refresh, [load]);
   return { ...state, refresh };
@@ -258,12 +267,16 @@ function Inventory() {
           )}
         </section>
         {gpsAccess.loading ||
-        (gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.loading) ? (
+        (gpsAccess.data?.capabilities.includes('gps.installation.manage') &&
+          enrollment.loading &&
+          !enrollment.data) ? (
           <section className="panel" role="status">
             Cargando inscripción…
           </section>
         ) : gpsAccess.error ||
-          (gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.error) ? (
+          (gpsAccess.data?.capabilities.includes('gps.installation.manage') &&
+            enrollment.error &&
+            !enrollment.data) ? (
           <section className="panel">
             <ErrorText error={gpsAccess.error ?? enrollment.error} />
             <button
@@ -274,14 +287,24 @@ function Inventory() {
             </button>
           </section>
         ) : (
-          <EnrollmentPanel
-            devices={enrollment.data?.items ?? []}
-            capabilities={gpsAccess.data?.capabilities ?? []}
-            refresh={() => {
-              enrollment.refresh();
-              geops.refresh();
-            }}
-          />
+          <div>
+            {enrollment.error !== null && (
+              <div role="alert" className="notice error">
+                <ErrorText error={enrollment.error} />
+                <button type="button" onClick={enrollment.refresh}>
+                  Reintentar inventario
+                </button>
+              </div>
+            )}
+            <EnrollmentPanel
+              devices={enrollment.data?.items ?? []}
+              capabilities={gpsAccess.data?.capabilities ?? []}
+              refresh={() => {
+                enrollment.refresh();
+                geops.refresh();
+              }}
+            />
+          </div>
         )}
         <section className="panel" aria-labelledby="mdm-title">
           <div className="panel-head">
