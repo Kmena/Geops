@@ -5,6 +5,8 @@ import java.time.Instant
 import java.security.MessageDigest
 import java.util.UUID
 import javax.crypto.KeyGenerator
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -197,17 +199,35 @@ fun main() {
         val clock = FakeClock()
         val store = EncryptedFileAgentStore(path, key)
         val (p, _) = engine(clock, store); p.load(snap())
+        val firstNonce = Files.readAllBytes(path).copyOfRange(1, 13)
         store.update { it.pending.add(PendingRecord(UUID.randomUUID().toString(), RecordKind.LOCATION,
             "{\"latitude\":14.6}", start)) }
         val bytes = Files.readAllBytes(path)
+        check(!firstNonce.contentEquals(bytes.copyOfRange(1, 13)))
         check(!String(bytes, Charsets.ISO_8859_1).contains("latitude"))
         val reopened = EncryptedFileAgentStore(path, key)
         check(reopened.read().pending.single().createdAtMs == start)
+        val wrongKey = KeyGenerator.getInstance("AES").run { init(256); generateKey() }
+        check(runCatching { EncryptedFileAgentStore(path, wrongKey).read() }.isFailure)
         check(runCatching { reopened.update { it.pending.add(PendingRecord(UUID.randomUUID().toString(),
             RecordKind.HEALTH, "x".repeat(4_000_000), start)) } }.isFailure)
         check(reopened.read().pending.size == 1)
         bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte(); Files.write(path, bytes)
         check(runCatching { reopened.read() }.isFailure)
+        Files.deleteIfExists(path)
+    }
+    test("existing version-one ciphertext remains readable") {
+        val path = Files.createTempFile("geops-agent-legacy-", ".bin")
+        val key = KeyGenerator.getInstance("AES").run { init(256); generateKey() }
+        val nonce = ByteArray(12) { it.toByte() }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, nonce))
+        cipher.updateAAD("GEOPS-AGENT-STATE-V1".toByteArray(Charsets.US_ASCII))
+        Files.write(path, byteArrayOf(1) + nonce + cipher.doFinal(StateCodec.encode(AgentState()).toByteArray()))
+        val store = EncryptedFileAgentStore(path, key)
+        check(store.read().highestAssignmentVersion == -1L)
+        store.update { it.highestAssignmentVersion = 7 }
+        check(store.read().highestAssignmentVersion == 7L)
         Files.deleteIfExists(path)
     }
     test("202 has no ACK; 200 accepts duplicates; 422 isolates only invalid IDs") {

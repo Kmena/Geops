@@ -14,8 +14,8 @@ android {
         applicationId = "com.geops.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3-test"
+        versionCode = 5
+        versionName = "0.1.4-test"
     }
     sourceSets.getByName("main") {
         java.srcDirs("../android-agent/src/main/kotlin", "../android-agent/src/android/kotlin")

@@ -4,7 +4,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.io.FileOutputStream
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -44,7 +43,6 @@ class MemoryAgentStore : AgentStore {
 
 /** A key must come from AndroidKeyStore in production. Missing/corrupt key fails closed. */
 class EncryptedFileAgentStore(private val file: Path, private val key: SecretKey) : AgentStore {
-    private val random = SecureRandom()
     @Synchronized override fun read(): AgentState {
         if (!Files.exists(file)) return AgentState()
         val bytes = Files.readAllBytes(file)
@@ -59,9 +57,12 @@ class EncryptedFileAgentStore(private val file: Path, private val key: SecretKey
         val next = read()
         block(next)
         require(next.pending.size <= 10_000) { "queue_full" }
-        val nonce = ByteArray(12).also(random::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, nonce))
+        // AndroidKeyStore rejects caller-provided IVs for encryption. Let the provider
+        // generate a fresh IV and retain the existing on-disk format for decryption.
+        cipher.init(Cipher.ENCRYPT_MODE, key)
+        val nonce = cipher.iv ?: error("state_iv_missing")
+        require(nonce.size == 12) { "state_iv_size" }
         cipher.updateAAD("GEOPS-AGENT-STATE-V1".toByteArray(Charsets.US_ASCII))
         val sealed = byteArrayOf(1) + nonce + cipher.doFinal(StateCodec.encode(next).toByteArray(Charsets.UTF_8))
         require(sealed.size <= 4_000_000) { "queue_bytes_full" }
