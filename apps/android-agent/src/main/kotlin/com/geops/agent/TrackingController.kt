@@ -10,6 +10,8 @@ interface TrackingRuntime {
     fun isRegistered(): Boolean
 }
 data class LocationFix(val latitude: Double, val longitude: Double, val accuracyM: Double, val reading: ClockReading)
+enum class LocationDecision { SAVED, NO_WINDOW, NO_SESSION, SERVICE_STOPPED, SESSION_CHANGED,
+    INVALID_TIME, INVALID_FIX, WAITING_INTERVAL }
 data class HealthObservation(
     val batteryPercent: Int?, val charging: Boolean?, val plugged: Boolean?,
     val powerSave: Boolean?, val providerAvailable: Boolean?, val networkAvailable: Boolean?
@@ -37,9 +39,9 @@ class TrackingController(
             stop(if (allowed == null) "WINDOW_END" else if (!runtime.isRegistered()) "UNKNOWN" else "POLICY_REPLACED")
         }
         if (allowed == null) return
-        sampleHealth(allowed)
         val current = store.read().session
         if (current == null || current.state == "UNKNOWN_END") start(allowed)
+        sampleHealth(allowed)
     }
 
     private fun start(allowed: AuthorizedWindow) {
@@ -67,30 +69,40 @@ class TrackingController(
         } catch (e: Exception) { runtime.stopAndUnregister(); throw e }
     }
 
-    @Synchronized fun onLocation(fix: LocationFix): Boolean {
-        val allowed = policy.current() ?: return false
-        val session = store.read().session ?: return false
-        if (session.state != "RUNNING" || !runtime.isRegistered() ||
+    @Synchronized fun onLocation(fix: LocationFix): Boolean = onLocationResult(fix) == LocationDecision.SAVED
+
+    @Synchronized fun onLocationResult(fix: LocationFix): LocationDecision {
+        val allowed = policy.current() ?: return LocationDecision.NO_WINDOW
+        val session = store.read().session ?: return LocationDecision.NO_SESSION
+        if (!runtime.isRegistered()) return LocationDecision.SERVICE_STOPPED
+        if (session.state != "RUNNING" ||
             session.assignmentVersion != allowed.snapshot.assignmentVersion ||
-            session.scheduledId != allowed.window.scheduledSessionId) return false
-        val captured = policy.anchoredTime(fix.reading) ?: return false
+            session.scheduledId != allowed.window.scheduledSessionId) return LocationDecision.SESSION_CHANGED
+        val captured = policy.anchoredTime(fix.reading) ?: return LocationDecision.INVALID_TIME
         if (fix.reading.bootId != clock.read().bootId || captured < session.startedAtMs ||
             captured < allowed.window.startMs ||
             captured >= allowed.window.endMs || captured > allowed.nowMs ||
-            captured < allowed.snapshot.policy!!.validFromMs || captured >= allowed.snapshot.policy.validUntilMs) return false
+            captured < allowed.snapshot.policy!!.validFromMs || captured >= allowed.snapshot.policy.validUntilMs)
+            return LocationDecision.INVALID_TIME
         if (!fix.latitude.isFinite() || !fix.longitude.isFinite() || !fix.accuracyM.isFinite() ||
             fix.latitude !in -90.0..90.0 || fix.longitude !in -180.0..180.0 ||
-            fix.accuracyM <= 0 || fix.accuracyM > 10_000) return false
+            fix.accuracyM <= 0 || fix.accuracyM > 10_000) return LocationDecision.INVALID_FIX
         val minGap = allowed.snapshot.policy.captureIntervalS * 1000L
-        if (store.read().lastLocationDueMs >= 0 && captured - store.read().lastLocationDueMs < minGap) return false
+        if (store.read().lastLocationDueMs >= 0 && captured - store.read().lastLocationDueMs < minGap)
+            return LocationDecision.WAITING_INTERVAL
         val id = UUID.randomUUID().toString()
         val payload = JSONObject().put("event_id", id).put("client_session_id", session.clientId)
             .put("assignment_version", session.assignmentVersion).put("captured_at", utc(captured))
             .put("latitude", fix.latitude).put("longitude", fix.longitude).put("accuracy_m", fix.accuracyM)
             .put("boot_id", fix.reading.bootId).put("anchor_elapsed_realtime_ms", policy.anchorElapsedMs())
             .put("elapsed_realtime_ms", fix.reading.elapsedMs).put("capture_anchor_id", allowed.snapshot.anchorId)
-        store.update { it.pending.add(PendingRecord(id, RecordKind.LOCATION, payload.toString(), captured)); it.lastLocationDueMs = captured }
-        return true
+        store.update {
+            it.pending.add(PendingRecord(id, RecordKind.LOCATION, payload.toString(), captured))
+            it.lastLocationDueMs = captured
+            it.lastLocationCapturedMs = captured
+            it.locationsCaptured++
+        }
+        return LocationDecision.SAVED
     }
 
     private fun sampleHealth(allowed: AuthorizedWindow) {

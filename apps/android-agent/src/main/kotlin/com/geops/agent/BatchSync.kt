@@ -22,17 +22,28 @@ class PopBatchTransport(private val http: PopHttpClient, private val healthContr
 }
 
 enum class SyncOutcome { EMPTY, ACKED, PENDING, RETRY, QUARANTINED, AUTH_REQUIRED }
+enum class SyncDetail { NONE, WAITING_SESSION, BACKOFF, NETWORK, INVALID_ACK, SERVER_PENDING,
+    RATE_LIMIT, SERVER_ERROR, AUTH_REJECTED, REJECTED_EVENTS, ACKED }
 
 class BatchSync(private val identity: Identity, private val store: AgentStore,
                 private val clock: AgentClock, private val transport: BatchTransport) {
+    @Volatile var lastDetail: SyncDetail = SyncDetail.NONE
+        private set
     @Synchronized fun once(kind: RecordKind): SyncOutcome {
         val now = clock.read().wallMs
         val pending = store.read().pending
         if (kind == RecordKind.LOCATION && pending.any { it.kind == RecordKind.SESSION &&
-                !it.quarantined && JSONObject(it.payload).optString("type") == "STARTED" }) return SyncOutcome.PENDING
+                !it.quarantined && JSONObject(it.payload).optString("type") == "STARTED" }) {
+            lastDetail = SyncDetail.WAITING_SESSION
+            return SyncOutcome.PENDING
+        }
         val available = pending.filter { it.kind == kind && !it.quarantined && it.retryAfterMs <= now }
             .sortedWith(compareBy<PendingRecord> { it.createdAtMs }.thenBy { it.id })
-        if (available.isEmpty()) return SyncOutcome.EMPTY
+        if (available.isEmpty()) {
+            lastDetail = if (pending.any { it.kind == kind && !it.quarantined && it.retryAfterMs > now })
+                SyncDetail.BACKOFF else SyncDetail.NONE
+            return SyncOutcome.EMPTY
+        }
         val selected = mutableListOf<PendingRecord>()
         var body = ""
         for (record in available.take(100)) {
@@ -46,39 +57,60 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
             selected.add(record)
             body = next
         }
-        if (selected.isEmpty()) return SyncOutcome.QUARANTINED
+        if (selected.isEmpty()) { lastDetail = SyncDetail.REJECTED_EVENTS; return SyncOutcome.QUARANTINED }
         val ids = selected.map { it.id }.toSet()
         val result = try { transport.post(kind, body) } catch (_: Exception) {
+            lastDetail = SyncDetail.NETWORK
             retry(ids, now, null); return SyncOutcome.RETRY
         }
         when (result.status) {
             200 -> {
-                val ack = try { JSONObject(result.body) } catch (_: Exception) { retry(ids, now, null); return SyncOutcome.RETRY }
+                val ack = try { JSONObject(result.body) } catch (_: Exception) {
+                    lastDetail = SyncDetail.INVALID_ACK
+                    retry(ids, now, null); return SyncOutcome.RETRY
+                }
                 val batchId = batchId(kind, selected)
-                if (ack.optString("batch_id") != batchId ||
-                    runCatching { Instant.parse(ack.getString("persisted_at")) }.isFailure) {
+                val persistedAt = runCatching { Instant.parse(ack.getString("persisted_at")).toEpochMilli() }.getOrNull()
+                if (ack.optString("batch_id") != batchId || persistedAt == null) {
+                    lastDetail = SyncDetail.INVALID_ACK
                     retry(ids, now, null); return SyncOutcome.RETRY
                 }
                 val accepted = idsFrom(ack.optJSONArray("accepted_event_ids"))
                 val duplicate = idsFrom(ack.optJSONArray("duplicate_event_ids"))
                 if (accepted == null || duplicate == null || accepted.intersect(duplicate).isNotEmpty() ||
-                    accepted.union(duplicate) != ids) { retry(ids, now, null); return SyncOutcome.RETRY }
-                store.update { s -> s.pending.removeAll { it.id in ids } }
+                    accepted.union(duplicate) != ids) {
+                    lastDetail = SyncDetail.INVALID_ACK
+                    retry(ids, now, null); return SyncOutcome.RETRY
+                }
+                store.update { s ->
+                    s.pending.removeAll { it.id in ids }
+                    if (kind == RecordKind.LOCATION) {
+                        s.locationsAcked += ids.size
+                        s.lastLocationAckedMs = persistedAt
+                    }
+                }
+                lastDetail = SyncDetail.ACKED
                 return SyncOutcome.ACKED
             }
-            202 -> { retry(ids, now, 30); return SyncOutcome.PENDING }
-            401, 403 -> return SyncOutcome.AUTH_REQUIRED
-            409 -> { store.update { s -> s.pending.filter { it.id in ids }.forEach { it.quarantined = true } }; return SyncOutcome.QUARANTINED }
+            202 -> { lastDetail = SyncDetail.SERVER_PENDING; retry(ids, now, 30); return SyncOutcome.PENDING }
+            401, 403 -> { lastDetail = SyncDetail.AUTH_REJECTED; return SyncOutcome.AUTH_REQUIRED }
+            409 -> {
+                lastDetail = SyncDetail.REJECTED_EVENTS
+                store.update { s -> s.pending.filter { it.id in ids }.forEach { it.quarantined = true } }
+                return SyncOutcome.QUARANTINED
+            }
             422 -> {
+                lastDetail = SyncDetail.REJECTED_EVENTS
                 val invalid = try { idsFrom(JSONObject(result.body).optJSONArray("invalid_event_ids")) } catch (_: Exception) { null }
                 if (invalid == null || invalid.isEmpty() || !ids.containsAll(invalid)) {
+                    lastDetail = SyncDetail.INVALID_ACK
                     retry(ids, now, null); return SyncOutcome.RETRY
                 }
                 store.update { s -> s.pending.filter { it.id in invalid }.forEach { it.quarantined = true } }
                 return SyncOutcome.QUARANTINED
             }
-            429 -> retry(ids, now, result.retryAfterSeconds?.coerceIn(1, 3600))
-            else -> retry(ids, now, null)
+            429 -> { lastDetail = SyncDetail.RATE_LIMIT; retry(ids, now, result.retryAfterSeconds?.coerceIn(1, 3600)) }
+            else -> { lastDetail = SyncDetail.SERVER_ERROR; retry(ids, now, null) }
         }
         return SyncOutcome.RETRY
     }

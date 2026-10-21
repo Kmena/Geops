@@ -152,9 +152,12 @@ object ConfigParser {
             keys(w, setOf("scheduled_session_id", "start_at", "end_at"))
             Window(w.getString("scheduled_session_id"), at(w.getString("start_at")), at(w.getString("end_at")))
         }
+        val display = if (active) o.getJSONObject("policy").let { p -> PolicyDisplay(
+            p.getString("name"), (0 until p.getJSONArray("days_iso").length()).map { p.getJSONArray("days_iso").getInt(it) },
+            p.getString("start_local"), p.getString("end_local"), p.getString("time_zone")) } else null
         return Snapshot(identity, o.getLong("assignment_version"), active, o.getString("capture_anchor_id"),
             at(o.getString("server_time")), at(o.getString("verified_at")),
-            at(o.getString("offline_not_after")), windows, policy)
+            at(o.getString("offline_not_after")), windows, policy, display)
     }
     private fun at(value: String) = Instant.parse(value).toEpochMilli()
     private fun keys(o: JSONObject, allowed: Set<String>) {

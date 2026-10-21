@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -24,11 +25,51 @@ data class AgentState(
     var anchorElapsedMs: Long = -1, var anchorBootId: String? = null,
     var session: LocalSession? = null, val pending: MutableList<PendingRecord> = mutableListOf(),
     var lastLocationDueMs: Long = -1, var lastHealthDueMs: Long = -1,
-    var lastStartAttemptAtMs: Long = -1
+    var lastStartAttemptAtMs: Long = -1,
+    var locationsCaptured: Long = 0, var locationsAcked: Long = 0,
+    var lastLocationCapturedMs: Long = -1, var lastLocationAckedMs: Long = -1
 )
 interface AgentStore {
     fun read(): AgentState
     fun update(block: (AgentState) -> Unit)
+}
+
+/** Keep the replay floor per device and never mix queues from different installations. */
+object AgentStateFiles {
+    fun scoped(root: Path, identity: Identity): Path {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(identity.deviceId.toByteArray(Charsets.UTF_8))
+        val chars = "0123456789abcdef"
+        val suffix = buildString(digest.size * 2) {
+            digest.forEach { byte ->
+                append(chars[(byte.toInt() ushr 4) and 15])
+                append(chars[byte.toInt() and 15])
+            }
+        }
+        return root.resolve("agent-state-$suffix.bin")
+    }
+
+    fun resolve(root: Path, identity: Identity, key: SecretKey): Path {
+        val scoped = scoped(root, identity)
+        if (Files.exists(scoped)) {
+            val state = EncryptedFileAgentStore(scoped, key).read()
+            require(state.snapshot?.identity == identity ||
+                (state.snapshot == null && state.highestAssignmentVersion < 0 &&
+                    state.session == null && state.pending.isEmpty())) { "state_identity_mismatch" }
+            return scoped
+        }
+        val legacy = root.resolve("agent-state.bin")
+        if (!Files.exists(legacy)) return scoped
+        // Never reset or reuse a legacy replay floor for an unrelated installation.
+        val old = EncryptedFileAgentStore(legacy, key).read()
+        if (old.snapshot?.identity == identity) return legacy
+        require(old.snapshot?.identity?.deviceId != identity.deviceId) { "state_identity_mismatch" }
+        require(old.snapshot != null ||
+            (old.highestAssignmentVersion < 0 && old.session == null && old.pending.isEmpty())) {
+            "legacy_state_identity_unknown"
+        }
+        return scoped
+    }
 }
 
 class MemoryAgentStore : AgentStore {
@@ -84,6 +125,9 @@ internal object StateCodec {
             .put("anchor_elapsed", s.anchorElapsedMs).put("anchor_boot", s.anchorBootId)
             .put("last_location_due", s.lastLocationDueMs).put("last_health_due", s.lastHealthDueMs)
             .put("last_start_attempt", s.lastStartAttemptAtMs)
+            .put("locations_captured", s.locationsCaptured).put("locations_acked", s.locationsAcked)
+            .put("last_location_captured", s.lastLocationCapturedMs)
+            .put("last_location_acked", s.lastLocationAckedMs)
         s.snapshot?.let { v ->
             val snap = JSONObject().put("device", v.identity.deviceId).put("installation", v.identity.installationId)
                 .put("version", v.assignmentVersion).put("active", v.active).put("anchor", v.anchorId)
@@ -95,6 +139,9 @@ internal object StateCodec {
             v.policy?.let { p -> snap.put("policy", JSONObject().put("id", p.id).put("revision", p.revision)
                 .put("capture", p.captureIntervalS).put("sync", p.syncIntervalS).put("health", p.healthIntervalS)
                 .put("from", p.validFromMs).put("until", p.validUntilMs)) }
+            v.display?.let { d -> snap.put("display", JSONObject().put("name", d.name)
+                .put("days", JSONArray().also { a -> d.daysIso.forEach(a::put) })
+                .put("start", d.startLocal).put("end", d.endLocal).put("zone", d.timeZone)) }
             o.put("snapshot", snap)
         }
         s.session?.let { o.put("session", JSONObject().put("id", it.clientId).put("scheduled", it.scheduledId)
@@ -114,16 +161,24 @@ internal object StateCodec {
         val s = AgentState(highestAssignmentVersion = o.getLong("highest"), anchorElapsedMs = o.getLong("anchor_elapsed"),
             anchorBootId = o.optString("anchor_boot").takeUnless { it.isEmpty() || it == "null" },
             lastLocationDueMs = o.getLong("last_location_due"), lastHealthDueMs = o.getLong("last_health_due"),
-            lastStartAttemptAtMs = o.optLong("last_start_attempt", -1))
+            lastStartAttemptAtMs = o.optLong("last_start_attempt", -1),
+            locationsCaptured = o.optLong("locations_captured", 0), locationsAcked = o.optLong("locations_acked", 0),
+            lastLocationCapturedMs = o.optLong("last_location_captured", -1),
+            lastLocationAckedMs = o.optLong("last_location_acked", -1))
         o.optJSONObject("snapshot")?.let { v ->
             val windows = v.getJSONArray("windows")
             val list = (0 until windows.length()).map { i -> windows.getJSONObject(i).let {
                 Window(it.getString("id"), it.getLong("start"), it.getLong("end")) } }
             val p = v.optJSONObject("policy")?.let { Policy(it.getString("id"), it.getInt("revision"),
                 it.getInt("capture"), it.getInt("sync"), it.getLong("from"), it.getLong("until"), it.getInt("health")) }
+            val display = v.optJSONObject("display")?.let { d ->
+                val days = d.getJSONArray("days")
+                PolicyDisplay(d.getString("name"), (0 until days.length()).map(days::getInt),
+                    d.getString("start"), d.getString("end"), d.getString("zone"))
+            }
             s.snapshot = Snapshot(Identity(v.getString("device"), v.getString("installation")), v.getLong("version"),
                 v.getBoolean("active"), v.getString("anchor"), v.getLong("server_time"), v.getLong("verified"),
-                v.getLong("offline_end"), list, p)
+                v.getLong("offline_end"), list, p, display)
         }
         o.optJSONObject("session")?.let { s.session = LocalSession(it.getString("id"), it.getString("scheduled"),
             it.getLong("version"), it.getInt("revision"), it.getLong("started"), it.getString("state")) }

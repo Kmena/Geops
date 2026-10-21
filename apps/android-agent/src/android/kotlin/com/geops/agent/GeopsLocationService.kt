@@ -18,8 +18,9 @@ import android.os.Looper
 /** Explicitly started by a visible, authorized app flow. Never started from BOOT_COMPLETED. */
 class GeopsLocationService : Service() {
     private val binder = LocalBinder()
-    private var promoted = false
-    private var listener: LocationListener? = null
+    @Volatile private var promoted = false
+    @Volatile private var listener: LocationListener? = null
+    fun isGpsRegistered(): Boolean = promoted && listener != null
     inner class LocalBinder : Binder() { fun service(): GeopsLocationService = this@GeopsLocationService }
     override fun onBind(intent: Intent?): IBinder = binder
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -27,9 +28,10 @@ class GeopsLocationService : Service() {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(NotificationChannel("geops-tracking", "GEOPS tracking",
                 NotificationManager.IMPORTANCE_LOW))
+            val alreadyCapturing = listener != null
             val notification = Notification.Builder(this, "geops-tracking")
-                .setContentTitle("GEOPS: verificando política")
-                .setContentText("Sin captura hasta confirmar horario autorizado")
+                .setContentTitle(if (alreadyCapturing) "GEOPS: ubicación laboral activa" else "GEOPS: verificando política")
+                .setContentText(if (alreadyCapturing) "Seguimiento durante horario autorizado" else "Sin captura hasta confirmar horario autorizado")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).build()
             if (Build.VERSION.SDK_INT >= 29) startForeground(701, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(701, notification)

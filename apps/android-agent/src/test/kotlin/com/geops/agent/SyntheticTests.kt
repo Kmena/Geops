@@ -66,6 +66,16 @@ fun main() {
         clock.bootId = UUID.randomUUID().toString(); check(p.current() == null)
         clock.bootId = boot; clock.advance(7 * 3_600_000); check(p.current() == null)
     }
+    test("policy diagnostic distinguishes no assignment, scheduled window and clock drift") {
+        val clock = FakeClock(); val (p, store) = engine(clock)
+        check(p.evaluate().reason == "NO_CONFIG")
+        p.load(snap(active = false)); check(p.evaluate().reason == "NO_ACTIVE_POLICY")
+        p.load(snap(version = 8, windows = listOf(Window(scheduled, start + 3_600_000, end))))
+        check(p.evaluate().reason == "OUTSIDE_WINDOW")
+        clock.advance(3_600_000); check(p.evaluate().window != null)
+        clock.wall += 300_001; check(p.evaluate().reason == "CLOCK_DRIFT")
+        check(store.read().snapshot?.policy?.revision == 3)
+    }
     test("foreign identity and excessive RTT fail closed") {
         val clock = FakeClock(); val (p, _) = engine(clock)
         check(runCatching { p.load(snap().copy(identity = Identity(UUID.randomUUID().toString(), installation))) }.isFailure)
@@ -86,7 +96,11 @@ fun main() {
             .put("server_time", utc(start)).put("verified_at", utc(start)).put("offline_not_after", utc(end))
             .put("window_instances", JSONArray().put(JSONObject().put("scheduled_session_id", scheduled)
                 .put("start_at", utc(start)).put("end_at", utc(end))))
-        check(ConfigParser.parse(wire.toString(), Identity(device, installation)).policy?.healthIntervalS == 300)
+        val parsed = ConfigParser.parse(wire.toString(), Identity(device, installation))
+        check(parsed.policy?.healthIntervalS == 300)
+        check(parsed.display == PolicyDisplay("Synthetic", listOf(1), "22:00", "06:00", "America/Guatemala"))
+        val restored = StateCodec.decode(StateCodec.encode(AgentState(snapshot = parsed)))
+        check(restored.snapshot?.display == parsed.display)
         check(runCatching { ConfigParser.parse(wire.put("device_id", UUID.randomUUID().toString()).toString(),
             Identity(device, installation)) }.isFailure)
         wire.put("device_id", device).put("admin_override", true)
@@ -136,6 +150,8 @@ fun main() {
         val types = store.read().pending.filter { it.kind == RecordKind.SESSION }.map { JSONObject(it.payload).getString("type") }
         check(types == listOf("START_ATTEMPT", "MISSED_START"))
         check(store.read().pending.count { it.kind == RecordKind.HEALTH } == 1)
+        check(JSONObject(store.read().pending.first { it.kind == RecordKind.HEALTH }.payload)
+            .getString("tracking_state") == "STOPPED")
         check(store.read().session == null)
     }
     test("running session, GPS and independent health cadence") {
@@ -146,9 +162,12 @@ fun main() {
         agent.tick()
         check(store.read().session?.state == "RUNNING")
         check(store.read().pending.any { it.kind == RecordKind.SESSION && JSONObject(it.payload).getString("type") == "STARTED" })
+        check(JSONObject(store.read().pending.first { it.kind == RecordKind.HEALTH }.payload)
+            .getString("tracking_state") == "RUNNING")
         clock.advance(60_000)
         check(agent.onLocation(LocationFix(14.6, -90.5, 10.0, clock.read())))
-        check(!agent.onLocation(LocationFix(14.6, -90.5, 10.0, clock.read())))
+        check(agent.onLocationResult(LocationFix(14.6, -90.5, 10.0, clock.read())) ==
+            LocationDecision.WAITING_INTERVAL)
         agent.tick(); check(store.read().pending.count { it.kind == RecordKind.HEALTH } == 1)
         clock.advance(240_000); health.value = HealthObservation(2, false, false, true, false, false)
         agent.tick(); check(store.read().pending.count { it.kind == RecordKind.HEALTH } == 2)
@@ -161,7 +180,7 @@ fun main() {
         agent.interrupt("GPS_DISABLED"); check(store.read().session?.state == "INTERRUPTED")
         check(agent.resume()); check(store.read().session?.state == "RUNNING")
         clock.advance(end - clock.wall)
-        check(!agent.onLocation(LocationFix(14.6, -90.5, 10.0, clock.read())))
+        check(agent.onLocationResult(LocationFix(14.6, -90.5, 10.0, clock.read())) == LocationDecision.NO_WINDOW)
         agent.tick(); check(store.read().session == null && !runtime.running)
         check(store.read().pending.any { it.kind == RecordKind.LOCATION })
     }
@@ -223,12 +242,49 @@ fun main() {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, nonce))
         cipher.updateAAD("GEOPS-AGENT-STATE-V1".toByteArray(Charsets.US_ASCII))
-        Files.write(path, byteArrayOf(1) + nonce + cipher.doFinal(StateCodec.encode(AgentState()).toByteArray()))
+        val legacy = JSONObject(StateCodec.encode(AgentState(snapshot = snap())))
+        listOf("locations_captured", "locations_acked", "last_location_captured", "last_location_acked")
+            .forEach(legacy::remove)
+        Files.write(path, byteArrayOf(1) + nonce + cipher.doFinal(legacy.toString().toByteArray()))
         val store = EncryptedFileAgentStore(path, key)
         check(store.read().highestAssignmentVersion == -1L)
+        check(store.read().snapshot?.policy?.revision == 2 && store.read().snapshot?.display == null)
+        check(store.read().locationsCaptured == 0L && store.read().locationsAcked == 0L)
         store.update { it.highestAssignmentVersion = 7 }
         check(store.read().highestAssignmentVersion == 7L)
         Files.deleteIfExists(path)
+    }
+    test("state from another device cannot trigger a false assignment downgrade") {
+        val root = Files.createTempDirectory("geops-installation-state-")
+        val key = KeyGenerator.getInstance("AES").run { init(256); generateKey() }
+        val oldIdentity = Identity(device, installation)
+        val oldFile = root.resolve("agent-state.bin")
+        EncryptedFileAgentStore(oldFile, key).update { state ->
+            state.snapshot = snap(version = 8)
+            state.highestAssignmentVersion = 8
+            state.pending.add(PendingRecord(UUID.randomUUID().toString(), RecordKind.LOCATION,
+                "{}", start))
+        }
+        val oldBytes = Files.readAllBytes(oldFile)
+        check(AgentStateFiles.resolve(root, oldIdentity, key) == oldFile)
+        check(runCatching { AgentStateFiles.resolve(root,
+            Identity(device, UUID.randomUUID().toString()), key) }.isFailure)
+        val nextIdentity = Identity(UUID.randomUUID().toString(), UUID.randomUUID().toString())
+        val nextFile = AgentStateFiles.resolve(root, nextIdentity, key)
+        check(nextFile != oldFile && !Files.exists(nextFile))
+        val nextStore = EncryptedFileAgentStore(nextFile, key)
+        val nextPolicy = PolicyEngine(nextIdentity, FakeClock(), nextStore)
+        nextPolicy.load(snap(version = 1).copy(identity = nextIdentity))
+        check(nextStore.read().highestAssignmentVersion == 1L)
+        check(Files.readAllBytes(oldFile).contentEquals(oldBytes))
+        check(runCatching { PolicyEngine(oldIdentity, FakeClock(), EncryptedFileAgentStore(oldFile, key))
+            .load(snap(version = 7)) }.isFailure)
+        check(AgentStateFiles.resolve(root, nextIdentity, key) == nextFile)
+        check(runCatching { AgentStateFiles.resolve(root,
+            Identity(nextIdentity.deviceId, UUID.randomUUID().toString()), key) }.isFailure)
+        Files.deleteIfExists(nextFile)
+        Files.deleteIfExists(oldFile)
+        Files.deleteIfExists(root)
     }
     test("202 has no ACK; 200 accepts duplicates; 422 isolates only invalid IDs") {
         val clock = FakeClock(); val store = MemoryAgentStore()
@@ -251,12 +307,40 @@ fun main() {
         }
         val sync = BatchSync(Identity(device, installation), store, clock, transport)
         check(sync.once(RecordKind.HEALTH) == SyncOutcome.PENDING)
+        check(sync.lastDetail == SyncDetail.SERVER_PENDING)
         check(store.read().pending.size == 2)
         clock.advance(30_000)
         check(sync.once(RecordKind.HEALTH) == SyncOutcome.QUARANTINED)
         check(store.read().pending.single { it.id == b }.quarantined)
         check(sync.once(RecordKind.HEALTH) == SyncOutcome.ACKED)
         check(store.read().pending.single().id == b)
+    }
+    test("position counters change only on persisted capture and validated ACK") {
+        val clock = FakeClock(); val (policy, store) = engine(clock); policy.load(snap())
+        val runtime = FakeRuntime()
+        val controller = TrackingController(Identity(device, installation), clock, policy, store, runtime, FakeHealth())
+        controller.tick(); clock.advance(60_000)
+        check(controller.onLocation(LocationFix(14.6, -90.5, 10.0, clock.read())))
+        check(store.read().locationsCaptured == 1L && store.read().locationsAcked == 0L)
+        val sessionTransport = object : BatchTransport {
+            override fun post(kind: RecordKind, body: String): HttpResult {
+                val batch = JSONObject(body)
+                val ids = batch.getJSONArray("events")
+                return HttpResult(200, JSONObject().put("batch_id", batch.getString("batch_id"))
+                    .put("persisted_at", utc(clock.wall))
+                    .put("accepted_event_ids", JSONArray().also { a ->
+                        for (i in 0 until ids.length()) a.put(ids.getJSONObject(i).getString("event_id"))
+                    }).put("duplicate_event_ids", JSONArray()).toString(), null)
+            }
+        }
+        val sync = BatchSync(Identity(device, installation), store, clock, sessionTransport)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.PENDING)
+        check(store.read().locationsAcked == 0L)
+        check(sync.once(RecordKind.SESSION) == SyncOutcome.ACKED)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.ACKED)
+        check(store.read().locationsAcked == 1L && store.read().lastLocationAckedMs == clock.wall)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY)
+        check(store.read().locationsAcked == 1L)
     }
     test("lost or malformed ACK retains original event and backs off") {
         val clock = FakeClock(); val store = MemoryAgentStore(); val id = UUID.randomUUID().toString()
@@ -270,8 +354,10 @@ fun main() {
         }
         val sync = BatchSync(Identity(device, installation), store, clock, transport)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.RETRY)
+        check(sync.lastDetail == SyncDetail.INVALID_ACK)
         check(store.read().pending.single().id == id && store.read().pending.single().attempts == 1)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY)
+        check(sync.lastDetail == SyncDetail.BACKOFF)
     }
     test("web invitation QR is accepted only for staging and before expiry") {
         val now = Instant.parse("2026-10-19T12:00:00Z")

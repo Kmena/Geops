@@ -12,10 +12,14 @@ data class Policy(
     // GPS-HEALTH-001 proposed delta. 300 s is a synthetic default until SDD approval.
     val healthIntervalS: Int = 300
 )
+/** Display only. Capture authorization always uses the server supplied UTC windows. */
+data class PolicyDisplay(val name: String, val daysIso: List<Int>, val startLocal: String,
+                         val endLocal: String, val timeZone: String)
 data class Snapshot(
     val identity: Identity, val assignmentVersion: Long, val active: Boolean,
     val anchorId: String, val serverTimeMs: Long, val verifiedAtMs: Long,
-    val offlineNotAfterMs: Long, val windows: List<Window>, val policy: Policy?
+    val offlineNotAfterMs: Long, val windows: List<Window>, val policy: Policy?,
+    val display: PolicyDisplay? = null
 )
 data class ClockReading(val wallMs: Long, val elapsedMs: Long, val bootId: String)
 interface AgentClock { fun read(): ClockReading }
@@ -24,6 +28,7 @@ interface AgentClock { fun read(): ClockReading }
 interface AuthenticatedConfigTransport { fun fetch(identity: Identity): Snapshot }
 
 data class AuthorizedWindow(val snapshot: Snapshot, val window: Window, val nowMs: Long)
+data class PolicyEvaluation(val window: AuthorizedWindow?, val reason: String?)
 
 class PolicyEngine(
     private val identity: Identity, private val clock: AgentClock, private val store: AgentStore
@@ -53,23 +58,32 @@ class PolicyEngine(
         return incoming
     }
 
-    fun current(): AuthorizedWindow? {
+    fun current(): AuthorizedWindow? = evaluate().window
+
+    fun evaluate(): PolicyEvaluation {
+        fun denied(reason: String) = PolicyEvaluation(null, reason)
         val state = store.read()
-        val s = state.snapshot ?: return null
-        val p = s.policy ?: return null
+        val s = state.snapshot ?: return denied("NO_CONFIG")
+        if (!s.active || s.policy == null) return denied("NO_ACTIVE_POLICY")
+        val p = s.policy
         val reading = clock.read()
-        if (!s.active || s.identity != identity || state.anchorBootId != reading.bootId ||
-            s.assignmentVersion < state.highestAssignmentVersion ||
-            reading.elapsedMs < state.anchorElapsedMs) return null
+        if (s.identity != identity || s.assignmentVersion < state.highestAssignmentVersion)
+            return denied("CONFIG_REPLACED")
+        if (state.anchorBootId != reading.bootId || reading.elapsedMs < state.anchorElapsedMs)
+            return denied("REBOOT_REQUIRES_REFRESH")
         val delta = reading.elapsedMs - state.anchorElapsedMs
-        if (delta > 12 * 3_600_000L) return null
-        val now = safeAdd(s.serverTimeMs, delta) ?: return null
-        if (abs(reading.wallMs.toDouble() - now.toDouble()) > 300_000.0) return null
-        if (now < s.verifiedAtMs || now < p.validFromMs) return null
-        val offlineEnd = min(s.offlineNotAfterMs, safeAdd(s.verifiedAtMs, 12 * 3_600_000L) ?: return null)
-        if (now >= offlineEnd || now >= p.validUntilMs) return null
-        val window = s.windows.firstOrNull { now >= it.startMs && now < it.endMs } ?: return null
-        return AuthorizedWindow(s, window, now)
+        if (delta > 12 * 3_600_000L) return denied("CONFIG_EXPIRED")
+        val now = safeAdd(s.serverTimeMs, delta) ?: return denied("CLOCK_INVALID")
+        if (abs(reading.wallMs.toDouble() - now.toDouble()) > 300_000.0) return denied("CLOCK_DRIFT")
+        if (now < s.verifiedAtMs) return denied("CLOCK_INVALID")
+        if (now < p.validFromMs) return denied("POLICY_NOT_YET_VALID")
+        val offlineEnd = min(s.offlineNotAfterMs,
+            safeAdd(s.verifiedAtMs, 12 * 3_600_000L) ?: return denied("CLOCK_INVALID"))
+        if (now >= offlineEnd) return denied("CONFIG_EXPIRED")
+        if (now >= p.validUntilMs) return denied("POLICY_EXPIRED")
+        val window = s.windows.firstOrNull { now >= it.startMs && now < it.endMs }
+            ?: return denied("OUTSIDE_WINDOW")
+        return PolicyEvaluation(AuthorizedWindow(s, window, now), null)
     }
 
     fun anchoredTime(reading: ClockReading): Long? {

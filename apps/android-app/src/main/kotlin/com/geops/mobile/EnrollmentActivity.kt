@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -42,6 +44,26 @@ class EnrollmentActivity : ComponentActivity() {
     private lateinit var keyField: EditText
     private lateinit var installationField: EditText
     private lateinit var status: TextView
+    private lateinit var diagnostics: TextView
+    private val diagnosticHandler = Handler(Looper.getMainLooper())
+    private var diagnosticInFlight = false
+    private val diagnosticRefresh = object : Runnable {
+        override fun run() {
+            if (!visible || work.isShutdown) return
+            if (!diagnosticInFlight) {
+                diagnosticInFlight = true
+                work.execute {
+                    val report = runCatching { AgentRuntime.diagnostics(applicationContext) }
+                        .getOrElse { "No se pudo leer el diagnóstico local. Vuelve a abrir GEOPS." }
+                    runOnUiThread {
+                        if (visible) diagnostics.text = report
+                        diagnosticInFlight = false
+                    }
+                }
+            }
+            diagnosticHandler.postDelayed(this, 5_000L)
+        }
+    }
     private lateinit var scannerButton: Button
     private lateinit var claimButton: Button
     private var enrollmentInFlight = false
@@ -93,7 +115,7 @@ class EnrollmentActivity : ComponentActivity() {
             if (tracking == null) { show("No se pudo conectar al servicio."); return }
             work.execute {
                 val message = try { AgentRuntime.start(tracking) }
-                    catch (failure: Exception) { "Seguimiento no iniciado: ${failure.message ?: "error"}" }
+                    catch (failure: Exception) { trackingFailureMessage(failure) }
                 show(message)
             }
         }
@@ -130,7 +152,21 @@ class EnrollmentActivity : ComponentActivity() {
         }
         paragraph("GEOPS · inscripción supervisada de prueba")
         paragraph("La ubicación solo se inicia durante una ventana autorizada desde esta pantalla visible. Android mostrará la notificación de seguimiento.")
-        status = paragraph("Sin inscripción confirmada. No se captura ubicación.")
+        val hasDevice = !saved.getString("device_id", null).isNullOrBlank()
+        val hasActivation = hasDevice && !saved.getString("key_id", null).isNullOrBlank() &&
+            !saved.getString("installation_id", null).isNullOrBlank()
+        status = paragraph(when {
+            AgentRuntime.isRunning() -> "Seguimiento iniciado en este teléfono. Consulta sesiones y ubicaciones en GEOPS Web."
+            hasActivation -> "Activación guardada en este teléfono. Pulsa Iniciar seguimiento para verificar la política."
+            hasDevice -> "Inscripción solicitada. Espera la confirmación en GEOPS Web y escanea el QR de activación."
+            else -> "Sin inscripción local. No se captura ubicación."
+        })
+        button("Iniciar seguimiento") { startTracking() }
+        paragraph("Estado del seguimiento")
+        diagnostics = paragraph("Cargando diagnóstico local…").apply {
+            textSize = 15f
+            setLineSpacing(6f, 1f)
+        }
         scannerButton = button("Escanear QR de GEOPS") {
             qrScanner.launch(ScanOptions().apply {
                 setDesiredBarcodeFormats(ScanOptions.QR_CODE)
@@ -172,12 +208,19 @@ class EnrollmentActivity : ComponentActivity() {
             it.setOnClickListener { saveManualActivation() }
             manualActivation.addView(it)
         }
-        button("Iniciar seguimiento") { startTracking() }
         setContentView(ScrollView(this).apply { addView(content) })
     }
 
-    override fun onResume() { super.onResume(); visible = true }
-    override fun onPause() { visible = false; super.onPause() }
+    override fun onResume() {
+        super.onResume()
+        visible = true
+        diagnosticHandler.post(diagnosticRefresh)
+    }
+    override fun onPause() {
+        visible = false
+        diagnosticHandler.removeCallbacks(diagnosticRefresh)
+        super.onPause()
+    }
     override fun onDestroy() {
         if (bound) unbindService(connection)
         work.shutdown()
@@ -185,6 +228,13 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun show(message: String) = runOnUiThread { status.text = message }
+
+    private fun trackingFailureMessage(failure: Exception): String = when (failure.message) {
+        "assignment_downgrade" -> "Seguimiento no iniciado: el servidor entregó una versión de asignación anterior a la guardada para este dispositivo. No borres datos; revisa la política y la asignación en GEOPS Web."
+        "legacy_state_identity_unknown", "state_identity_mismatch" ->
+            "Seguimiento no iniciado: no se pudo verificar a qué instalación pertenece el estado cifrado. No borres datos; solicita revisión técnica."
+        else -> "Seguimiento no iniciado: ${failure.message ?: "error"}"
+    }
 
     private fun enroll() {
         val invitationId = invitationField.text.toString().trim()
@@ -269,6 +319,10 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun startTracking() {
+        if (AgentRuntime.isRunning()) {
+            show("El seguimiento ya está iniciado. Consulta las sesiones y ubicaciones en GEOPS Web.")
+            return
+        }
         val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
         val deviceId = saved.getString("device_id", "") ?: ""
         val keyId = saved.getString("key_id", "") ?: ""
