@@ -10,14 +10,14 @@ Al inicio, `C:\Users\kmena\Documents\proyectos\Geops` estaba en `codex/spec-02-w
 
 | Componente | Estado al iniciar | Evidencia y decisión |
 | --- | --- | --- |
-| ADR-012, identidad GEOPS | IMPLEMENTED parcial | `specs/architecture/adr/ADR-012-identidad-dispositivo.md`, `apps/api/src/device-identity/{enrollment,session,repository}.ts`: claves y sesiones GEOPS independientes; el flujo real de inscripción sigue bloqueado. La asociación de inventario MDM nueva no toca estas credenciales. |
+| ADR-012, identidad GEOPS | PARTIAL | `specs/architecture/adr/ADR-012-identidad-dispositivo.md`, `apps/api/src/device-identity/{enrollment,session,repository}.ts`: claves y sesiones GEOPS independientes; el flujo real de inscripción sigue bloqueado. La asociación de inventario MDM nueva no toca estas credenciales. |
 | ADR-014, decisión de flota | BLOCKED | `specs/architecture/adr/ADR-014-mdm-flota-existente-propuesto.md`: decisión de negocio pendiente, sin prueba física de políticas. |
 | SPEC-00 y MDM-001…006 | BLOCKED | `specs/spec-00-technical-feasibility/requirements.md` y `mdm-business-decision.md`: capacidades Free, 25 modelos, alta sin reset y privacidad no demostradas. Descubrimiento no acredita políticas. |
 | OAuth ManageEngine | PARTIAL | `apps/api/mdm-oauth-core.mjs` y `mdm-oauth-dev.mjs` autenticaban el Trial en herramienta local; el servidor `loadConfig` rechazaba OAuth. Se reutilizó `refreshAccess` y `revokeRefresh` para el runtime, con grant montado como secreto. |
-| Adaptador MDM | MOCK / PARTIAL | `apps/api/src/mdm/provider.ts` tenía fake y lector real inyectable; `main.ts` siempre seleccionaba fake. El lector real descartaba atributos y esperaba detalle en `device`, aunque la documentación MSP muestra objeto directo. |
-| Inventario y vínculo | MISSING / PARTIAL | `0003_device_identity.sql` define `mdm_binding` para inscripción y `0004_mdm.sql` define grants sintéticos; no había caché ni sincronización de inventario real. La migración `0018` incorpora un vínculo administrativo separado del binding de autenticación. |
+| Adaptador MDM | PARTIAL | `apps/api/src/mdm/provider.ts` tenía fake y lector real inyectable; `main.ts` siempre seleccionaba fake. El lector real descartaba atributos y esperaba detalle en `device`, aunque la documentación MSP muestra objeto directo. |
+| Inventario y vínculo | MISSING | `0003_device_identity.sql` define `mdm_binding` para inscripción y `0004_mdm.sql` define grants sintéticos; no había caché ni sincronización de inventario real. La migración `0018` incorpora un vínculo administrativo separado del binding de autenticación. |
 | API y administración | PARTIAL | `apps/api/src/mdm/routes.ts` tenía status y GET live, con sesión admin, capacidad `gps.installation.manage` y acceso al tenant sintético. Se añadieron sync, caché y vínculo con el mismo control de sesión, Origin y CSRF. |
-| Staging | PARTIAL / BLOCKED | `infrastructure/compose/compose.staging.yaml` usa API sintética y red interna; no monta OAuth ni salida MDM. El overlay opt-in agrega secretos y salida solo al API. No se desplegó. |
+| Staging | BLOCKED | `infrastructure/compose/compose.staging.yaml` usa API sintética y red interna; no monta OAuth ni salida MDM. El overlay opt-in agrega secretos y salida solo al API. No se desplegó. |
 | Auditoría y secretos | PARTIAL | `apps/api/src/audit/index.ts` ofrece auditoría redactada; `config.ts` y `api-entrypoint.sh` cargan secretos de Docker. Se registran conteos/códigos, no tokens, payloads del proveedor, seriales ni identificadores de cliente en auditoría. |
 
 ## Arquitectura implementada
