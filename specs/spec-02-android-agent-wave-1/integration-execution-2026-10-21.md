@@ -19,11 +19,11 @@ resolución. La migración 0020 conserva 0017–0019 y agrega solo el recibo v2.
 
 | Requisito | Implementación | Prueba / evidencia local | Estado de implementación |
 | --- | --- | --- | --- |
-| Integración de ramas sin pérdida de commits | Ancestría Git; rama aislada; contratos MDM preservados | `git merge-base --is-ancestor` para ambos HEAD; MDM integración y seguridad pasaron en bases desechables | IMPLEMENTED; auditoría final pendiente |
+| Integración de ramas sin pérdida de commits | Ancestría Git; rama aislada; contratos MDM preservados | `git merge-base --is-ancestor` para ambos HEAD; MDM integración y seguridad pasaron en bases desechables; revisión independiente de `da8a651` | IMPLEMENTED; CI final pendiente |
 | P0: eliminar compuerta global por STARTED | `BatchSync.kt` agrupa por `client_session_id`; `PendingUpload.kt` da prioridad al lote mixto | `syntheticTest` pasa, incluidos dos casos nuevos de sesiones y prioridad v2 | IMPLEMENTED; POCO pendiente |
-| P0: STARTED y posiciones atómicos | `/v2/device/gps/batches`, `ingestMixed`, recibo 0020 | `gps:mixed:integration`: 47 aserciones, incluido rollback por fallo SQL e idempotencia concurrente | IMPLEMENTED; auditoría pendiente |
+| P0: STARTED y posiciones atómicos | `/v2/device/gps/batches`, `ingestMixed`, recibo 0020 | `gps:mixed:integration`: 47 aserciones, incluido rollback por fallo SQL e idempotencia concurrente; revisión independiente de `da8a651` | IMPLEMENTED; POCO y CI pendientes |
 | P0: compatibilidad v1 y buffer v1 | Ruta v1 y recibos originales intactos; reconciliación v1→v2 | `gps:events:integration`: 69 aserciones; v1 pendiente→v2→ACK duplicado y sesiones acumuladas fuera de orden en las 47 de v2 | IMPLEMENTED; pruebas físicas pendientes |
-| P0: autenticación, autorización y aislamiento | Bearer, PoP, instalación y alcance existentes para v2; cuerpo firmado sin query | HTTP sin credenciales 401, `device_id` ajeno 403, mezcla de sesiones 422 | PARTIAL: auditoría independiente de seguridad pendiente |
+| P0: autenticación, autorización y aislamiento | Bearer, PoP, instalación y alcance existentes para v2; cuerpo firmado sin query | HTTP sin credenciales 401, `device_id` ajeno 403, mezcla de sesiones 422; revisión estática independiente favorable | IMPLEMENTED; CI y prueba física pendientes |
 | Wave A: última política válida offline, ADR-020 | Documentación incorporada; motor vigente aún usa ancla de la instancia online y límite de 12 h | Pruebas Kotlin actuales verifican el comportamiento antiguo ADR-017 | MISSING; bloqueado por gate P0 |
 | Wave B: GPS autónomo y compatibilidad Huawei | Servicio actual GPS_PROVIDER, sin permisos/arranque autónomo completos | Sin ensayo físico POCO/P40 | MISSING; bloqueado por gate P0 |
 | Wave C: capacidad cifrada de 32 MiB / 4.320 posiciones | Persistencia cifrada existente con límite anterior de 4 MiB / 10.000 registros | Pruebas AES-GCM y reinicio sintético; sin capacidad nueva demostrada | PARTIAL; bloqueado por gate P0 |
@@ -36,7 +36,7 @@ resolución. La migración 0020 conserva 0017–0019 y agrega solo el recibo v2.
 - `npm test`: PASS.
 - `npm run build`: PASS (API, Web y contratos).
 - `npm run contracts:check`: PASS.
-- `npm run security:scan`: PASS (452 archivos inspeccionados).
+- `npm run security:scan`: PASS (454 archivos inspeccionados).
 - `npm run gps:events:integration`: PASS (69 aserciones, PostGIS desechable).
 - `npm run gps:mixed:integration`: PASS (47 aserciones, PostGIS desechable),
   con negativos de edad, ancla, ventana, digest, instalación, binding revocado
@@ -54,25 +54,43 @@ resolución. La migración 0020 conserva 0017–0019 y agrega solo el recibo v2.
   modificados pasan Biome individualmente.
 - `git diff --check`: PASS.
 
-Estas pruebas cubren el código local sin confirmar y no sustituyen CI,
-auditoría independiente ni pruebas físicas.
+Estas pruebas cubren el commit `da8a65172f108545805b8a06fad65d70eb45e9f3`
+en el checkout aislado. No sustituyen CI ni pruebas físicas.
+
+## Revisión independiente
+
+Un revisor independiente examinó el SHA exacto
+`da8a65172f108545805b8a06fad65d70eb45e9f3` en modo solo lectura.
+Aprobó la revisión estática de P0 en alcance sintético, sin hallazgo crítico o
+alto determinista restante. Confirmó la migración 0020 aditiva, la preservación
+de módulos MDM y migraciones 0017–0019, las correcciones de backoff y validación
+temporal, y el trigger de CI. No repitió las pruebas de integración y su dictamen
+no concede PASS al gate completo.
+
+Hallazgo MEDIO residual: `PendingUpload.kt` puede programar espera cero si una
+posición nueva vence mientras el `STARTED` de su sesión aún está en backoff.
+Puede provocar reintentos del job sin HTTP prematuro; no se observó impacto en
+integridad o autorización. Registrar optimización en la siguiente iteración.
+
+CI sobre el SHA integrado sigue NOT_VERIFIED y `npm run lint` global falla en
+el checkout local por 31 errores y 12 advertencias presentes en la base.
 
 ## Gates y decisiones
 
 | Resultado solicitado | Estado al corte | Motivo |
 | --- | --- | --- |
-| BRANCH_INTEGRATION | NOT_VERIFIED | Ancestría y build verificados; falta auditoría del SHA y CI final |
-| SPEC02_P0_UPLOAD | BLOCKED | Implementación sintética verificada; falta revisión independiente y POCO |
+| BRANCH_INTEGRATION | NOT_VERIFIED | Ancestría, build y revisión estática independiente verificados; falta CI final |
+| SPEC02_P0_UPLOAD | BLOCKED | Implementación sintética y revisión estática verificadas; faltan CI y POCO |
 | SPEC02_WAVE_A_POLICY | BLOCKED | ADR-020 aprobado documentalmente, sin implementación |
 | SPEC02_WAVE_B_GPS | BLOCKED | Faltan permisos, motor autónomo y ensayo físico |
 | SPEC02_WAVE_C_STORAGE | BLOCKED | Faltan capacidad/retención nuevas y pruebas de falla |
 | SPEC02_WAVE_D_SYNC | BLOCKED | P0 parcial integrado; falta gate P0 y prueba de drenaje |
 | SPEC02_WAVE_E_PHYSICAL | BLOCKED | POCO/P40 no ejecutados |
-| MDM_SECURITY | NOT_VERIFIED | Controles preservados; falta auditoría del SHA final |
+| MDM_SECURITY | NOT_VERIFIED | Controles preservados y revisados estáticamente; falta CI final |
 | ANDROID_COMPATIBILITY | NOT_VERIFIED | Solo JVM sintético, sin dispositivos físicos |
-| API_CONTRACT_COMPATIBILITY | NOT_VERIFIED | OpenAPI local PASS, CI y auditoría pendientes |
+| API_CONTRACT_COMPATIBILITY | NOT_VERIFIED | OpenAPI local PASS y revisión estática favorable; falta CI |
 | POSTGIS_MIGRATIONS | NOT_VERIFIED | Ensayo 14→20 PASS; faltan matrices de restore y CI final |
-| INDEPENDENT_AUDIT | NOT_VERIFIED | Debe revisar el commit integrado exacto |
+| INDEPENDENT_AUDIT | PASS | Revisión estática P0 del SHA `da8a651`; alcance sintético y hallazgo MEDIO residual, sin aprobación operativa |
 | SPEC02_TECHNICAL_CLOSURE | BLOCKED | Waves A–D aún incompletas |
 | SPEC02_OPERATIONAL_CLOSURE | BLOCKED | Wave E física pendiente |
 | STAGING_READINESS | BLOCKED | Gates técnicos y operativos abiertos |
@@ -86,5 +104,5 @@ y no debe sustituirse una instalación existente perdiendo la cola cifrada.
 No se generaron imágenes de API/Web ni se publicó la rama. No se modificó
 ManageEngine, Staging, producción ni la vigencia de autorización offline.
 El próximo paso dependiente es resolver el método seguro de instalación,
-completar auditoría P0 y obtener evidencia física; entonces se podrá abrir
+resolver el gate de CI y obtener evidencia física; entonces se podrá abrir
 Wave A conforme al orden exigido por la SPEC.
