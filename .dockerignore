@@ -17,4 +17,5 @@ specs
 docs
 apps/android
 apps/api/mdm-oauth-*.mjs
+!apps/api/mdm-oauth-core.mjs
 apps/api/test/mdm-oauth.test.mjs

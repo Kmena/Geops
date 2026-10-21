@@ -137,3 +137,38 @@ test('enrollment inventory requests the next bounded page', async () => {
     globalThis.fetch = prior;
   }
 });
+
+test('MDM admin mutations use session credentials and CSRF without browser OAuth tokens', async () => {
+  const prior = globalThis.fetch;
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init: init ?? {} });
+    return Response.json({ linked: true, run_id: device.id, device_count: 1 });
+  };
+  try {
+    await api.mdmSync('synthetic-csrf');
+    await api.mdmLink(device.id, '9007199254740995123', 'synthetic-csrf');
+    await api.mdmUnlink(device.id, 'synthetic-csrf');
+    assert.deepEqual(
+      requests.map((request) => [request.init.method, request.url]),
+      [
+        ['POST', '/v1/admin/mdm/sync'],
+        ['PUT', `/v1/admin/devices/${device.id}/mdm-link`],
+        ['DELETE', `/v1/admin/devices/${device.id}/mdm-link`],
+      ],
+    );
+    for (const request of requests) {
+      assert.equal(request.init.credentials, 'same-origin');
+      assert.equal(
+        (request.init.headers as Record<string, string>)['x-csrf-token'],
+        'synthetic-csrf',
+      );
+      assert.doesNotMatch(JSON.stringify(request), /refresh_token|client_secret|Zoho-oauthtoken/i);
+    }
+    assert.deepEqual(JSON.parse(requests[1]?.init.body as string), {
+      mdm_device_id: '9007199254740995123',
+    });
+  } finally {
+    globalThis.fetch = prior;
+  }
+});

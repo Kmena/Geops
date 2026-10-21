@@ -16,6 +16,9 @@ const gpsSpecFile = fileURLToPath(
 );
 assert.deepEqual(packaged, approved, 'versioned OpenAPI must match SPEC-01');
 await SwaggerParser.validate(packageFile);
+await SwaggerParser.validate(
+  fileURLToPath(new URL('../../../specs/spec-mdm-manageengine/openapi.yaml', import.meta.url)),
+);
 assert.equal(packaged.openapi, '3.1.0');
 for (const path of [
   '/health/live',
@@ -127,6 +130,4 @@ for (const name of [
   assert.ok(healthEvent.required.includes(name), `health event missing ${name}`);
 assert.equal(gpsPackaged.components.schemas.PolicyInput.properties.health_interval_s.minimum, 60);
 assert.equal(gpsPackaged.components.schemas.PolicyInput.properties.health_interval_s.maximum, 3600);
-process.stdout.write(
-  'OpenAPI 3.1 validated against SPEC-01 and SPEC-02 design; identity and GPS paths present.\n',
-);
+process.stdout.write('OpenAPI 3.1 validated against SPEC-01, SPEC-02 and MDM design.\n');

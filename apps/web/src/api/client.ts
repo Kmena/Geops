@@ -70,6 +70,15 @@ export interface MdmDevice {
   mdm_device_id: string;
   status: string;
   display_name?: string;
+  platform?: 'android' | 'other' | 'unknown';
+  model?: string;
+  os_version?: string;
+  removed?: boolean;
+}
+
+export interface MdmInventoryDevice extends MdmDevice {
+  geops_device_id: string | null;
+  last_seen_at: string;
 }
 
 export interface Page<T> {
@@ -81,7 +90,8 @@ export interface Page<T> {
 export interface MdmStatus {
   provider: 'fake' | 'manageengine';
   connected: boolean;
-  edition_evidence: 'TRIAL' | 'FREE_UNVERIFIED';
+  edition_evidence: 'TRIAL' | 'FREE' | 'LICENSED' | 'UNVERIFIED';
+  configured_edition?: 'TRIAL' | 'FREE' | 'LICENSED';
   region?: string;
   last_checked_at: string | null;
   last_http_status: number | null;
@@ -279,5 +289,23 @@ export const api = {
       `/v1/admin/mdm/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   mdmStatus: () => read<MdmStatus>('/v1/admin/mdm/status'),
+  mdmInventory: () =>
+    read<{ items: MdmInventoryDevice[]; next_cursor: string | null }>('/v1/admin/mdm/inventory'),
+  mdmSync: (csrf: string) =>
+    read<{ run_id: string; device_count: number }>('/v1/admin/mdm/sync', {
+      method: 'POST',
+      headers: { 'x-csrf-token': csrf },
+    }),
+  mdmLink: (deviceId: string, mdmId: string, csrf: string) =>
+    read<{ linked: true }>(`/v1/admin/devices/${encodeURIComponent(deviceId)}/mdm-link`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ mdm_device_id: mdmId }),
+    }),
+  mdmUnlink: (deviceId: string, csrf: string) =>
+    read<{ linked: false }>(`/v1/admin/devices/${encodeURIComponent(deviceId)}/mdm-link`, {
+      method: 'DELETE',
+      headers: { 'x-csrf-token': csrf },
+    }),
   gpsCapabilities: () => read<{ capabilities: string[] }>('/v1/admin/gps-capabilities'),
 };

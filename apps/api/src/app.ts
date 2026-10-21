@@ -16,6 +16,8 @@ import { registerHealth, type ReadinessProbe } from './health.js';
 import { registerSanitizedLogging } from './logging.js';
 import { registerInventoryRoutes } from './mdm/routes.js';
 import type { MdmProvider } from './mdm/provider.js';
+import type { MdmInventoryService } from './mdm/inventory.js';
+import type { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
 import { registerGpsPolicyRoutes } from './gps-policy-routes.js';
 import type { GpsHealthService } from './gps-health-service.js';
@@ -39,6 +41,8 @@ export interface AppOptions {
   adminUsers?: AdminUserAdministrationService;
   devices?: DeviceRepository;
   mdm?: MdmProvider;
+  mdmInventory?: MdmInventoryService;
+  mdmOAuth?: MdmOAuthRuntime;
   enrollment?: EnrollmentService;
   deviceSessions?: DeviceSessionService;
   deviceLifecycle?: DeviceLifecycleService;
@@ -93,7 +97,14 @@ export function createApp(options: AppOptions): FastifyInstance {
     if (options.gpsContinuity)
       registerGpsContinuityRoutes(app, options.adminAuth, options.gpsContinuity);
     if (options.devices && options.mdm) {
-      registerInventoryRoutes(app, options.adminAuth, options.devices, options.mdm);
+      registerInventoryRoutes(
+        app,
+        options.adminAuth,
+        options.devices,
+        options.mdm,
+        options.mdmInventory,
+        options.mdmOAuth,
+      );
       if (options.enrollment && options.deviceSessions && options.deviceLifecycle) {
         registerIdentityRoutes(
           app,
