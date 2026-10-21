@@ -1,6 +1,6 @@
 # SPEC-02 — ejecución técnica P0 y Waves A–D (2026-10-21)
 
-Rama: `codex/geops-spec02-mdm-integration`. Base verificada: `79fae4175b8343ec578f4feca59e8212d9ed07ae`. Este documento describe el código de la rama al cierre de la ejecución; el SHA inmutable evaluado y el resultado de auditoría se registran en el informe final de la tarea. No hubo instalación en POCO/Huawei, publicación ni despliegue.
+Rama: `codex/geops-spec02-mdm-integration`. Base verificada: `79fae4175b8343ec578f4feca59e8212d9ed07ae`. SHA de código reauditable: `5cad31bd8d84241214f9546f354b6bdae97e479f`. No hubo instalación en POCO/Huawei, publicación ni despliegue.
 
 ## Contrato y decisiones
 
@@ -31,7 +31,7 @@ Rama: `codex/geops-spec02-mdm-integration`. Base verificada: `79fae4175b8343ec57
 
 | Gate | Resultado |
 | --- | --- |
-| P0 técnico | PASS en Kotlin y PostGIS sintético, incluido STARTED en backoff y revocación offline; auditoría del SHA final pendiente. POCO pendiente. |
+| P0 técnico | PASS en Kotlin y PostGIS sintético, incluido STARTED en backoff y revocación offline; auditoría independiente estática PASS del SHA de código. POCO pendiente. |
 | Wave A técnico | PARTIAL por límite de hora civil tras reinicio, coincidencia tzdb física y flujo de inicio visible offline. Evaluación local, DST y nuevas jornadas demostradas en JVM/PostGIS. |
 | Wave B técnico | PARTIAL: servicio compila, proveedor dual, cooldown tras boot y frescura de fix probados; continuidad física NOT_VERIFIED. |
 | Wave C técnico | PASS JVM para cifrado, 4320 puntos, alertas, recuperación y conservación hasta ACK; Android Keystore físico NOT_VERIFIED. |
@@ -40,7 +40,12 @@ Rama: `codex/geops-spec02-mdm-integration`. Base verificada: `79fae4175b8343ec57
 | Contratos | OpenAPI v1/v2/v3 validado por `contracts:check`; copia de SPEC-02 idéntica. |
 | Android | `assembleDebug` y `lintDebug` PASS; `testDebugUnitTest` NO-SOURCE. Se corrigieron la comprobación de permiso Fused y la versión Fragment arrastrada por QR. |
 | Lint | 31 errores `format` en 31 archivos no modificados por SPEC-02 (18 tests/scripts API, 2 CSS Web, 3 contratos y 8 scripts de raíz); 14 avisos `noNonNullAssertion`, incluidos dos preexistentes en `gps-event-service.ts`. La cuenta coincide con la línea base. Cuatro errores de formato introducidos en API durante la implementación se corrigieron. No se hizo refactor general. |
-| Cierre técnico/operativo | BLOCKED/NOT_VERIFIED hasta auditoría independiente, resolución de hallazgos y pruebas físicas. |
+| Auditoría independiente | PASS de revisión estática y gates sintéticos del SHA `5cad31bd8d84241214f9546f354b6bdae97e479f`: tres HIGH y dos MEDIUM corregidos con regresiones; auditor no repitió personalmente las pruebas. |
+| Cierre técnico/operativo | Cierre técnico CONDICIONAL: cuatro waves tienen implementación y pruebas sintéticas, pero A/B conservan límites de plataforma/tiempo, el lint global permanece rojo por 31 errores de base y falta aceptación del modelo de hora civil offline. Cierre operativo BLOCKED: POCO/Huawei NOT_VERIFIED. |
+
+## APK de diagnóstico preparado, sin instalar
+
+Artefacto: `apps/android-app/build/outputs/apk/debug/GeopsAndroid-debug.apk`, derivado del SHA de código `5cad31bd8d84241214f9546f354b6bdae97e479f`. SHA-256 del archivo: `6cb3afe5d55c2171fc699ffd7f21fa3fd6745649061f8ee3375027e4d69df8dd`. Firma verificada con `apksigner`: `CN=Android Debug`, certificado SHA-256 `f4296dea67128711e0ea4835de8f536180ef1499b657c7a75730584c53d9a8d4`. Paquete `com.geops.mobile`, `versionCode=7`, `versionName=0.1.6-test`, minSdk 26, targetSdk 35, compileSdk 36. El manifiesto final declara ubicación precisa/aproximada/background, FGS de ubicación, notificaciones, red y reinicio. Es un APK de diagnóstico; compatibilidad real con POCO y Huawei P40, entrega de callback al minuto, firma frente a la app actualmente instalada y preservación de su cola cifrada: `NOT_VERIFIED`.
 
 ## Prueba física sin borrar datos
 
