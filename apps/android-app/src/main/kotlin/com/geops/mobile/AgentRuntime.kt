@@ -1,36 +1,44 @@
 package com.geops.mobile
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
 import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
 import android.provider.Settings
 import com.geops.agent.AndroidAgentClock
 import com.geops.agent.AndroidHealthProbe
 import com.geops.agent.AndroidKeys
-import com.geops.agent.BatchSync
 import com.geops.agent.EncryptedFileAgentStore
 import com.geops.agent.AgentState
 import com.geops.agent.AgentStateFiles
+import com.geops.agent.LocationDecision
+import com.geops.agent.EncryptedDiagnosticJournal
+import com.geops.agent.DiagnosticFiles
 import com.geops.agent.GeopsLocationService
 import com.geops.agent.Identity
 import com.geops.agent.LocationFix
-import com.geops.agent.LocationDecision
-import com.geops.agent.PopBatchTransport
+import com.geops.agent.RecordKind
 import com.geops.agent.PopConfigTransport
 import com.geops.agent.PopHttpClient
 import com.geops.agent.PolicyEngine
-import com.geops.agent.RecordKind
 import com.geops.agent.RefreshingSessionProvider
 import com.geops.agent.SYNTHETIC_STAGING_BASE_URL
-import com.geops.agent.SyncOutcome
-import com.geops.agent.SyncDetail
 import com.geops.agent.TrackingController
+import com.geops.agent.TrackingIntent
+import com.geops.agent.AgentStore
+import com.geops.agent.summarizeDiagnostics
 import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -41,24 +49,42 @@ import java.util.concurrent.TimeUnit
 /** One foreground tracking run, initiated only from a visible Activity. */
 object AgentRuntime {
     const val SIGNING_ALIAS = "geops-test-identity-v1"
-    private const val STATE_ALIAS = "geops-test-state-v1"
+    internal const val STATE_ALIAS = "geops-test-state-v1"
     private var scheduler: ScheduledExecutorService? = null
     private var captureExecutor: ExecutorService? = null
     private var service: GeopsLocationService? = null
-    @Volatile private var lastLocationSync: SyncOutcome? = null
-    @Volatile private var lastLocationDetail: SyncDetail? = null
-    @Volatile private var lastSyncAttemptMs: Long = -1
     @Volatile private var lastConfigIssue: String? = null
     @Volatile private var lastRuntimeIssue: String? = null
     @Volatile private var lastGpsCallbackMs: Long = -1
     @Volatile private var lastGpsDecision: LocationDecision? = null
 
     @Synchronized fun isRunning(): Boolean = scheduler != null
+    private var activeStore: AgentStore? = null
+    private var activeController: TrackingController? = null
+    private var starting = false
+    private var stopGeneration = 0L
 
-    fun start(locationService: GeopsLocationService): String {
+    fun start(locationService: GeopsLocationService): String = startInternal(locationService, recovery = false)
+
+    /** Invoked only for Android redelivery of an already-started foreground service. */
+    fun recover(locationService: GeopsLocationService) {
+        try { startInternal(locationService, recovery = true) }
+        catch (failure: Exception) {
+            if (failure.message == "already_running") return
+            locationService.stopSelf()
+            synchronized(this) { if (service === locationService) stop() }
+        }
+    }
+
+    private fun startInternal(locationService: GeopsLocationService, recovery: Boolean): String {
+        val runGeneration: Long
         synchronized(this) {
-            if (scheduler != null) return "El seguimiento ya está iniciado. Consulta las sesiones y ubicaciones en GEOPS Web."
+            if (scheduler != null && service === locationService)
+                return "El seguimiento ya está iniciado. Consulta las sesiones y ubicaciones en GEOPS Web."
+            require(!starting && scheduler == null) { "already_running" }
+            starting = true
             service = locationService
+            runGeneration = stopGeneration
         }
         try {
             val context = locationService.applicationContext
@@ -78,8 +104,9 @@ object AgentRuntime {
             }
             val stateFile = AgentStateFiles.resolve(stateRoot, identity, stateKey)
             val store = EncryptedFileAgentStore(stateFile, stateKey)
-            // A process restart is never proof of an observed STOPPED event.
-            store.update { if (it.session != null) it.session?.state = "UNKNOWN_END" }
+            synchronized(this) { activeStore = store }
+            val diagnostics = EncryptedDiagnosticJournal(DiagnosticFiles.scoped(context.noBackupFilesDir.toPath(), identity), stateKey)
+            locationService.attachDiagnostics(diagnostics)
             val signer = AndroidKeys.existingEnrollmentSigner(SIGNING_ALIAS)
             val sessionProvider = RefreshingSessionProvider(deviceId, keyId, signer,
                 com.geops.agent.HttpsEnrollmentTransport(SYNTHETIC_STAGING_BASE_URL))
@@ -88,21 +115,30 @@ object AgentRuntime {
             val policy = PolicyEngine(identity, clock, store)
             lastGpsCallbackMs = -1
             lastGpsDecision = null
-            lastLocationSync = null
-            lastLocationDetail = null
-            lastSyncAttemptMs = -1
+            val priorIntent = store.read().trackingIntent
+            if (recovery) {
+                require(priorIntent != null && policy.mayRecover(priorIntent) &&
+                    !userRequestedExit(context, priorIntent.requestedAtMs)) { "recovery_not_authorized" }
+            }
+            // Process death is not evidence of an observed STOPPED event.
+            store.update { if (it.session != null) it.session?.state = "UNKNOWN_END" }
             lateinit var controller: TrackingController
             val capture = Executors.newSingleThreadExecutor()
             synchronized(this) { captureExecutor = capture }
-            val runtime = locationService.runtime { fix: Location ->
-                lastGpsCallbackMs = System.currentTimeMillis()
-                val reading = clock.read().copy(wallMs = fix.time,
+            val runtime = locationService.runtime { fix: Location, listenerToken: Long ->
+                val received = clock.read()
+                val reading = received.copy(wallMs = fix.time,
                     elapsedMs = fix.elapsedRealtimeNanos / 1_000_000L)
                 try {
                     if (!capture.isShutdown) capture.execute {
                         try {
-                            lastGpsDecision = controller.onLocationResult(LocationFix(fix.latitude, fix.longitude,
-                                fix.accuracy.toDouble(), reading))
+                            synchronized(this) {
+                                if (stopGeneration != runGeneration ||
+                                    !locationService.isCurrentListener(listenerToken)) return@execute
+                                lastGpsCallbackMs = received.wallMs
+                                lastGpsDecision = controller.onLocationResult(LocationFix(fix.latitude, fix.longitude,
+                                    fix.accuracy.toDouble(), reading, received.wallMs))
+                            }
                         } catch (_: Exception) {
                             try { controller.stop("BUFFER_UNAVAILABLE") } catch (_: Exception) { }
                             locationService.stopSelf()
@@ -112,32 +148,53 @@ object AgentRuntime {
                 } catch (_: RejectedExecutionException) { /* Service is stopping. */ }
             }
             controller = TrackingController(identity, clock, policy, store, runtime,
-                AndroidHealthProbe(context))
-            val config = PopConfigTransport(http)
-            controller.refreshConfig(config)
-            lastConfigIssue = null
-            controller.tick()
-            if (!runtime.isRegistered()) {
-                lastRuntimeIssue = "El GPS no inició: comprueba el horario, el permiso y el GPS del teléfono."
-                locationService.stopSelf()
-                stop()
-                return "Sin ventana autorizada o inicio GPS bloqueado; se conservó el diagnóstico."
+                AndroidHealthProbe(context), diagnostics) {
+                val queued = store.read()
+                if (!queued.uploadAuthBlocked) SyncJobs.enqueuePending(context,
+                    (queued.snapshot?.policy?.syncIntervalS ?: 300) * 1000L)
             }
-            lastRuntimeIssue = null
-            val sync = BatchSync(identity, store, clock, PopBatchTransport(http, healthContractApproved = true))
+            synchronized(this) { activeController = controller }
+            val config = PopConfigTransport(http)
+            if (recovery) {
+                try { controller.refreshConfig(config) }
+                catch (failure: Exception) {
+                    if (!transientConfigFailure(failure)) throw failure
+                    // The same verified instance may continue only until its bounded offline expiry.
+                }
+            } else controller.refreshConfig(config)
+            lastConfigIssue = null
+            // A fresh authenticated config is required to clear a prior upload-auth rejection.
+            if (store.read().uploadAuthBlocked) {
+                require(!recovery) { "upload_auth_blocked" }
+                store.update { it.uploadAuthBlocked = false }
+            }
+            synchronized(this) {
+                require(runGeneration == stopGeneration) { "tracking_stopped" }
+                controller.tick()
+                if (!runtime.isRegistered()) {
+                    lastRuntimeIssue = "El GPS no inició: comprueba el horario, el permiso y el GPS del teléfono."
+                    locationService.stopSelf()
+                    return "Sin ventana autorizada o inicio GPS bloqueado; se conservó el diagnóstico."
+                }
+                lastRuntimeIssue = null
+                persistIntent(store, policy, identity, clock.read().bootId,
+                    priorIntent?.requestedAtMs.takeIf { recovery } ?: clock.read().wallMs)
+            }
+            if (store.read().pending.any { !it.quarantined }) SyncJobs.enqueuePending(context,
+                (store.read().snapshot?.policy?.syncIntervalS ?: 300) * 1000L)
             val timer = Executors.newSingleThreadScheduledExecutor()
             synchronized(this) { scheduler = timer }
             var lastConfigAt = System.currentTimeMillis()
-            var lastSyncAt = 0L
             timer.scheduleAtFixedRate({
                 try {
+                    if (synchronized(this) { runGeneration != stopGeneration }) return@scheduleAtFixedRate
                     if (System.currentTimeMillis() - lastConfigAt >= 300_000L) {
                         try { controller.refreshConfig(config); lastConfigAt = System.currentTimeMillis(); lastConfigIssue = null }
                         catch (failure: Exception) {
                             lastConfigIssue = if (failure.message == "config_http_401" || failure.message == "config_http_403")
                                 "El servidor rechazó la configuración: sesión o dispositivo revocado."
                             else "No se pudo actualizar la política; se usa la última copia válida mientras siga autorizada."
-                            if (failure.message == "config_http_401" || failure.message == "config_http_403") {
+                            if (!transientConfigFailure(failure)) {
                                 controller.stop("AUTH_REVOKED")
                                 locationService.stopSelf()
                                 stop()
@@ -145,27 +202,11 @@ object AgentRuntime {
                             }
                         }
                     }
-                    controller.tick()
-                    val now = System.currentTimeMillis()
-                    val syncEvery = (policy.snapshot()?.policy?.syncIntervalS ?: 300) * 1000L
-                    if (now - lastSyncAt >= syncEvery) {
-                        for (kind in listOf(RecordKind.SESSION, RecordKind.LOCATION, RecordKind.HEALTH)) {
-                            val outcome = sync.once(kind)
-                            if (kind == RecordKind.LOCATION) {
-                                lastLocationSync = outcome
-                                if (sync.lastDetail != SyncDetail.BACKOFF && sync.lastDetail != SyncDetail.NONE)
-                                    lastLocationDetail = sync.lastDetail
-                                lastSyncAttemptMs = now
-                            }
-                            if (outcome == SyncOutcome.AUTH_REQUIRED) {
-                                lastRuntimeIssue = "El servidor rechazó el envío: sesión o dispositivo revocado."
-                                controller.stop("AUTH_REVOKED")
-                                locationService.stopSelf()
-                                stop()
-                                return@scheduleAtFixedRate
-                            }
-                        }
-                        lastSyncAt = now
+                    synchronized(this) {
+                        if (runGeneration != stopGeneration) return@scheduleAtFixedRate
+                        controller.tick()
+                        if (runtime.isRegistered()) persistIntent(store, policy, identity,
+                            clock.read().bootId, store.read().trackingIntent?.requestedAtMs ?: clock.read().wallMs)
                     }
                     if (!runtime.isRegistered()) {
                         lastRuntimeIssue = "El servicio GPS dejó de estar registrado. Reabre GEOPS para revisar la política."
@@ -190,14 +231,31 @@ object AgentRuntime {
             locationService.stopSelf()
             stop()
             throw failure
+        } finally {
+            synchronized(this) { starting = false }
         }
     }
 
-    @Synchronized fun stop() {
+    private fun persistIntent(store: AgentStore, policy: PolicyEngine, identity: Identity,
+                              boot: String, requestedAtMs: Long) {
+        val allowed = policy.current() ?: return
+        val instance = store.read().validatedInstance ?: return
+        require(instance.scheduledId == allowed.window.scheduledSessionId) { "instance_changed" }
+        store.update { it.trackingIntent = TrackingIntent(identity.installationId,
+            instance, requestedAtMs, boot) }
+    }
+
+    @Synchronized fun stop(preserveRecoveryIntent: Boolean = false) {
+        stopGeneration++
         scheduler?.shutdownNow()
         captureExecutor?.shutdownNow()
+        if (!preserveRecoveryIntent) {
+            try { activeStore?.update { it.trackingIntent = null } } catch (_: Exception) { }
+        }
         scheduler = null
         captureExecutor = null
+        activeStore = null
+        activeController = null
         service = null
     }
 
@@ -221,11 +279,15 @@ object AgentRuntime {
         } catch (_: Exception) {
             return "Política: no disponible.\nEnvío: detenido; no se pudo leer el estado cifrado. Revisa la activación."
         }
-        return renderDiagnostics(context, state, device, installation)
+        val events = try {
+            val key = AndroidKeys.existingStateKey(STATE_ALIAS)
+            EncryptedDiagnosticJournal(DiagnosticFiles.scoped(context.noBackupFilesDir.toPath(), identity), key).recent()
+        } catch (_: Exception) { emptyList() }
+        return renderDiagnostics(context, state, device, installation, events)
     }
 
     private fun renderDiagnostics(context: Context, state: AgentState, device: String,
-                                  installation: String): String {
+                                  installation: String, events: List<com.geops.agent.DiagnosticEvent>): String {
         val snapshot = state.snapshot
         val policy = snapshot?.policy
         val display = snapshot?.display
@@ -238,6 +300,9 @@ object AgentRuntime {
         } catch (_: Exception) { null }
         val pending = state.pending.count { it.kind == RecordKind.LOCATION && !it.quarantined }
         val quarantined = state.pending.count { it.kind == RecordKind.LOCATION && it.quarantined }
+        val summary = summarizeDiagnostics(events, state.pending)
+        val lastSync = events.lastOrNull { it.kind.name.startsWith("SYNC_") }
+        val lastSyncAttemptMs = events.lastOrNull { it.kind == com.geops.agent.DiagnosticKind.SYNC_ATTEMPT }?.atMs ?: -1L
         val activeService = synchronized(this) { scheduler != null && service?.isGpsRegistered() == true }
         val gpsGap = policy?.captureIntervalS?.times(3_000L) ?: 180_000L
         val authorization = when (evaluation?.reason) {
@@ -248,6 +313,7 @@ object AgentRuntime {
             "POLICY_NOT_YET_VALID" -> "La política aún no entra en vigencia"
             "POLICY_EXPIRED" -> "La política venció"
             "CONFIG_EXPIRED" -> "La autorización offline venció; se requiere conexión"
+            "INSTANCE_NOT_ONLINE_VERIFIED" -> "Esta jornada aún no fue validada en línea; se requiere conexión"
             "REBOOT_REQUIRES_REFRESH" -> "Reinicio detectado; se requiere validar la política con el servidor"
             "CLOCK_DRIFT", "CLOCK_INVALID" -> "La hora del teléfono no coincide con la autorización"
             else -> "La autorización cambió; se requiere actualizar la política"
@@ -261,24 +327,21 @@ object AgentRuntime {
             lastRuntimeIssue != null -> lastRuntimeIssue!!
             !activeService -> "Servicio de seguimiento detenido. Pulsa Iniciar seguimiento."
             quarantined > 0 -> "Hay $quarantined posiciones retenidas por rechazo del servidor; requieren revisión."
-            lastLocationSync == SyncOutcome.AUTH_REQUIRED -> "El servidor rechazó el envío por autorización."
-            lastLocationSync == SyncOutcome.QUARANTINED -> "El servidor rechazó posiciones; requieren revisión."
-            lastLocationDetail == SyncDetail.RATE_LIMIT && pending > 0 ->
+            state.uploadAuthBlocked -> "El servidor rechazó el envío por autorización."
+            lastSync?.reason == com.geops.agent.DiagnosticReason.RATE_LIMIT && pending > 0 ->
                 "El servidor limitó la frecuencia de envíos; la cola esperará y reintentará."
-            lastLocationDetail == SyncDetail.INVALID_ACK && pending > 0 ->
+            lastSync?.reason == com.geops.agent.DiagnosticReason.INVALID_ACK && pending > 0 ->
                 "La respuesta del servidor no confirmó el lote; se conserva para reintento."
-            lastLocationDetail == SyncDetail.SERVER_ERROR && pending > 0 ->
+            lastSync?.reason == com.geops.agent.DiagnosticReason.SERVER_ERROR && pending > 0 ->
                 "El servidor respondió con error; la cola reintentará."
-            lastLocationDetail == SyncDetail.NETWORK && pending > 0 ->
+            lastSync?.reason == com.geops.agent.DiagnosticReason.NETWORK && pending > 0 ->
                 "No se completó la conexión al servidor; la cola reintentará."
-            lastLocationDetail == SyncDetail.BACKOFF && pending > 0 ->
+            lastSync?.reason == com.geops.agent.DiagnosticReason.BACKOFF && pending > 0 ->
                 "Los envíos están en espera tras un fallo anterior; se reintentará."
-            lastLocationSync == SyncOutcome.RETRY && pending > 0 -> "Falló el envío; la cola cifrada reintentará. Revisa la conexión."
-            lastLocationSync == SyncOutcome.PENDING && pending > 0 ->
-                if (state.pending.any { it.kind == RecordKind.SESSION && !it.quarantined &&
-                    runCatching { org.json.JSONObject(it.payload).optString("type") == "STARTED" }.getOrDefault(false) })
-                    "Esperando confirmación de inicio de sesión antes de enviar posiciones."
-                else "El servidor aún no confirmó el lote; se reintentará."
+            lastSync?.reason == com.geops.agent.DiagnosticReason.WAITING_SESSION && pending > 0 ->
+                "Esperando confirmación de inicio de sesión antes de enviar posiciones."
+            lastSync?.reason == com.geops.agent.DiagnosticReason.SERVER_PENDING && pending > 0 ->
+                "El servidor aún no confirmó el lote; se reintentará."
             pending > 0 -> "Hay posiciones en cola; próximo intento según la frecuencia de sincronización."
             lastGpsCallbackMs < 0 -> "Android aún no entregó una lectura GPS en este inicio. Comprueba señal y permisos."
             activeService && System.currentTimeMillis() - lastGpsCallbackMs > gpsGap ->
@@ -310,6 +373,8 @@ object AgentRuntime {
             append("\nConfirmadas por servidor desde esta versión: ").append(state.locationsAcked)
             append("\nÚltimo envío confirmado: ").append(time(state.lastLocationAckedMs))
             append("\nÚltima revisión de envíos: ").append(time(lastSyncAttemptMs))
+            append("\nDiagnóstico reciente: ").append(summary.callbacks).append(" lecturas, ")
+                .append(summary.accepted).append(" aceptadas, ").append(summary.rejected).append(" rechazadas")
             append("\nEstado de envío: ").append(reason)
             if (lastRuntimeIssue != null) append("\nÚltimo bloqueo: ").append(lastRuntimeIssue)
             if (lastConfigIssue != null) append("\nActualización de política: ").append(lastConfigIssue)
@@ -330,6 +395,86 @@ object AgentRuntime {
         LocationDecision.INVALID_TIME -> "hora de lectura fuera de la ventana válida"
         LocationDecision.INVALID_FIX -> "lectura GPS inválida"
         LocationDecision.WAITING_INTERVAL -> "aún no se cumple el intervalo de captura"
+    }
+
+    fun stopByUser(context: Context) {
+        val runningService: GeopsLocationService?
+        synchronized(this) {
+            try { activeController?.stop("USER_REQUESTED") } catch (_: Exception) { }
+            runningService = service
+            stop()
+        }
+        if (runningService == null) {
+            val key = AndroidKeys.existingStateKey(STATE_ALIAS)
+            val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+            val identity = Identity(preferences.getString("device_id", null) ?: error("device_missing"),
+                preferences.getString("installation_id", null) ?: error("installation_missing"))
+            val file = AgentStateFiles.resolve(context.filesDir.toPath(), identity, key)
+            EncryptedFileAgentStore(file, key)
+                .update { it.trackingIntent = null }
+        }
+        runningService?.stopSelf()
+    }
+
+    /** Called by upload-only JobService after a definitive 401/403. Never starts capture. */
+    fun onUploadAuthorizationRejected() {
+        val runningService: GeopsLocationService?
+        synchronized(this) {
+            try { activeController?.stop("AUTH_REVOKED") } catch (_: Exception) { }
+            runningService = service
+            stop()
+        }
+        runningService?.stopSelf()
+    }
+
+    fun onServiceDestroyed(destroyed: GeopsLocationService) {
+        // Android destruction alone is not an explicit user stop. The bounded intent
+        // remains subject to the same instance, boot, policy and offline expiry checks.
+        synchronized(this) { if (service === destroyed) stop(preserveRecoveryIntent = true) }
+    }
+
+    private fun userRequestedExit(context: Context, sinceMs: Long): Boolean {
+        if (Build.VERSION.SDK_INT < 30) return false
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return manager.getHistoricalProcessExitReasons(context.packageName, 0, 1)
+            .any { it.reason == ApplicationExitInfo.REASON_USER_REQUESTED && it.timestamp >= sinceMs }
+    }
+
+    private fun transientConfigFailure(failure: Exception): Boolean {
+        val code = failure.message?.removePrefix("config_http_")?.toIntOrNull()
+        if (code == 429 || (code != null && code in 500..599)) return true
+        var cause: Throwable? = failure
+        while (cause != null) {
+            if (cause is SocketTimeoutException || cause is UnknownHostException ||
+                cause is ConnectException || cause is NoRouteToHostException) return true
+            cause = cause.cause
+        }
+        return false
+    }
+
+    /** Local, visible-app diagnostic view. No raw queue payload, identifiers or coordinates leave storage. */
+    fun diagnosticSummary(context: Context): String {
+        val key = AndroidKeys.existingStateKey(STATE_ALIAS)
+        val root = context.filesDir.toPath()
+        val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        val identity = Identity(preferences.getString("device_id", null) ?: error("device_missing"),
+            preferences.getString("installation_id", null) ?: error("installation_missing"))
+        val events = EncryptedDiagnosticJournal(
+            DiagnosticFiles.scoped(context.noBackupFilesDir.toPath(), identity), key).recent()
+        val stateFile = AgentStateFiles.resolve(root, identity, key)
+        val pending = EncryptedFileAgentStore(stateFile, key).read().pending
+        val summary = summarizeDiagnostics(events, pending)
+        fun time(value: Long?) = value?.let { Instant.ofEpochMilli(it).toString() } ?: "desconocido"
+        return "Diagnóstico local (últimas 24 h)\n" +
+            "Callbacks: ${summary.callbacks}; capturas aceptadas: ${summary.accepted}; rechazadas: ${summary.rejected}\n" +
+            "Pendientes: ${summary.pendingLocations}; en cuarentena: ${summary.quarantinedLocations}\n" +
+            "Último fix original: ${time(summary.lastFixAtMs)}\n" +
+            "Último callback recibido: ${time(summary.lastCallbackAtMs)}\n" +
+            "Última captura guardada: ${time(summary.lastAcceptedAtMs)}\n" +
+            "Último ACK de posiciones: ${time(summary.lastAckAtMs)}\n" +
+            "Último rechazo: ${summary.lastRejectReason ?: "ninguno"}\n" +
+            "Último estado del servicio: ${summary.lastServiceEvent ?: "desconocido"}\n" +
+            "Último resultado de sincronización: ${summary.lastSyncReason ?: "desconocido"}"
     }
 
     private fun bootId(context: Context): String {

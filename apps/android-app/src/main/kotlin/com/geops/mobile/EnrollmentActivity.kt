@@ -208,6 +208,22 @@ class EnrollmentActivity : ComponentActivity() {
             it.setOnClickListener { saveManualActivation() }
             manualActivation.addView(it)
         }
+        button("Detener seguimiento") {
+            work.execute {
+                val message = try {
+                    AgentRuntime.stopByUser(applicationContext)
+                    "Seguimiento detenido por el usuario. Para reanudar, inicia de nuevo desde esta pantalla."
+                } catch (_: Exception) { "No se pudo confirmar la detención; verifica el estado del servicio." }
+                show(message)
+            }
+        }
+        button("Ver diagnóstico técnico") {
+            work.execute {
+                val message = try { AgentRuntime.diagnosticSummary(applicationContext) }
+                    catch (_: Exception) { "Diagnóstico local no disponible. Comprueba la clave y el almacenamiento del teléfono." }
+                show(message)
+            }
+        }
         setContentView(ScrollView(this).apply { addView(content) })
     }
 

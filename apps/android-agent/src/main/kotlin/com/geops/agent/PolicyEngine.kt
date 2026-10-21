@@ -29,6 +29,7 @@ interface AuthenticatedConfigTransport { fun fetch(identity: Identity): Snapshot
 
 data class AuthorizedWindow(val snapshot: Snapshot, val window: Window, val nowMs: Long)
 data class PolicyEvaluation(val window: AuthorizedWindow?, val reason: String?)
+data class PolicyAssessment(val window: AuthorizedWindow?, val reason: DiagnosticReason)
 
 class PolicyEngine(
     private val identity: Identity, private val clock: AgentClock, private val store: AgentStore
@@ -41,12 +42,24 @@ class PolicyEngine(
         require(after.elapsedMs - before.elapsedMs <= 30_000L) { "snapshot_rtt_exceeded" }
         validate(incoming)
         val old = store.read()
+        // A new installation must not relabel unsent ciphertext from an earlier identity.
+        require(old.snapshot == null || old.snapshot!!.identity == incoming.identity ||
+            old.pending.isEmpty()) { "pending_foreign_identity" }
         require(incoming.assignmentVersion >= old.highestAssignmentVersion) { "assignment_downgrade" }
         if (incoming.assignmentVersion == old.highestAssignmentVersion && old.snapshot != null) {
             require(incoming.active == old.snapshot!!.active && incoming.policy == old.snapshot!!.policy) {
                 "same_version_conflict"
             }
         }
+        // A future window in the response is not online validation of that future instance.
+        val onlineWindow = incoming.windows.firstOrNull { incoming.serverTimeMs >= it.startMs &&
+            incoming.serverTimeMs < it.endMs }
+        val validated = if (incoming.active && incoming.policy != null && onlineWindow != null &&
+            incoming.serverTimeMs >= incoming.policy.validFromMs &&
+            incoming.serverTimeMs < incoming.policy.validUntilMs &&
+            incoming.serverTimeMs < incoming.offlineNotAfterMs)
+            ValidatedInstance(onlineWindow.scheduledSessionId, onlineWindow.startMs, onlineWindow.endMs,
+                incoming.assignmentVersion, incoming.policy.revision, incoming.anchorId) else null
         beforeApply(incoming)
         store.update { state ->
             require(incoming.assignmentVersion >= state.highestAssignmentVersion) { "assignment_downgrade" }
@@ -54,36 +67,75 @@ class PolicyEngine(
             state.snapshot = incoming
             state.anchorElapsedMs = after.elapsedMs
             state.anchorBootId = after.bootId
+            state.validatedInstance = validated
         }
         return incoming
     }
 
-    fun current(): AuthorizedWindow? = evaluate().window
+    fun current(): AuthorizedWindow? = assess().window
 
+    /** Compatibility view for local UI diagnostics; authorization is exclusively assess(). */
     fun evaluate(): PolicyEvaluation {
-        fun denied(reason: String) = PolicyEvaluation(null, reason)
+        val assessment = assess()
+        val reason = when (assessment.reason) {
+            DiagnosticReason.NONE -> null
+            DiagnosticReason.NO_SNAPSHOT -> "NO_CONFIG"
+            DiagnosticReason.OFFLINE_EXPIRED -> "CONFIG_EXPIRED"
+            DiagnosticReason.WINDOW_ENDED -> "OUTSIDE_WINDOW"
+            DiagnosticReason.BOOT_CHANGED, DiagnosticReason.MONOTONIC_ROLLBACK -> "REBOOT_REQUIRES_REFRESH"
+            DiagnosticReason.IDENTITY_MISMATCH, DiagnosticReason.ASSIGNMENT_DOWNGRADE -> "CONFIG_REPLACED"
+            else -> assessment.reason.name
+        }
+        return PolicyEvaluation(assessment.window, reason)
+    }
+
+    /** A system recreation is limited to the user-started, online-validated work instance. */
+    fun mayRecover(intent: TrackingIntent): Boolean {
         val state = store.read()
-        val s = state.snapshot ?: return denied("NO_CONFIG")
-        if (!s.active || s.policy == null) return denied("NO_ACTIVE_POLICY")
-        val p = s.policy
+        val allowed = assess().window ?: return false
+        return intent.installationId == identity.installationId &&
+            intent == state.trackingIntent &&
+            intent.bootId == clock.read().bootId &&
+            intent.instance == state.validatedInstance &&
+            intent.instance.scheduledId == allowed.window.scheduledSessionId &&
+            intent.instance.startMs == allowed.window.startMs &&
+            intent.instance.endMs == allowed.window.endMs &&
+            intent.requestedAtMs >= intent.instance.startMs &&
+            intent.requestedAtMs < intent.instance.endMs
+    }
+
+    /** Reports why authorization failed without changing the existing authorization predicate. */
+    fun assess(): PolicyAssessment {
+        fun denied(reason: DiagnosticReason) = PolicyAssessment(null, reason)
+        val state = store.read()
+        val s = state.snapshot ?: return denied(DiagnosticReason.NO_SNAPSHOT)
+        val p = s.policy ?: return denied(DiagnosticReason.NO_ACTIVE_POLICY)
         val reading = clock.read()
-        if (s.identity != identity || s.assignmentVersion < state.highestAssignmentVersion)
-            return denied("CONFIG_REPLACED")
-        if (state.anchorBootId != reading.bootId || reading.elapsedMs < state.anchorElapsedMs)
-            return denied("REBOOT_REQUIRES_REFRESH")
+        if (!s.active) return denied(DiagnosticReason.NO_ACTIVE_POLICY)
+        if (s.identity != identity) return denied(DiagnosticReason.IDENTITY_MISMATCH)
+        if (state.anchorBootId != reading.bootId) return denied(DiagnosticReason.BOOT_CHANGED)
+        if (s.assignmentVersion < state.highestAssignmentVersion) return denied(DiagnosticReason.ASSIGNMENT_DOWNGRADE)
+        if (reading.elapsedMs < state.anchorElapsedMs) return denied(DiagnosticReason.MONOTONIC_ROLLBACK)
         val delta = reading.elapsedMs - state.anchorElapsedMs
-        if (delta > 12 * 3_600_000L) return denied("CONFIG_EXPIRED")
-        val now = safeAdd(s.serverTimeMs, delta) ?: return denied("CLOCK_INVALID")
-        if (abs(reading.wallMs.toDouble() - now.toDouble()) > 300_000.0) return denied("CLOCK_DRIFT")
-        if (now < s.verifiedAtMs) return denied("CLOCK_INVALID")
-        if (now < p.validFromMs) return denied("POLICY_NOT_YET_VALID")
+        if (delta > 12 * 3_600_000L) return denied(DiagnosticReason.OFFLINE_EXPIRED)
+        val now = safeAdd(s.serverTimeMs, delta) ?: return denied(DiagnosticReason.CLOCK_INVALID)
+        if (abs(reading.wallMs.toDouble() - now.toDouble()) > 300_000.0) return denied(DiagnosticReason.CLOCK_DRIFT)
+        if (now < s.verifiedAtMs) return denied(DiagnosticReason.CLOCK_INVALID)
+        if (now < p.validFromMs) return denied(DiagnosticReason.POLICY_NOT_YET_VALID)
         val offlineEnd = min(s.offlineNotAfterMs,
-            safeAdd(s.verifiedAtMs, 12 * 3_600_000L) ?: return denied("CLOCK_INVALID"))
-        if (now >= offlineEnd) return denied("CONFIG_EXPIRED")
-        if (now >= p.validUntilMs) return denied("POLICY_EXPIRED")
+            safeAdd(s.verifiedAtMs, 12 * 3_600_000L) ?: return denied(DiagnosticReason.CLOCK_INVALID))
+        if (now >= offlineEnd) return denied(if (s.windows.any { it.endMs == offlineEnd && now >= it.endMs })
+            DiagnosticReason.WINDOW_ENDED else DiagnosticReason.OFFLINE_EXPIRED)
+        if (now >= p.validUntilMs) return denied(DiagnosticReason.POLICY_EXPIRED)
         val window = s.windows.firstOrNull { now >= it.startMs && now < it.endMs }
-            ?: return denied("OUTSIDE_WINDOW")
-        return PolicyEvaluation(AuthorizedWindow(s, window, now), null)
+            ?: return denied(DiagnosticReason.OUTSIDE_WINDOW)
+        val validated = state.validatedInstance
+        if (validated == null || validated.scheduledId != window.scheduledSessionId ||
+            validated.startMs != window.startMs || validated.endMs != window.endMs ||
+            validated.assignmentVersion != s.assignmentVersion ||
+            validated.policyRevision != p.revision || validated.anchorId != s.anchorId)
+            return denied(DiagnosticReason.INSTANCE_NOT_ONLINE_VERIFIED)
+        return PolicyAssessment(AuthorizedWindow(s, window, now), DiagnosticReason.NONE)
     }
 
     fun anchoredTime(reading: ClockReading): Long? {
