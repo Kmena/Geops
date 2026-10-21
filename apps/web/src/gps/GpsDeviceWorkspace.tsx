@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiClientError } from '../api/client.js';
 import { useAuth } from '../auth.js';
 import { GpsMap } from './GpsMap.js';
@@ -338,7 +339,10 @@ export function GpsDeviceWorkspace() {
       {overviewLoading && <p role="status">Cargando dispositivos autorizados…</p>}
       {overviewError !== null && <p role="alert">{gpsReadErrorMessage(overviewError)}</p>}
       {!overviewLoading && !overviewError && !devices.length && (
-        <p>No hay dispositivos GPS autorizados para esta cuenta.</p>
+        <p>
+          No hay dispositivos GPS activos autorizados para esta cuenta. Los suspendidos y retirados
+          permanecen en <Link to="/inventory">Inventario</Link> según tus permisos.
+        </p>
       )}
       {!!devices.length && (
         <div className="gps-device-grid">

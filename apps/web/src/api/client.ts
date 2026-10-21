@@ -39,6 +39,9 @@ export interface Device extends BasicDevice {
   claim_status: string | null;
   key_id: string | null;
   installation_id: string | null;
+  last_installation_retired_at: string | null;
+  policy_name: string | null;
+  session_state: string | null;
 }
 
 export interface DeviceInvitation {
@@ -179,7 +182,7 @@ export const api = {
     ),
   enrollmentDevices: (cursor?: string) =>
     read<Page<Device>>(
-      `/v1/admin/enrollment/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+      `/v1/admin/enrollment/devices?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   createDevice: (label: string, csrf: string) =>
     read<BasicDevice>('/v1/admin/devices', {
@@ -254,6 +257,23 @@ export const api = {
         body: JSON.stringify({ device_id: deviceId, reason }),
       },
     ),
+  retireInstallation: (installationId: string, csrf: string, reason: string) =>
+    read<void>(`/v1/admin/gps-installations/${installationId}/retire`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ reason }),
+    }),
+  changeDeviceState: (
+    deviceId: string,
+    action: 'suspend' | 'reactivate' | 'revoke' | 'retire',
+    csrf: string,
+    reason: string,
+  ) =>
+    read<{ status: string }>(`/v1/admin/devices/${deviceId}/${action}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ reason }),
+    }),
   mdmDevices: (cursor?: string) =>
     read<Page<MdmDevice>>(
       `/v1/admin/mdm/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,

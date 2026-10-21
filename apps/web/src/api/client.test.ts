@@ -18,6 +18,9 @@ const device: Device = {
   claim_status: null,
   key_id: null,
   installation_id: null,
+  last_installation_retired_at: null,
+  policy_name: null,
+  session_state: null,
 };
 
 async function withFetch(response: Response, run: () => Promise<void>) {
@@ -93,5 +96,44 @@ test('invitation HTTP errors preserve authorization and server status without ex
           error.code === 'synthetic_error',
       );
     });
+  }
+});
+
+test('device lifecycle mutations use the canonical route, CSRF and a reason', async () => {
+  const prior = globalThis.fetch;
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init: init ?? {} });
+    return Response.json({ status: 'SUSPENDED' });
+  };
+  try {
+    await api.changeDeviceState(device.id, 'suspend', 'synthetic-csrf', 'Synthetic pause');
+    const request = requests[0];
+    assert.ok(request);
+    assert.equal(request.url, `/v1/admin/devices/${device.id}/suspend`);
+    assert.equal(request.init.method, 'POST');
+    assert.equal(request.init.credentials, 'same-origin');
+    assert.equal(
+      (request.init.headers as Record<string, string>)['x-csrf-token'],
+      'synthetic-csrf',
+    );
+    assert.deepEqual(JSON.parse(request.init.body as string), { reason: 'Synthetic pause' });
+  } finally {
+    globalThis.fetch = prior;
+  }
+});
+
+test('enrollment inventory requests the next bounded page', async () => {
+  const prior = globalThis.fetch;
+  let requested = '';
+  globalThis.fetch = async (url) => {
+    requested = String(url);
+    return Response.json({ items: [], next_cursor: null, source: 'geops' });
+  };
+  try {
+    await api.enrollmentDevices('cursor+value');
+    assert.equal(requested, '/v1/admin/enrollment/devices?limit=100&cursor=cursor%2Bvalue');
+  } finally {
+    globalThis.fetch = prior;
   }
 });

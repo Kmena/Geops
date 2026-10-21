@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiClientError } from '../api/client.js';
 import { useAuth } from '../auth.js';
 import { GpsDeviceWorkspace } from './GpsDeviceWorkspace.js';
@@ -175,7 +176,10 @@ function GpsOtherWorkspace({ section }: { section: Exclude<Section, 'devices'> }
         <div>
           <h2>Sesiones GPS</h2>
           {devices.length === 0 ? (
-            <p>No hay dispositivos visibles para las empresas concedidas.</p>
+            <p>
+              No hay dispositivos GPS activos visibles. Consulta los suspendidos y retirados en{' '}
+              <Link to="/inventory">Inventario</Link> según tus permisos.
+            </p>
           ) : (
             <>
               <label>

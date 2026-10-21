@@ -12,6 +12,7 @@ import {
   api,
   ApiClientError,
   type BasicDevice,
+  type Device,
   type MdmDevice,
   type MdmStatus,
 } from './api/client.js';
@@ -19,6 +20,7 @@ import { webBase } from './api/base.js';
 import { AuthProvider, useAuth } from './auth.js';
 import { GpsWorkspace, type GpsSection } from './gps/GpsWorkspace.js';
 import { EnrollmentPanel } from './EnrollmentPanel.js';
+import { DeviceManagement } from './DeviceManagement.js';
 import { ActivateAdmin, AdminUsers } from './AdminUsers.js';
 import './styles.css';
 
@@ -234,38 +236,93 @@ function Inventory() {
   const enrollment = useLoad(api.enrollmentDevices);
   const mdm = useLoad(api.mdmDevices);
   const gpsAccess = useLoad(api.gpsCapabilities);
+  const [additionalDevices, setAdditionalDevices] = useState<Device[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null | undefined>();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState(false);
+  const managementGeneration = useRef(0);
+  const availableCursor = nextCursor === undefined ? enrollment.data?.next_cursor : nextCursor;
+  const managedDevices = [...(enrollment.data?.items ?? []), ...additionalDevices];
+  const refreshInventory = () => {
+    managementGeneration.current++;
+    setAdditionalDevices([]);
+    setNextCursor(undefined);
+    setLoadingMore(false);
+    setMoreError(false);
+    enrollment.refresh();
+    geops.refresh();
+  };
+  const loadMore = async () => {
+    if (!availableCursor || loadingMore) return;
+    const generation = managementGeneration.current;
+    setLoadingMore(true);
+    setMoreError(false);
+    try {
+      const page = await api.enrollmentDevices(availableCursor);
+      if (generation !== managementGeneration.current) return;
+      setAdditionalDevices((current) => [...current, ...page.items]);
+      setNextCursor(page.next_cursor);
+    } catch {
+      if (generation === managementGeneration.current) setMoreError(true);
+    } finally {
+      if (generation === managementGeneration.current) setLoadingMore(false);
+    }
+  };
   return (
     <Shell>
       <h1>Inventario</h1>
       <p className="lead">Registros GEOPS y respuesta de un proveedor MDM simulado.</p>
-      <div className="grid">
-        <section className="panel" aria-labelledby="geops-title">
-          <div className="panel-head">
-            <h2 id="geops-title">Dispositivos GEOPS</h2>
-            <span className="badge">GEOPS</span>
-          </div>
-          {geops.loading ? (
-            <p role="status">Cargando dispositivos…</p>
-          ) : geops.error ? (
-            <>
-              <ErrorText error={geops.error} />
-              <button type="button" onClick={geops.refresh}>
-                Reintentar
-              </button>
-            </>
-          ) : !geops.data?.items.length ? (
-            <p className="empty">Todavía no hay dispositivos de prueba.</p>
-          ) : (
-            <ul className="device-list">
-              {geops.data.items.map((item: BasicDevice) => (
-                <li key={item.id}>
-                  <strong>{item.display_label}</strong>
-                  <span>{item.status}</span>
-                </li>
-              ))}
-            </ul>
+      {gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.data && (
+        <DeviceManagement
+          devices={managedDevices}
+          capabilities={gpsAccess.data.capabilities}
+          refresh={refreshInventory}
+        />
+      )}
+      {gpsAccess.data?.capabilities.includes('gps.installation.manage') && availableCursor && (
+        <div className="managed-page-load">
+          <p>
+            Los filtros muestran los registros cargados. Carga más para consultar el resto del
+            inventario.
+          </p>
+          {moreError && (
+            <p role="alert">No se pudieron cargar más dispositivos. Inténtalo de nuevo.</p>
           )}
-        </section>
+          <button type="button" onClick={() => void loadMore()} disabled={loadingMore}>
+            {loadingMore ? 'Cargando…' : 'Cargar más dispositivos'}
+          </button>
+        </div>
+      )}
+      <div className="grid">
+        {!gpsAccess.data?.capabilities.includes('gps.installation.manage') && (
+          <section className="panel" aria-labelledby="geops-title">
+            <div className="panel-head">
+              <h2 id="geops-title">Dispositivos GEOPS</h2>
+              <span className="badge">GEOPS</span>
+            </div>
+            {geops.loading ? (
+              <p role="status">Cargando dispositivos…</p>
+            ) : geops.error ? (
+              <>
+                <ErrorText error={geops.error} />
+                <button type="button" onClick={geops.refresh}>
+                  Reintentar
+                </button>
+              </>
+            ) : !geops.data?.items.length ? (
+              <p className="empty">Todavía no hay dispositivos de prueba.</p>
+            ) : (
+              <ul className="device-list">
+                {geops.data.items.map((item: BasicDevice) => (
+                  <li key={item.id}>
+                    <strong>{item.display_label}</strong>
+                    <span>{item.status}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         {gpsAccess.loading ||
         (gpsAccess.data?.capabilities.includes('gps.installation.manage') &&
           enrollment.loading &&
@@ -279,10 +336,7 @@ function Inventory() {
             !enrollment.data) ? (
           <section className="panel">
             <ErrorText error={gpsAccess.error ?? enrollment.error} />
-            <button
-              type="button"
-              onClick={gpsAccess.error ? gpsAccess.refresh : enrollment.refresh}
-            >
+            <button type="button" onClick={gpsAccess.error ? gpsAccess.refresh : refreshInventory}>
               Reintentar
             </button>
           </section>
@@ -291,18 +345,17 @@ function Inventory() {
             {enrollment.error !== null && (
               <div role="alert" className="notice error">
                 <ErrorText error={enrollment.error} />
-                <button type="button" onClick={enrollment.refresh}>
+                <button type="button" onClick={refreshInventory}>
                   Reintentar inventario
                 </button>
               </div>
             )}
             <EnrollmentPanel
-              devices={enrollment.data?.items ?? []}
+              devices={managedDevices.filter(
+                (item) => !['SUSPENDED', 'REVOKED', 'RETIRED'].includes(item.status),
+              )}
               capabilities={gpsAccess.data?.capabilities ?? []}
-              refresh={() => {
-                enrollment.refresh();
-                geops.refresh();
-              }}
+              refresh={refreshInventory}
             />
           </div>
         )}
