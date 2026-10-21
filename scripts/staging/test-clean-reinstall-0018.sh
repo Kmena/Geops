@@ -120,7 +120,7 @@ seed_container=$(docker run -d --rm -e POSTGRES_HOST_AUTH_METHOD=trust \
   postgis/postgis:18-3.6)
 ready=no
 for _ in {1..30}; do
-  if docker exec "$seed_container" pg_isready -U postgres -d postgres >/dev/null 2>&1; then ready=yes; break; fi
+  if docker exec "$seed_container" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null 2>&1; then ready=yes; break; fi
   sleep 1
 done
 [[ $ready == yes ]] || { echo 'Disposable backup seed did not start' >&2; exit 1; }
