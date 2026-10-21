@@ -90,7 +90,8 @@ el checkout local por 31 errores y 12 advertencias presentes en la base.
 | ANDROID_COMPATIBILITY | NOT_VERIFIED | Solo JVM sintético, sin dispositivos físicos |
 | API_CONTRACT_COMPATIBILITY | NOT_VERIFIED | OpenAPI local PASS y revisión estática favorable; falta CI |
 | POSTGIS_MIGRATIONS | NOT_VERIFIED | Ensayo 14→20 PASS; faltan matrices de restore y CI final |
-| INDEPENDENT_AUDIT | PASS | Revisión estática P0 del SHA `da8a651`; alcance sintético y hallazgo MEDIO residual, sin aprobación operativa |
+| P0_STATIC_INDEPENDENT_REVIEW | PASS | Revisión estática P0 del SHA `da8a651`; alcance sintético y hallazgo MEDIO residual, sin aprobación operativa |
+| INDEPENDENT_AUDIT | NOT_VERIFIED | Revisión global de GPS, Android, offline, protección de datos y migraciones aún pendiente; la revisión estática P0 no cubre todos los gates |
 | SPEC02_TECHNICAL_CLOSURE | BLOCKED | Waves A–D aún incompletas |
 | SPEC02_OPERATIONAL_CLOSURE | BLOCKED | Wave E física pendiente |
 | STAGING_READINESS | BLOCKED | Gates técnicos y operativos abiertos |
