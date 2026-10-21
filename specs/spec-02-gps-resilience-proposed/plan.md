@@ -1,0 +1,18 @@
+# Plan — implementación controlada por waves
+
+El usuario autorizó R0–R4, una wave a la vez, con entrega de R0 antes de avanzar R1. Esto no da PASS operativo ni autoriza despliegue, teléfonos, autoarranque diario, `ACCESS_BACKGROUND_LOCATION` o cambios de Web. Mantener el desarrollo Web en su checkout; contratos compartidos esperan coordinación y revisión.
+
+| Wave | Alcance | Entrada | Salida verificable |
+| --- | --- | --- | --- |
+| R0 — Contrato y baseline | Congelar SHA de entrada; reconciliar cambios locales Android/API/OpenAPI sin copiarlos indiscriminadamente; registrar `GPS-OFFLINE-001`, proponer `GPS-CONTINUITY-001`, privacidad, umbrales y ownership; identificar discordancias con ADR-017 y pruebas históricas faltantes. | Decisión offline aprobada y worktree aislado. | Baseline/diff, propuesta contractual, pruebas enfocadas y bloqueos explícitos; cero cambio de comportamiento. Se entrega antes de R1. |
+| R1 — Diagnóstico Android | C07/C08/C09 y observabilidad C01/C05: razones de rechazo, alcance de contadores, ring buffer cifrado/acotado, reloj/fix/servicio distinguidos. | R0; sin cambios API/Web necesarios para diagnóstico local. | Vectores Kotlin y APK debug sintética que explican cada descarte sin coordenadas en logs; horario fail-closed. |
+| R2 — Captura resiliente dentro de ventana | C02/C03: continuidad de un servicio **ya iniciado**, transición atómica de política, watchdog, recreación permitida y respeto del stop del usuario. Autoarranque diario queda fuera. | R1; inicio manual como respaldo; pruebas OS 12–15 planeadas. | Pruebas de proceso, revisión/revocación y ventana `[)`; cero doble listener o nueva captura fuera de horario. |
+| R3 — Transporte independiente | C04/C05: worker de backlog y recuperación de cola, incluso después del fin, sin permiso ni API de ubicación. | R2 o desarrollo paralelo tras R0; PoP/idempotencia existentes validados. | Pérdida/retorno de red dentro/fuera de turno, 401/403/409/422/429, ACK perdido y buffer lleno; misma identidad/event IDs. |
+| R4-A — Backend y alertas | C01/C06: evaluador periódico, persistencia, umbrales y lectura interna autorizada; mantener contrato HTTP compartido sin cambios por conflicto de esquema. | R3 aceptado; PostGIS desechable. | Informe sintético y contrato propuesto; HTTP/Web, retención y revisión independiente quedan para decisión posterior. |
+| R5 — Validación física y decisión | Dos teléfonos de fabricantes distintos, matriz OS aplicable, pantalla apagada, Doze, red, reboot, stop, horario y transición. | R1–R4; autorización expresa del piloto y privacidad; APK identificable. | Evidencia medible, incidentes reproducibles o clasificados desconocidos, decisión de readiness sin prometer 1 fix/min ni arranque garantizado. |
+
+## Qué puede avanzar sin resolución final MDM
+
+R0, R1, R3 y la parte no bloqueada de R4 no dependen de MDM, pero se ejecutan secuencialmente y solo después del gate de cada wave. De R2 se permite la transición de política y continuidad de un FGS ya iniciado, conservando el botón manual; no el inicio autónomo diario ni un nuevo permiso background. R5 puede probar modo manual en dos teléfonos solo tras autorización física/privacidad, pero no certificar inicio automático. El estudio MDM corre separado.
+
+**Secuencia mínima:** R0 → R1 diagnóstico → C03/C04 de alto impacto → ensayos sintéticos. R2–R5 no se sustituyen por contenedores saludables o dos capturas observadas. Si se necesita una entrega operativa antes de cerrar R5, documentar explícitamente riesgo residual e inicio manual/monitoreo, sin declarar continuidad automática.
