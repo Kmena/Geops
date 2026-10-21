@@ -1,5 +1,7 @@
 # Staging 1: despliegue manual GPS/alertas con MDM deshabilitado
 
+**Actualización 2026-10-21:** el propietario autorizó descartar los datos y el gate antiguos de GEOPS Staging. Para esta operación concreta usar el [procedimiento de reinstalación limpia 0001–0018](staging-clean-reinstall-0018-2026-10-21.md). La sección de mantenimiento supervisado de este documento queda como alternativa histórica para una actualización que conserve datos; no se aplica a la reinstalación autorizada.
+
 **Alcance:** rama `codex/geops-integration`, imagen con catálogo 0001–0018. Este documento prepara una operación manual futura; no registra acceso al servidor ni autorización de despliegue. No ejecutar `scripts/staging/clean-reinstall-0015.sh`, `geops-migrate` ni `gate init` sobre la base persistente. No usar `compose.staging.mdm.override.yaml` en Staging 1.
 
 ## Datos que el operador debe confirmar en el servidor
