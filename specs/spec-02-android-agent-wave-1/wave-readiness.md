@@ -1,5 +1,11 @@
 # Readiness — SPEC-02 después de la revisión W1-A
 
+**Corte de integración 2026-10-21:** la rama aislada incorpora P0 v2 y la
+migración 0020 con pruebas sintéticas. El gate P0 permanece abierto por
+auditoría independiente del SHA final y validación en el POCO; por ello las
+Waves A–E siguen bloqueadas. El [informe de ejecución](integration-execution-2026-10-21.md)
+actualiza el estado inicial descrito en el apartado siguiente.
+
 ## Gate previo nuevo: Wave P0 GPS-UPLOAD-STARTED-BLOCKER
 
 **Estado 2026-10-21: DISEÑO PROPUESTO; IMPLEMENTACIÓN Y CIERRE BLOCKED/PENDIENTES.** [Diagnóstico y contrato v2](gps-upload-started-blocker-p0-2026-10-21.md), [R12–R17](requirements.md), [T13–T17](tasks.md) y [P15–P19](test-plan.md) están documentados. Antes de autorizar Wave A deben constar: contrato v2 acordado con Android/backend/seguridad y ADR-016/020; compatibilidad de ramas y migraciones; backend transaccional y Android sin compuerta global; v1/pendientes migrados sin pérdida; 14 casos P0, aislamiento tenant, concurrencia y regresiones PASS en HTTP/PostGIS con Kotlin; auditoría independiente; y POCO supervisado demostrando subida y captura simultáneas. Ninguno se acredita por compilación/unitarias o por esta documentación. El cierre P0 requiere decisión registrada; W1-E2 y operación real conservan además sus gates propios.

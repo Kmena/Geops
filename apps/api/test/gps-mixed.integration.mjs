@@ -145,6 +145,9 @@ try {
   check(lostAckRetry.statusCode === 200 &&
     lostAckRetry.json().persisted_at === accepted.json().persisted_at,
     'lost ACK retry returns original receipt');
+  check((await device('POST', path, { ...first, events: [['SESSION', start],
+    ['POSITION', { ...point, latitude: 14.62 }]].map(([kind, payload]) => ({ kind, payload })) }))
+    .statusCode === 409, 'same batch ID cannot change its signed payload digest');
   const duplicate = await device('POST', path, mixed(clientId,
     [['SESSION', start], ['POSITION', point]]));
   check(duplicate.statusCode === 200 && duplicate.json().duplicate_event_ids.length === 2,
@@ -156,8 +159,34 @@ try {
     'missing STARTED is pending without ACK');
   check((await pool.query('SELECT 1 FROM position_event WHERE event_id=$1',
     [orphanPoint.event_id])).rowCount === 0, 'orphan point not persisted');
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  const stalePoint = { ...orphanPoint, event_id: randomUUID(), captured_at: iso(-91 * DAY) };
+  check((await device('POST', path, mixed(orphanId, [['POSITION', stalePoint]]))).statusCode === 422,
+    'unknown session cannot turn a stale event into a permanent 202');
+  const futurePoint = { ...orphanPoint, event_id: randomUUID(), captured_at: iso(60_000) };
+  check((await device('POST', path, mixed(orphanId, [['POSITION', futurePoint]]))).statusCode === 422,
+    'unknown session cannot turn a future event into a permanent 202');
+  const foreignAnchor = { ...orphanPoint, event_id: randomUUID(),
+    capture_anchor_id: randomUUID() };
+  check((await device('POST', path, mixed(orphanId, [['POSITION', foreignAnchor]]))).statusCode === 422,
+    'unknown session still validates its policy anchor');
   check((await device('POST', path, { ...first, batch_id: randomUUID(),
     device_id: randomUUID() })).statusCode === 403, 'body device cannot override PoP principal');
+  check((await device('POST', path, { ...first, batch_id: randomUUID(),
+    installation_id: randomUUID() })).statusCode === 403,
+    'foreign installation cannot ingest v2');
+  await pool.query('UPDATE gps_device_installation SET retired_at=now() WHERE installation_id=$1',
+    [installationId]);
+  check((await device('POST', path, { ...first, batch_id: randomUUID() })).statusCode === 403,
+    'retired installation cannot recover an old ACK through v2');
+  await pool.query('UPDATE gps_device_installation SET retired_at=NULL WHERE installation_id=$1',
+    [installationId]);
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  await pool.query("UPDATE mdm_binding SET state='REVOKED' WHERE id=$1", [bindingId]);
+  check((await device('POST', path, { ...first, batch_id: randomUUID() })).statusCode === 403,
+    'revoked MDM binding cannot ingest through v2');
+  await pool.query("UPDATE mdm_binding SET state='ACTIVE' WHERE id=$1", [bindingId]);
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
   check((await device('POST', path, mixed(clientId, [['SESSION', start],
     ['POSITION', orphanPoint]]))).statusCode === 422,
     'mixed local sessions rejected atomically');
@@ -171,6 +200,18 @@ try {
   if (stopResponse.statusCode !== 200) console.error('v1-stop', stopResponse.statusCode, stopResponse.payload);
   check(stopResponse.statusCode === 200,
     'v1 session endpoint remains compatible');
+  const wrongWindowClient = randomUUID();
+  const wrongWindowStart = { ...start, event_id: randomUUID(),
+    client_session_id: wrongWindowClient, scheduled_session_id: randomUUID(),
+    occurred_at: at(snap.server_time, 4000), elapsed_realtime_ms: 5000 };
+  const wrongWindowPoint = { ...point, event_id: randomUUID(),
+    client_session_id: wrongWindowClient, captured_at: at(snap.server_time, 5000),
+    elapsed_realtime_ms: 6000 };
+  check((await device('POST', path, mixed(wrongWindowClient,
+    [['SESSION', wrongWindowStart], ['POSITION', wrongWindowPoint]]))).statusCode === 422,
+    'wrong scheduled window rejects the entire v2 transaction');
+  check((await pool.query('SELECT 1 FROM gps_effective_session WHERE client_session_id=$1',
+    [wrongWindowClient])).rowCount === 0, 'wrong-window STARTED leaves no session');
   const badClient = randomUUID();
   const badStart = { ...start, event_id: randomUUID(), client_session_id: badClient,
     occurred_at: at(snap.server_time, 4000), elapsed_realtime_ms: 5000 };
@@ -210,6 +251,31 @@ try {
     { ...v1Stop, batch_id: randomUUID(), events: [legacyStop] })).statusCode === 200,
     'reconciled legacy session closes before the next session');
   await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  const faultClient = randomUUID();
+  const faultStart = { ...start, event_id: randomUUID(),
+    client_session_id: faultClient, occurred_at: at(snap.server_time, 10000),
+    elapsed_realtime_ms: 11000 };
+  const faultPoint = { ...point, event_id: randomUUID(),
+    client_session_id: faultClient, captured_at: at(snap.server_time, 11000),
+    elapsed_realtime_ms: 12000 };
+  const faultBatch = mixed(faultClient, [['SESSION', faultStart], ['POSITION', faultPoint]]);
+  await pool.query(`CREATE FUNCTION gps_test_fail_v2_position() RETURNS trigger
+    LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic_position_failure'; END $$`);
+  await pool.query(`CREATE TRIGGER gps_test_fail_v2_position BEFORE INSERT ON position_event
+    FOR EACH ROW EXECUTE FUNCTION gps_test_fail_v2_position()`);
+  let faultResponse;
+  try {
+    faultResponse = await device('POST', path, faultBatch);
+  } finally {
+    await pool.query('DROP TRIGGER gps_test_fail_v2_position ON position_event');
+    await pool.query('DROP FUNCTION gps_test_fail_v2_position()');
+  }
+  check(faultResponse.statusCode >= 500, 'database position failure reaches a sanitized 5xx');
+  check((await pool.query('SELECT 1 FROM gps_effective_session WHERE client_session_id=$1',
+    [faultClient])).rowCount === 0, 'database failure rolls back STARTED');
+  check((await pool.query('SELECT 1 FROM gps_mixed_batch_receipt WHERE batch_id=$1',
+    [faultBatch.batch_id])).rowCount === 0, 'database failure leaves no ACK receipt');
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
   const concurrentClient = randomUUID();
   const concurrentStart = { ...start, event_id: randomUUID(),
     client_session_id: concurrentClient, occurred_at: at(snap.server_time, 10000),
@@ -227,6 +293,63 @@ try {
     'concurrent retry shares receipt');
   check((await pool.query('SELECT count(*)::int AS n FROM gps_effective_session WHERE client_session_id=$1',
     [concurrentClient])).rows[0].n === 1, 'concurrency creates one session');
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  await pool.query('UPDATE gps_scheduled_session SET start_at=$2 WHERE id=$1',
+    [scheduledId, at(snap.server_time, -10 * 60_000)]);
+  async function historicalWindow(anchorAt, beginAt, endAt) {
+    const windowId = randomUUID(), anchorId = randomUUID();
+    await pool.query(`INSERT INTO gps_scheduled_session
+      (id,device_id,policy_id,revision,assignment_version,local_date,start_at,end_at,state)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'SCHEDULED')`,
+      [windowId, deviceId, snap.policy_id, snap.policy_revision, snap.assignment_version,
+        beginAt.slice(0, 10), beginAt, endAt]);
+    await pool.query(`INSERT INTO gps_policy_delivery
+      (capture_anchor_id,device_id,installation_id,assignment_version,server_time,
+       offline_not_after,health_mdm_binding_id,health_tenant_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [anchorId, deviceId, installationId, snap.assignment_version, anchorAt,
+        endAt, bindingId, 'tenant-a']);
+    return { windowId, anchorId };
+  }
+  const oldAnchorAt = at(snap.server_time, -30 * 60_000);
+  const oldStartAt = at(snap.server_time, -25 * 60_000);
+  const oldPointAt = at(snap.server_time, -24 * 60_000);
+  const oldWindow = await historicalWindow(oldAnchorAt, oldAnchorAt,
+    at(snap.server_time, -20 * 60_000));
+  const oldClient = randomUUID(), oldBoot = randomUUID();
+  const oldStart = { ...start, event_id: randomUUID(), client_session_id: oldClient,
+    scheduled_session_id: oldWindow.windowId, occurred_at: oldStartAt,
+    boot_id: oldBoot, capture_anchor_id: oldWindow.anchorId,
+    anchor_elapsed_realtime_ms: 1000, elapsed_realtime_ms: 301000 };
+  const oldPoint = { ...point, event_id: randomUUID(), client_session_id: oldClient,
+    captured_at: oldPointAt, boot_id: oldBoot, capture_anchor_id: oldWindow.anchorId,
+    anchor_elapsed_realtime_ms: 1000, elapsed_realtime_ms: 361000 };
+  const delayed = await device('POST', path, mixed(oldClient,
+    [['SESSION', oldStart], ['POSITION', oldPoint]]));
+  check(delayed.statusCode === 200, 'delayed older session is reconciled after a newer open session');
+  check((await pool.query('SELECT state FROM gps_effective_session WHERE client_session_id=$1',
+    [oldClient])).rows[0]?.state === 'UNKNOWN_END',
+    'older nonoverlapping session has an explicit unknown end');
+  check((await pool.query('SELECT count(*)::int AS n FROM position_event WHERE event_id=$1',
+    [oldPoint.event_id])).rows[0].n === 1, 'older position retains its own canonical session');
+  const overlapAnchorAt = at(snap.server_time, -5 * 60_000);
+  const overlapWindow = await historicalWindow(overlapAnchorAt, overlapAnchorAt,
+    at(snap.server_time, 30_000));
+  const overlapClient = randomUUID(), overlapBoot = randomUUID();
+  const overlapStart = { ...start, event_id: randomUUID(), client_session_id: overlapClient,
+    scheduled_session_id: overlapWindow.windowId,
+    occurred_at: at(snap.server_time, -2 * 60_000), boot_id: overlapBoot,
+    capture_anchor_id: overlapWindow.anchorId, anchor_elapsed_realtime_ms: 1000,
+    elapsed_realtime_ms: 181000 };
+  const overlapPoint = { ...point, event_id: randomUUID(), client_session_id: overlapClient,
+    captured_at: at(snap.server_time, -60_000), boot_id: overlapBoot,
+    capture_anchor_id: overlapWindow.anchorId, anchor_elapsed_realtime_ms: 1000,
+    elapsed_realtime_ms: 241000 };
+  check((await device('POST', path, mixed(overlapClient,
+    [['SESSION', overlapStart], ['POSITION', overlapPoint]]))).statusCode === 409,
+    'overlapping older session cannot be reconciled after a newer start');
+  check((await pool.query('SELECT 1 FROM gps_effective_session WHERE client_session_id=$1',
+    [overlapClient])).rowCount === 0, 'overlapping conflict leaves no canonical session');
   console.log(`gps-mixed integration PASS: ${checks} assertions`);
 } finally {
   await app.close();

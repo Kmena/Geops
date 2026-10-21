@@ -21,8 +21,8 @@ resolución. La migración 0020 conserva 0017–0019 y agrega solo el recibo v2.
 | --- | --- | --- | --- |
 | Integración de ramas sin pérdida de commits | Ancestría Git; rama aislada; contratos MDM preservados | `git merge-base --is-ancestor` para ambos HEAD; MDM integración y seguridad pasaron en bases desechables | IMPLEMENTED; auditoría final pendiente |
 | P0: eliminar compuerta global por STARTED | `BatchSync.kt` agrupa por `client_session_id`; `PendingUpload.kt` da prioridad al lote mixto | `syntheticTest` pasa, incluidos dos casos nuevos de sesiones y prioridad v2 | IMPLEMENTED; POCO pendiente |
-| P0: STARTED y posiciones atómicos | `/v2/device/gps/batches`, `ingestMixed`, recibo 0020 | `gps:mixed:integration`: 30 aserciones, incluido rollback e idempotencia concurrente | IMPLEMENTED; auditoría pendiente |
-| P0: compatibilidad v1 y buffer v1 | Ruta v1 y recibos originales intactos; reconciliación v1→v2 | `gps:events:integration`: 69 aserciones; v1 pendiente→v2→ACK duplicado en las 30 de v2 | IMPLEMENTED; pruebas físicas pendientes |
+| P0: STARTED y posiciones atómicos | `/v2/device/gps/batches`, `ingestMixed`, recibo 0020 | `gps:mixed:integration`: 47 aserciones, incluido rollback por fallo SQL e idempotencia concurrente | IMPLEMENTED; auditoría pendiente |
+| P0: compatibilidad v1 y buffer v1 | Ruta v1 y recibos originales intactos; reconciliación v1→v2 | `gps:events:integration`: 69 aserciones; v1 pendiente→v2→ACK duplicado y sesiones acumuladas fuera de orden en las 47 de v2 | IMPLEMENTED; pruebas físicas pendientes |
 | P0: autenticación, autorización y aislamiento | Bearer, PoP, instalación y alcance existentes para v2; cuerpo firmado sin query | HTTP sin credenciales 401, `device_id` ajeno 403, mezcla de sesiones 422 | PARTIAL: auditoría independiente de seguridad pendiente |
 | Wave A: última política válida offline, ADR-020 | Documentación incorporada; motor vigente aún usa ancla de la instancia online y límite de 12 h | Pruebas Kotlin actuales verifican el comportamiento antiguo ADR-017 | MISSING; bloqueado por gate P0 |
 | Wave B: GPS autónomo y compatibilidad Huawei | Servicio actual GPS_PROVIDER, sin permisos/arranque autónomo completos | Sin ensayo físico POCO/P40 | MISSING; bloqueado por gate P0 |
@@ -38,7 +38,9 @@ resolución. La migración 0020 conserva 0017–0019 y agrega solo el recibo v2.
 - `npm run contracts:check`: PASS.
 - `npm run security:scan`: PASS (452 archivos inspeccionados).
 - `npm run gps:events:integration`: PASS (69 aserciones, PostGIS desechable).
-- `npm run gps:mixed:integration`: PASS (30 aserciones, PostGIS desechable).
+- `npm run gps:mixed:integration`: PASS (47 aserciones, PostGIS desechable),
+  con negativos de edad, ancla, ventana, digest, instalación, binding revocado
+  y rollback SQL; sesión histórica no solapada y rechazo de solape.
 - `npm run maintenance:recovery:integration`: PASS (54 comprobaciones de 14→20,
   PostGIS desechable).
 - `gradle syntheticTest` en contenedor Android local: PASS. Compiló y ejecutó
@@ -76,9 +78,13 @@ auditoría independiente ni pruebas físicas.
 | STAGING_READINESS | BLOCKED | Gates técnicos y operativos abiertos |
 | PRODUCTION_AUTHORIZATION | BLOCKED | No se solicita despliegue ni autorización de producción |
 
-No se construyó ni instaló un APK de diagnóstico, no se generaron imágenes de
-API/Web y no se publicó la rama. Esas tareas están condicionadas por los gates
-anteriores. No se modificó ManageEngine, Staging, producción ni la vigencia de
-la autorización offline. El próximo paso dependiente es resolver los hallazgos
-de auditoría P0 y obtener la evidencia física requerida; entonces se podrá
-abrir Wave A conforme al orden exigido por la SPEC.
+Se compiló y verificó firma de un [APK debug P0](poco-p0-manual-2026-10-21.md)
+con SHA-256
+`18BA39B4AB71741F2079DC79514615C8F82994C62DC707BE87A9433C7F76F136`.
+No se instaló: su firma no coincide con la del APK anterior en el repositorio
+y no debe sustituirse una instalación existente perdiendo la cola cifrada.
+No se generaron imágenes de API/Web ni se publicó la rama. No se modificó
+ManageEngine, Staging, producción ni la vigencia de autorización offline.
+El próximo paso dependiente es resolver el método seguro de instalación,
+completar auditoría P0 y obtener evidencia física; entonces se podrá abrir
+Wave A conforme al orden exigido por la SPEC.

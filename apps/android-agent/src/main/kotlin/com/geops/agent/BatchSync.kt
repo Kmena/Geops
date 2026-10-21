@@ -49,6 +49,11 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
         if (kind == RecordKind.LOCATION && mixedAvailable) return onceMixedLocations(pending, now)
         val available = pending.filter { record ->
             record.kind == kind && !record.quarantined && record.retryAfterMs <= now &&
+                (kind != RecordKind.SESSION || !mixedAvailable || pending.none { location ->
+                    location.kind == RecordKind.LOCATION && !location.quarantined &&
+                        JSONObject(location.payload).optString("client_session_id") ==
+                            JSONObject(record.payload).optString("client_session_id")
+                }) &&
                 (kind != RecordKind.LOCATION || pending.none { start ->
                     start.kind == RecordKind.SESSION && !start.quarantined &&
                         JSONObject(start.payload).optString("type") == "STARTED" &&
@@ -185,15 +190,21 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
             it.retryAfterMs <= now }.sortedWith(compareBy<PendingRecord> { it.createdAtMs }.thenBy { it.id })
         val first = due.firstOrNull { location ->
             val clientId = JSONObject(location.payload).optString("client_session_id")
-            pending.none { start -> start.kind == RecordKind.SESSION && start.quarantined &&
+            pending.none { start -> start.kind == RecordKind.SESSION &&
+                (start.quarantined || start.retryAfterMs > now) &&
                 JSONObject(start.payload).optString("type") == "STARTED" &&
                 JSONObject(start.payload).optString("client_session_id") == clientId }
         }
         if (first == null) {
-            val waiting = due.isNotEmpty()
+            val waiting = due.any { location -> pending.any { start ->
+                start.kind == RecordKind.SESSION && start.quarantined &&
+                    JSONObject(start.payload).optString("type") == "STARTED" &&
+                    JSONObject(start.payload).optString("client_session_id") ==
+                        JSONObject(location.payload).optString("client_session_id")
+            } }
             lastDetail = if (waiting) SyncDetail.WAITING_SESSION else if (pending.any {
                 it.kind == RecordKind.LOCATION && !it.quarantined && it.retryAfterMs > now
-            }) SyncDetail.BACKOFF else SyncDetail.NONE
+            } || due.isNotEmpty()) SyncDetail.BACKOFF else SyncDetail.NONE
             if (waiting) observe(DiagnosticKind.SYNC_PENDING, RecordKind.LOCATION, 0,
                 DiagnosticReason.WAITING_SESSION)
             return if (waiting) SyncOutcome.PENDING else SyncOutcome.EMPTY

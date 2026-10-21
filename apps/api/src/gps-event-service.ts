@@ -354,18 +354,6 @@ export class GpsEventService {
         .filter((event) => event.kind === 'POSITION')
         .map((event) => event.payload as PositionEvent)
         .sort((a, b) => Date.parse(a.captured_at) - Date.parse(b.captured_at));
-      const hasStarted = sessions.some((event) => event.type === 'STARTED');
-      if (
-        !hasStarted &&
-        !(await this.effective(db, principal.deviceId, scope, batch.client_session_id))
-      ) {
-        await db.query('ROLLBACK');
-        return {
-          batch_id: batch.batch_id,
-          pending_event_ids: batch.events.map((event) => event.payload.event_id),
-          reason_code: 'pending_dependency',
-        };
-      }
       const anchors = new Map<string, Anchor>();
       for (const event of [...sessions, ...positions]) {
         this.validAge(
@@ -395,6 +383,18 @@ export class GpsEventService {
             ),
           );
         }
+      }
+      const hasStarted = sessions.some((event) => event.type === 'STARTED');
+      if (
+        !hasStarted &&
+        !(await this.effective(db, principal.deviceId, scope, batch.client_session_id))
+      ) {
+        await db.query('ROLLBACK');
+        return {
+          batch_id: batch.batch_id,
+          pending_event_ids: batch.events.map((event) => event.payload.event_id),
+          reason_code: 'pending_dependency',
+        };
       }
       const accepted: string[] = [];
       const duplicate: string[] = [];

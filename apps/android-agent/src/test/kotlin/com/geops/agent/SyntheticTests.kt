@@ -631,6 +631,58 @@ fun main() {
         val result = PendingUpload(identity, store, clock, BatchSync(identity, store, clock, transport)).run()
         check(result.status == UploadStatus.EMPTY && mixedCalls == 1 && store.read().pending.isEmpty())
     }
+    test("v2 rate limit keeps STARTED and position in backoff without a v1 bypass") {
+        val clock = FakeClock(wall = end + 3_600_000)
+        val store = MemoryAgentStore()
+        val clientId = UUID.randomUUID().toString()
+        val startedId = UUID.randomUUID().toString()
+        val pointId = UUID.randomUUID().toString()
+        store.update { state ->
+            state.snapshot = snap()
+            state.pending.add(PendingRecord(startedId, RecordKind.SESSION,
+                JSONObject().put("event_id", startedId).put("client_session_id", clientId)
+                    .put("type", "STARTED").toString(), start))
+            state.pending.add(PendingRecord(pointId, RecordKind.LOCATION,
+                JSONObject().put("event_id", pointId).put("client_session_id", clientId)
+                    .toString(), start + 60_000))
+        }
+        var v1Calls = 0
+        var v2Calls = 0
+        val transport = object : BatchTransport {
+            override fun supportsMixed() = true
+            override fun post(kind: RecordKind, body: String): HttpResult {
+                v1Calls++
+                return HttpResult(200, "{}", null)
+            }
+            override fun postMixed(body: String): HttpResult {
+                v2Calls++
+                return HttpResult(429, "{}", 30)
+            }
+        }
+        val identity = Identity(device, installation)
+        val sync = BatchSync(identity, store, clock, transport)
+        val result = PendingUpload(identity, store, clock, sync).run()
+        check(result.status == UploadStatus.PENDING && v2Calls == 1 && v1Calls == 0)
+        check(store.read().pending.all { it.retryAfterMs > clock.wall })
+        val freshId = UUID.randomUUID().toString()
+        store.update { it.pending.add(PendingRecord(freshId, RecordKind.LOCATION,
+            JSONObject().put("event_id", freshId).put("client_session_id", clientId)
+                .toString(), start + 120_000)) }
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY &&
+            sync.lastDetail == SyncDetail.BACKOFF && v2Calls == 1)
+        val otherClient = UUID.randomUUID().toString()
+        val otherStart = UUID.randomUUID().toString()
+        val otherPoint = UUID.randomUUID().toString()
+        store.update { state ->
+            state.pending.add(PendingRecord(otherStart, RecordKind.SESSION,
+                JSONObject().put("event_id", otherStart).put("client_session_id", otherClient)
+                    .put("type", "STARTED").toString(), start + 180_000))
+            state.pending.add(PendingRecord(otherPoint, RecordKind.LOCATION,
+                JSONObject().put("event_id", otherPoint).put("client_session_id", otherClient)
+                    .toString(), start + 180_000))
+        }
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.RETRY && v2Calls == 2 && v1Calls == 0)
+    }
     test("lost or malformed ACK retains original event and backs off") {
         val clock = FakeClock(); val store = MemoryAgentStore(); val id = UUID.randomUUID().toString()
         store.update { it.pending.add(PendingRecord(id, RecordKind.LOCATION,

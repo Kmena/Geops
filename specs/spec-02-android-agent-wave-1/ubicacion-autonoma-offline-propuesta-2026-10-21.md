@@ -1,5 +1,11 @@
 # GEOPS — SPEC actualizada: autonomía GPS y última política válida
 
+**Actualización:** Wave P0 tiene implementación sintética en la rama aislada
+`codex/geops-spec02-mdm-integration`; su gate sigue abierto por auditoría y
+POCO. Las Waves A–E de esta propuesta no están implementadas. Las referencias
+posteriores a P0 sin código corresponden al corte inicial de diseño; véase
+el [informe de ejecución](integration-execution-2026-10-21.md).
+
 **Predecesor obligatorio:** [Wave P0 GPS-UPLOAD-STARTED-BLOCKER](gps-upload-started-blocker-p0-2026-10-21.md) corrige el bloqueo global de subida por STARTED pendiente mediante ingesta v2 conjunta y atómica. Su cierre con interoperabilidad, auditoría independiente y POCO precede A–E; no cambia cuándo la política local autoriza captura ni el alcance de ADR-020. El contrato v1 y el APK todavía no implementan P0.
 
 **Revisión:** 2026-10-21, DEC-GPS-OFFLINE-001 aprobada. **Estado:** diseño/documentación; APK, API y OpenAPI v1 siguen con el contrato anterior. **Autoridad:** [ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) sustituye la regla offline de [ADR-017 histórico](../architecture/adr/ADR-017-politicas-gps-temporales-offline.md). Base física: [auditoría POCO del 21/10](../../docs/audit-regresion-gps-poco-2026-10-21.md). No se modificaron políticas laborales, código, teléfonos ni bases de datos.

@@ -1,5 +1,12 @@
 # P0 — GPS-UPLOAD-STARTED-BLOCKER: ingesta conjunta de sesión y posiciones
 
+**Actualización de implementación:** el contrato v2 ya existe en la rama aislada
+`codex/geops-spec02-mdm-integration` y pasó pruebas sintéticas. El estado
+"propuesto/sin código" de los párrafos siguientes identifica el corte de
+diseño original; el estado de ejecución y los gates vigentes están en el
+[informe de integración](integration-execution-2026-10-21.md). Aún no hay
+publicación, prueba POCO ni cierre P0.
+
 **Fecha:** 2026-10-21. **Estado:** diseño v2 propuesto dentro de SPEC-02; sin código ni publicación. **Fuente:** [auditoría original](../../output/auditoria-protocolo-envio-gps-2026-10-21.md), [ADR-016](../architecture/adr/ADR-016-identidad-sesiones-gps.md) y [ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md). **Prioridad:** P0 antes de las waves A–E de [autonomía GPS](ubicacion-autonoma-offline-propuesta-2026-10-21.md). El informe de auditoría describe el contrato offline v1 anterior a ADR-020; su diagnóstico del bloqueo de subida y la recomendación B son válidos, pero su límite de 12 horas **no** es la decisión vigente.
 
 ## Hallazgo y alcance
