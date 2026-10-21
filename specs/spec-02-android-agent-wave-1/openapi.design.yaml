@@ -45,12 +45,54 @@
                   "invitation_id": { "type": ["string", "null"] }, "invitation_status": { "type": ["string", "null"] },
                   "invitation_expires_at": { "type": ["string", "null"], "format": "date-time" },
                   "claim_id": { "type": ["string", "null"] }, "claim_status": { "type": ["string", "null"] },
-                  "key_id": { "type": ["string", "null"] }, "installation_id": { "type": ["string", "null"] }
+                  "key_id": { "type": ["string", "null"] }, "installation_id": { "type": ["string", "null"] },
+                  "last_installation_retired_at": { "type": ["string", "null"], "format": "date-time" },
+                  "policy_name": { "type": ["string", "null"] }, "session_state": { "type": ["string", "null"] }
                 } } }
             }
           } } } },
           "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }
         }
+      }
+    },
+    "/v1/admin/devices/{device_id}/suspend": {
+      "post": {
+        "tags": ["GpsAdmin"], "operationId": "suspendDevice",
+        "description": "Synthetic tenant only. Requires gps.installation.manage, both tenant grants, admin cookie, Origin and CSRF. Revokes issued sessions and retires active GPS installation, preserving history. Repeating a suspension is idempotent.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeviceId" }, { "$ref": "#/components/parameters/Origin" }, { "$ref": "#/components/parameters/Csrf" }],
+        "requestBody": { "$ref": "#/components/requestBodies/DeviceLifecycleReason" },
+        "responses": { "200": { "description": "SUSPENDED" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Invalid transition or binding" } }
+      }
+    },
+    "/v1/admin/devices/{device_id}/reactivate": {
+      "post": {
+        "tags": ["GpsAdmin"], "operationId": "reactivateDevice",
+        "description": "Synthetic tenant only. Requires valid active binding and PoP key, compatible policy, no installation or open enrollment. Does not reactivate GPS.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeviceId" }, { "$ref": "#/components/parameters/Origin" }, { "$ref": "#/components/parameters/Csrf" }],
+        "requestBody": { "$ref": "#/components/requestBodies/DeviceLifecycleReason" },
+        "responses": { "200": { "description": "ACTIVE" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Invalid transition or security precondition" } }
+      }
+    },
+    "/v1/admin/devices/{device_id}/revoke": {
+      "post": {
+        "tags": ["GpsAdmin"], "operationId": "revokeDeviceIdentity",
+        "description": "Terminal identity revocation for the synthetic tenant. Requires gps.installation.manage, both tenant grants, admin cookie, Origin and CSRF. Preserves historical data.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeviceId" }, { "$ref": "#/components/parameters/Origin" }, { "$ref": "#/components/parameters/Csrf" }],
+        "requestBody": { "$ref": "#/components/requestBodies/DeviceLifecycleReason" },
+        "responses": { "200": { "description": "REVOKED" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Binding conflict" } }
+      }
+    },
+    "/v1/admin/devices/{device_id}/retire": {
+      "post": {
+        "tags": ["GpsAdmin"], "operationId": "retireDeviceIdentity",
+        "description": "Terminal retirement for the synthetic tenant. Requires gps.installation.manage, both tenant grants, admin cookie, Origin and CSRF. The record remains in historical inventory.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeviceId" }, { "$ref": "#/components/parameters/Origin" }, { "$ref": "#/components/parameters/Csrf" }],
+        "requestBody": { "$ref": "#/components/requestBodies/DeviceLifecycleReason" },
+        "responses": { "200": { "description": "RETIRED" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Binding conflict" } }
       }
     },
     "/v1/admin/devices/{device_id}/invitations/{invitation_id}": {
@@ -1651,6 +1693,15 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-CSRF-Token"
+      }
+    },
+    "requestBodies": {
+      "DeviceLifecycleReason": {
+        "required": true,
+        "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["reason"],
+          "properties": { "reason": { "type": "string", "minLength": 8, "maxLength": 240 } }
+        } } }
       }
     },
     "parameters": {

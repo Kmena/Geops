@@ -88,8 +88,14 @@ export class DeviceSessionService {
         throw new ApiError(409, 'challenge_consumed', 'Conflict', true);
       if (challenge.expires_at.getTime() <= now.getTime())
         throw new ApiError(410, 'challenge_expired', 'Gone', true);
+      const device = await db.query<{ status: string }>(
+        'SELECT status FROM geops_device WHERE id=$1 FOR UPDATE',
+        [deviceId],
+      );
+      if (device.rows[0]?.status !== 'ACTIVE')
+        throw new ApiError(403, 'device_inactive', 'Forbidden', true);
       const key = await db.query<{ public_key_spki_der: Buffer }>(
-        "SELECT k.public_key_spki_der FROM device_key k JOIN geops_device d ON d.id=k.geops_device_id WHERE k.id=$1 AND k.geops_device_id=$2 AND k.status='ACTIVE' AND d.status='ACTIVE' FOR UPDATE OF k",
+        "SELECT public_key_spki_der FROM device_key WHERE id=$1 AND geops_device_id=$2 AND status='ACTIVE' FOR UPDATE",
         [keyId, deviceId],
       );
       if (!key.rows[0]) throw new ApiError(403, 'device_inactive', 'Forbidden', true);

@@ -74,7 +74,18 @@ export function registerInventoryRoutes(
       'device.enrollment.inventory.read',
     );
     const args = page(request.query);
-    const result = await devices.listEnrollment(args.cursor, args.limit);
+    const granted = await devices.pool.query<{ permission: string }>(
+      `SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL
+       AND permission IN ('gps.policy.read','gps.session.read')`,
+      [admin.id],
+    );
+    const rights = new Set(granted.rows.map((row) => row.permission));
+    const result = await devices.listEnrollment(
+      args.cursor,
+      args.limit,
+      rights.has('gps.policy.read'),
+      rights.has('gps.session.read'),
+    );
     await appendAudit(devices.pool, {
       actorType: 'ADMIN',
       actorId: admin.id,

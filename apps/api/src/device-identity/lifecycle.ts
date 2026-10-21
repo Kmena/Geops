@@ -161,8 +161,30 @@ export class DeviceLifecycleService {
     });
   }
 
-  revoke(deviceId: string, adminId?: string, correlationId: string = randomUUID()): Promise<void> {
-    return this.repository.revoke(deviceId, adminId, correlationId);
+  revoke(
+    deviceId: string,
+    adminId?: string,
+    correlationId: string = randomUUID(),
+    reason?: string,
+  ): Promise<void> {
+    return this.repository.revoke(deviceId, adminId, correlationId, reason);
+  }
+
+  suspend(deviceId: string, adminId: string, correlationId: string, reason: string): Promise<void> {
+    return this.repository.suspend(deviceId, adminId, correlationId, reason);
+  }
+
+  reactivate(
+    deviceId: string,
+    adminId: string,
+    correlationId: string,
+    reason: string,
+  ): Promise<void> {
+    return this.repository.reactivate(deviceId, adminId, correlationId, reason);
+  }
+
+  retire(deviceId: string, adminId: string, correlationId: string, reason: string): Promise<void> {
+    return this.repository.retire(deviceId, adminId, correlationId, reason);
   }
 
   async replace(oldDeviceId: string, newLabel: string): Promise<DeviceRecord> {

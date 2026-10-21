@@ -237,10 +237,26 @@ export function registerIdentityRoutes(
     async (request) => {
       const admin = await requireAdmin(request, auth, true);
       const data = object(request.body, ['reason']);
-      if (string(data, 'reason', 500).length < 3)
-        throw new ApiError(400, 'invalid_request', 'Invalid request', true);
-      await lifecycle.revoke(uuid(request.params.device_id), admin.id, request.id);
+      const reason = string(data, 'reason', 240).trim();
+      if (reason.length < 8) throw new ApiError(400, 'invalid_request', 'Invalid request', true);
+      await lifecycle.revoke(uuid(request.params.device_id), admin.id, request.id, reason);
       return { status: 'REVOKED' };
     },
   );
+  for (const action of ['suspend', 'reactivate', 'retire'] as const) {
+    app.post<{ Params: { device_id: string }; Body: unknown }>(
+      `/v1/admin/devices/:device_id/${action}`,
+      async (request) => {
+        const admin = await requireAdmin(request, auth, true);
+        const data = object(request.body, ['reason']);
+        const reason = string(data, 'reason', 240).trim();
+        if (reason.length < 8) throw new ApiError(400, 'reason_required', 'Invalid request', true);
+        const deviceId = uuid(request.params.device_id);
+        await lifecycle[action](deviceId, admin.id, request.id, reason);
+        return {
+          status: { suspend: 'SUSPENDED', reactivate: 'ACTIVE', retire: 'RETIRED' }[action],
+        };
+      },
+    );
+  }
 }

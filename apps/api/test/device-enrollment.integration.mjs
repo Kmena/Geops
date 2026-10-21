@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import pg from 'pg';
-import { enrollmentProofBytes } from '@geops/api-contracts';
+import { enrollmentProofBytes, sessionProofBytes } from '@geops/api-contracts';
 import { createApp } from '../src/app.ts';
 import { AdminAuthService } from '../src/admin-auth/service.ts';
 import { DeviceRepository } from '../src/device-identity/repository.ts';
@@ -52,6 +52,10 @@ try {
   await pool.query(
     "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.installation.manage',$1,$2)",
     [adminId, 'Synthetic enrollment integration'],
+  );
+  await pool.query(
+    "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.session.read',$1,$2)",
+    [adminId, 'Synthetic lifecycle visibility integration'],
   );
   await pool.query(
     'INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES($1,$2,$3)',
@@ -321,6 +325,230 @@ try {
   assert.equal(active.status, 'ACTIVE');
   assert.equal(active.key_id, activated.json().key_id);
   assert.equal(active.installation_id, installation.json().installation_id);
+  assert.ok(
+    (await admin('GET', '/v1/admin/gps-devices'))
+      .json()
+      .items.some((item) => item.device_id === device.id),
+  );
+  const issuedSessionId = randomUUID();
+  await pool.query(
+    "INSERT INTO device_session(id,geops_device_id,key_id,token_hash,issued_at,expires_at) VALUES($1,$2,$3,$4,now(),now()+interval '1 hour')",
+    [issuedSessionId, device.id, active.key_id, randomBytes(32)],
+  );
+  const suspendPath = `/v1/admin/devices/${device.id}/suspend`;
+  const reactivatePath = `/v1/admin/devices/${device.id}/reactivate`;
+  await setCapability(false);
+  assert.equal(
+    (await admin('POST', suspendPath, { reason: 'Synthetic temporary pause' })).statusCode,
+    403,
+  );
+  await setCapability(true);
+  await setTenantAccess(false);
+  assert.equal(
+    (await admin('POST', suspendPath, { reason: 'Synthetic temporary pause' })).statusCode,
+    403,
+  );
+  await setTenantAccess(true);
+  assert.equal(
+    (
+      await app.inject({
+        method: 'POST',
+        url: suspendPath,
+        headers: { cookie },
+        payload: { reason: 'Synthetic temporary pause' },
+      })
+    ).statusCode,
+    403,
+  );
+  assert.equal(
+    (
+      await admin(
+        'POST',
+        suspendPath,
+        { reason: 'Synthetic temporary pause' },
+        { 'x-csrf-token': 'wrong' },
+      )
+    ).statusCode,
+    403,
+  );
+  const sessionChallenge = await app.inject({
+    method: 'POST',
+    url: '/v1/device/sessions/challenge',
+    payload: { geops_device_id: device.id, key_id: active.key_id },
+  });
+  assert.equal(sessionChallenge.statusCode, 200);
+  const sessionProof = sign(
+    'sha256',
+    sessionProofBytes(
+      sessionChallenge.json().challenge_id,
+      sessionChallenge.json().challenge,
+      active.key_id,
+      device.id,
+    ),
+    key.privateKey,
+  ).toString('base64url');
+  const [suspension, competingSession] = await Promise.all([
+    admin('POST', suspendPath, { reason: 'Synthetic temporary pause' }),
+    app.inject({
+      method: 'POST',
+      url: '/v1/device/sessions',
+      payload: {
+        geops_device_id: device.id,
+        key_id: active.key_id,
+        challenge_id: sessionChallenge.json().challenge_id,
+        signature: sessionProof,
+      },
+    }),
+  ]);
+  assert.equal(suspension.statusCode, 200);
+  assert.ok([201, 403].includes(competingSession.statusCode));
+  assert.equal(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS count FROM device_session WHERE geops_device_id=$1 AND revoked_at IS NULL',
+        [device.id],
+      )
+    ).rows[0].count,
+    0,
+    'concurrent PoP session cannot survive suspension',
+  );
+  assert.equal(
+    (await admin('POST', suspendPath, { reason: 'Synthetic repeat suspension' })).statusCode,
+    200,
+  );
+  assert.equal(
+    (await pool.query('SELECT status FROM geops_device WHERE id=$1', [device.id])).rows[0].status,
+    'SUSPENDED',
+  );
+  assert.ok(
+    !(await admin('GET', '/v1/admin/gps-devices'))
+      .json()
+      .items.some((item) => item.device_id === device.id),
+  );
+  assert.ok(
+    (await pool.query('SELECT revoked_at FROM device_session WHERE id=$1', [issuedSessionId]))
+      .rows[0].revoked_at,
+  );
+  assert.ok(
+    (
+      await pool.query('SELECT retired_at FROM gps_device_installation WHERE installation_id=$1', [
+        installation.json().installation_id,
+      ])
+    ).rows[0].retired_at,
+  );
+  assert.equal(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/device/sessions/challenge',
+        payload: { geops_device_id: device.id, key_id: active.key_id },
+      })
+    ).statusCode,
+    403,
+  );
+  assert.equal(
+    (await admin('GET', '/v1/admin/enrollment/devices'))
+      .json()
+      .items.find((item) => item.id === device.id).status,
+    'SUSPENDED',
+  );
+  await pool.query("UPDATE device_key SET status='REVOKED',revoked_at=now() WHERE id=$1", [
+    active.key_id,
+  ]);
+  assert.equal(
+    (await admin('POST', reactivatePath, { reason: 'Synthetic invalid PoP key' })).statusCode,
+    409,
+  );
+  await pool.query("UPDATE device_key SET status='ACTIVE',revoked_at=NULL WHERE id=$1", [
+    active.key_id,
+  ]);
+  await pool.query("UPDATE mdm_binding SET state='REVOKED' WHERE id=$1", [active.mdm_binding_id]);
+  assert.equal(
+    (await admin('POST', reactivatePath, { reason: 'Synthetic invalid binding' })).statusCode,
+    404,
+  );
+  await pool.query("UPDATE mdm_binding SET state='ACTIVE' WHERE id=$1", [active.mdm_binding_id]);
+  assert.equal(
+    (await admin('POST', reactivatePath, { reason: 'Synthetic safe reactivation' })).statusCode,
+    200,
+  );
+  assert.equal(
+    (await admin('POST', reactivatePath, { reason: 'Synthetic repeat reactivation' })).statusCode,
+    200,
+  );
+  assert.equal(
+    (await admin('GET', '/v1/admin/enrollment/devices'))
+      .json()
+      .items.find((item) => item.id === device.id).installation_id,
+    null,
+  );
+  const resumedInstallation = await admin('POST', '/v1/admin/gps-installations', {
+    device_id: device.id,
+    reason: 'Synthetic reactivation test',
+  });
+  assert.equal(resumedInstallation.statusCode, 201);
+  assert.equal(
+    (
+      await admin(
+        'POST',
+        `/v1/admin/gps-installations/${resumedInstallation.json().installation_id}/retire`,
+        { reason: 'Synthetic stop tracking' },
+      )
+    ).statusCode,
+    204,
+  );
+  const activeAfterStop = (await admin('GET', '/v1/admin/enrollment/devices'))
+    .json()
+    .items.find((item) => item.id === device.id);
+  assert.equal(activeAfterStop.status, 'ACTIVE');
+  assert.equal(activeAfterStop.installation_id, null);
+  assert.ok(activeAfterStop.last_installation_retired_at);
+  const newSessionId = randomUUID();
+  await pool.query(
+    "INSERT INTO device_session(id,geops_device_id,key_id,token_hash,issued_at,expires_at) VALUES($1,$2,$3,$4,now(),now()+interval '1 hour')",
+    [newSessionId, device.id, active.key_id, randomBytes(32)],
+  );
+  assert.equal(
+    (
+      await admin('POST', `/v1/admin/devices/${device.id}/revoke`, {
+        reason: 'Synthetic permanent revocation',
+      })
+    ).statusCode,
+    200,
+  );
+  assert.ok(
+    (await pool.query('SELECT revoked_at FROM device_session WHERE id=$1', [newSessionId])).rows[0]
+      .revoked_at,
+  );
+  assert.equal(
+    (await admin('POST', reactivatePath, { reason: 'Synthetic forbidden return' })).statusCode,
+    409,
+  );
+  assert.equal(
+    (await admin('GET', '/v1/admin/enrollment/devices'))
+      .json()
+      .items.find((item) => item.id === device.id).status,
+    'REVOKED',
+  );
+  assert.ok(
+    !(await admin('GET', '/v1/admin/gps-devices'))
+      .json()
+      .items.some((item) => item.device_id === device.id),
+  );
+  assert.equal(
+    (
+      await admin('POST', `/v1/admin/devices/${device.id}/retire`, {
+        reason: 'Synthetic archive device',
+      })
+    ).statusCode,
+    200,
+  );
+  assert.equal(
+    (await admin('GET', '/v1/admin/enrollment/devices'))
+      .json()
+      .items.find((item) => item.id === device.id).status,
+    'RETIRED',
+  );
   assert.equal(
     (await admin('POST', path, invitationRequest)).statusCode,
     409,
@@ -496,6 +724,34 @@ try {
       })
     ).statusCode,
     410,
+  );
+  const foreignId = randomUUID();
+  await pool.query(
+    "INSERT INTO geops_device(id,status,display_label) VALUES($1,'ACTIVE','Foreign synthetic fixture')",
+    [foreignId],
+  );
+  await pool.query(
+    "INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state) VALUES($1,$2,'fake','tenant-foreign',$3,'ACTIVE')",
+    [randomUUID(), foreignId, `foreign-${foreignId}`],
+  );
+  assert.ok(
+    !(await admin('GET', '/v1/admin/enrollment/devices'))
+      .json()
+      .items.some((item) => item.id === foreignId),
+  );
+  for (const action of ['suspend', 'reactivate', 'revoke', 'retire']) {
+    assert.equal(
+      (
+        await admin('POST', `/v1/admin/devices/${foreignId}/${action}`, {
+          reason: 'Synthetic cross tenant denial',
+        })
+      ).statusCode,
+      404,
+    );
+  }
+  assert.equal(
+    (await pool.query('SELECT status FROM geops_device WHERE id=$1', [foreignId])).rows[0].status,
+    'ACTIVE',
   );
   const audit = await pool.query(
     "SELECT action FROM audit_event WHERE action IN ('device.draft.create','device.invitation.issue','device.invitation.cancel','device.enrollment.inventory.read')",
