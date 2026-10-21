@@ -1,0 +1,5 @@
+# Pair with compose.staging.yaml for an approved API-only Staging image update.
+# Keep GEOPS_STAGE_IMAGE_TAG on the previous approved image for migrator and gate.
+services:
+  geops-api:
+    image: geops-spec02-api:${GEOPS_STAGE_API_IMAGE_TAG:?Set approved API commit SHA}
