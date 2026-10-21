@@ -6,7 +6,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.ZonedDateTime
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -44,7 +43,8 @@ data class PolicyEvaluation(val window: AuthorizedWindow?, val reason: String?)
 data class PolicyAssessment(val window: AuthorizedWindow?, val reason: DiagnosticReason)
 
 class PolicyEngine(
-    private val identity: Identity, private val clock: AgentClock, private val store: AgentStore
+    private val identity: Identity, private val clock: AgentClock, private val store: AgentStore,
+    private val localTzdbVersion: (String) -> String? = { null }
 ) {
     fun refresh(transport: AuthenticatedConfigTransport, beforeApply: (Snapshot) -> Unit = {}): Snapshot {
         val before = clock.read()
@@ -189,7 +189,8 @@ class PolicyEngine(
             s.policy == null) return false
         val now = localTime(state, clock.read()) ?: return false
         return now >= s.serverTimeMs - 30_000L && now < s.authorizedUntilMs!! &&
-            now < s.policy.validUntilMs
+            now < s.policy.validUntilMs &&
+            (sameTzdb(s) || s.windows.any { it.endMs > now && it.startMs < s.authorizedUntilMs })
     }
 
     private fun validate(s: Snapshot) {
@@ -228,10 +229,22 @@ class PolicyEngine(
             return denied(DiagnosticReason.POLICY_NOT_YET_VALID)
         if (now >= p.validUntilMs || now >= (s.authorizedUntilMs ?: Long.MIN_VALUE))
             return denied(DiagnosticReason.POLICY_EXPIRED)
-        val window = localWindow(s, now) ?: return denied(DiagnosticReason.OUTSIDE_WINDOW)
+        // If the OS and server use different timezone data, only the exact UTC
+        // windows delivered with the authenticated policy can authorize capture.
+        val matchingTzdb = sameTzdb(s)
+        val window = (if (matchingTzdb) localWindow(s, now) else
+            s.windows.firstOrNull { it.startMs <= now && now < it.endMs })
+            ?: return denied(if (matchingTzdb) DiagnosticReason.OUTSIDE_WINDOW else
+                DiagnosticReason.TZDB_MISMATCH)
         if (now >= state.lastEvaluatedMs + 60_000L)
             store.update { if (now > it.lastEvaluatedMs) it.lastEvaluatedMs = now }
         return PolicyAssessment(AuthorizedWindow(s, window, now), DiagnosticReason.NONE)
+    }
+
+    private fun sameTzdb(s: Snapshot): Boolean {
+        val zone = s.display?.timeZone ?: return false
+        val localVersion = runCatching { localTzdbVersion(zone) }.getOrNull()
+        return localVersion != null && localVersion == s.tzdbVersion
     }
 
     private fun localTime(state: AgentState, reading: ClockReading): Long? {
@@ -283,7 +296,9 @@ class PolicyEngine(
         return when {
             offsets.size == 2 -> local.atOffset(if (end) offsets[1] else offsets[0]).toInstant().toEpochMilli()
             offsets.size == 1 -> local.atOffset(offsets[0]).toInstant().toEpochMilli()
-            else -> ZonedDateTime.ofLocal(local, zone, null).toInstant().toEpochMilli()
+            // Match backend resolveLocal: a missing minute ends or starts at the
+            // first valid local minute after the DST gap, not at time + gap length.
+            else -> requireNotNull(zone.rules.getTransition(local)).instant.toEpochMilli()
         }
     }
 

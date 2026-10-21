@@ -112,7 +112,7 @@ object AgentRuntime {
                 com.geops.agent.HttpsEnrollmentTransport(SYNTHETIC_STAGING_BASE_URL))
             val http = PopHttpClient(SYNTHETIC_STAGING_BASE_URL, sessionProvider,
                 AndroidKeys.existingSigningKey(SIGNING_ALIAS, keyId), clock)
-            val policy = PolicyEngine(identity, clock, store)
+            val policy = PolicyEngine(identity, clock, store) { android.icu.util.TimeZone.getTZDataVersion() }
             lastGpsCallbackMs = -1
             lastGpsDecision = null
             val priorIntent = store.read().trackingIntent
@@ -300,7 +300,7 @@ object AgentRuntime {
                 object : com.geops.agent.AgentStore {
                     override fun read() = state
                     override fun update(block: (AgentState) -> Unit) = error("read_only")
-                }).evaluate()
+                }, { android.icu.util.TimeZone.getTZDataVersion() }).evaluate()
         } catch (_: Exception) { null }
         val pending = state.pending.count { it.kind == RecordKind.LOCATION && !it.quarantined }
         val quarantined = state.pending.count { it.kind == RecordKind.LOCATION && it.quarantined }
@@ -521,7 +521,8 @@ object AgentRuntime {
             val key = AndroidKeys.existingStateKey(STATE_ALIAS)
             val file = AgentStateFiles.resolve(context.filesDir.toPath(), identity, key)
             PolicyEngine(identity, AndroidAgentClock(context) { bootId(context) },
-                EncryptedFileAgentStore(file, key)).autonomousEligible()
+                EncryptedFileAgentStore(file, key),
+                { android.icu.util.TimeZone.getTZDataVersion() }).autonomousEligible()
         }
     } catch (_: Exception) { false }
 }

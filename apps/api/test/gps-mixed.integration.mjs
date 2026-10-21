@@ -360,6 +360,17 @@ try {
   'explicit offline bounds and recurrent policy delivered');
   const offlineClient = randomUUID(), offlineBoot = randomUUID();
   const tomorrow = at(offline.server_time, DAY);
+  const futureScheduled = await pool.query(
+    `SELECT id FROM gps_scheduled_session WHERE device_id=$1 AND assignment_version=$2
+       AND start_at<=$3 AND $3<end_at AND state='SCHEDULED'`,
+    [deviceId, offline.assignment_version, tomorrow]);
+  check(futureScheduled.rowCount === 1, 'future offline journey was materialized before revocation');
+  const revokedPolicy = await admin('POST', `/v1/admin/gps-policies/${policyId}/revoke`,
+    { reason: 'Synthetic deferred offline revocation' }, published.headers.etag);
+  check(revokedPolicy.statusCode === 200, 'admin revocation succeeds after v2 delivery');
+  check((await pool.query('SELECT state FROM gps_scheduled_session WHERE id=$1',
+    [futureScheduled.rows[0].id])).rows[0]?.state === 'CANCELLED',
+  'future materialized session remains operationally cancelled');
   eventClock.at = Date.parse(tomorrow) + 10_000;
   await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
   const offlineStart = { ...start, event_id: randomUUID(), client_session_id: offlineClient,
@@ -379,7 +390,10 @@ try {
   const offlineAck = await device('POST', v3Path, offlineBatch);
   if (offlineAck.statusCode !== 200) console.error('v3-offline', offlineAck.statusCode, offlineAck.payload);
   check(offlineAck.statusCode === 200 && offlineAck.json().accepted_event_ids.length === 2,
-    'next offline journey commits STARTED and point atomically');
+    'previously delivered offline policy commits STARTED and point after deferred revocation');
+  check((await pool.query('SELECT state FROM gps_scheduled_session WHERE id=$1',
+    [futureScheduled.rows[0].id])).rows[0]?.state === 'CANCELLED',
+  'historical ingest never reactivates the cancelled scheduled session');
   const replay = await device('POST', v3Path, offlineBatch);
   check(replay.statusCode === 200 && replay.json().persisted_at === offlineAck.json().persisted_at,
     'v3 lost ACK retry returns exact receipt');

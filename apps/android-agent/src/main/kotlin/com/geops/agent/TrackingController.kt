@@ -46,7 +46,7 @@ class TrackingController(
                     (incoming.schemaVersion == 1 && incoming.offlineNotAfterMs < old.offlineNotAfterMs)
                 if (current != null && current.state == "RUNNING" && changed) {
                     stop(if (incoming.active) "POLICY_REPLACED" else "POLICY_REVOKED", keepService = true)
-                    store.update { it.lastStartAttemptAtMs = -1 }
+                    store.update { it.lastStartAttemptAtMs = -1; it.lastStartAttemptBootId = null }
                 }
             }
             diagnostics.recordSafely(DiagnosticEvent(DiagnosticKind.POLICY_RECEIVED, clock.read().wallMs,
@@ -92,8 +92,11 @@ class TrackingController(
     private fun start(allowed: AuthorizedWindow) {
         val reading = clock.read()
         val state = store.read()
-        if (state.lastStartAttemptAtMs >= 0 && reading.elapsedMs - state.lastStartAttemptAtMs < 60_000) return
-        store.update { it.lastStartAttemptAtMs = reading.elapsedMs }
+        // elapsedRealtime is reset on physical reboot. A cooldown from another boot
+        // cannot defer the first authorized STARTED on this boot.
+        if (state.lastStartAttemptBootId == reading.bootId && state.lastStartAttemptAtMs >= 0 &&
+            reading.elapsedMs - state.lastStartAttemptAtMs < 60_000) return
+        store.update { it.lastStartAttemptAtMs = reading.elapsedMs; it.lastStartAttemptBootId = reading.bootId }
         diagnostic("START_ATTEMPT", null, reading, allowed)
         val started = try { runtime.startVisibleAndRegister(allowed.snapshot.policy!!.captureIntervalS) }
             catch (_: SecurityException) { false }
@@ -149,7 +152,7 @@ class TrackingController(
         DiagnosticReason.WAITING_INTERVAL -> LocationDecision.WAITING_INTERVAL
         DiagnosticReason.TIME_ANCHOR_INVALID, DiagnosticReason.TIME_BOOT_CHANGED,
         DiagnosticReason.TIME_BEFORE_SESSION, DiagnosticReason.TIME_BEFORE_WINDOW,
-        DiagnosticReason.TIME_AFTER_WINDOW, DiagnosticReason.TIME_IN_FUTURE,
+        DiagnosticReason.TIME_AFTER_WINDOW, DiagnosticReason.TIME_IN_FUTURE, DiagnosticReason.STALE_FIX,
         DiagnosticReason.TIME_BEFORE_POLICY, DiagnosticReason.TIME_AFTER_POLICY -> LocationDecision.INVALID_TIME
         else -> LocationDecision.NO_WINDOW
     }
@@ -177,6 +180,9 @@ class TrackingController(
         if (captured < allowed.window.startMs) return reject(DiagnosticReason.TIME_BEFORE_WINDOW)
         if (captured >= allowed.window.endMs) return reject(DiagnosticReason.TIME_AFTER_WINDOW)
         if (captured > allowed.nowMs) return reject(DiagnosticReason.TIME_IN_FUTURE)
+        // Fused may deliver a batch after the fixes were acquired. Preserve the
+        // original timestamp, but do not turn an old fix into a new capture.
+        if (allowed.nowMs - captured > 120_000L) return reject(DiagnosticReason.STALE_FIX)
         if (captured < allowed.snapshot.policy!!.validFromMs) return reject(DiagnosticReason.TIME_BEFORE_POLICY)
         if (captured >= allowed.snapshot.policy.validUntilMs) return reject(DiagnosticReason.TIME_AFTER_POLICY)
         if (!fix.latitude.isFinite() || !fix.longitude.isFinite() || !fix.accuracyM.isFinite() ||

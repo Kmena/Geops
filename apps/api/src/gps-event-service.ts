@@ -329,7 +329,11 @@ export class GpsEventService {
     const selected = await db.query<{ id: string; start_at: Date; end_at: Date }>(
       `SELECT id,start_at,end_at FROM gps_scheduled_session
        WHERE device_id=$1 AND policy_id=$2 AND revision=$3 AND assignment_version=$4
-         AND local_date=$5 AND start_at=$6 AND end_at=$7 AND state IN ('SCHEDULED','MISSED')`,
+         AND local_date=$5 AND start_at=$6 AND end_at=$7
+         -- A delivered offline authorization can outlive a later policy
+         -- replacement. Keep CANCELLED operationally cancelled while recording
+         -- its historically authorized events under the original assignment.
+         AND state IN ('SCHEDULED','MISSED','CANCELLED')`,
       [
         deviceId,
         anchor.policy_id,

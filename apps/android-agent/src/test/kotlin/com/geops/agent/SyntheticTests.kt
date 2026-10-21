@@ -2,6 +2,7 @@ package com.geops.agent
 
 import java.nio.file.Files
 import java.time.Instant
+import java.time.zone.ZoneRulesProvider
 import java.security.MessageDigest
 import java.util.UUID
 import javax.crypto.KeyGenerator
@@ -16,6 +17,7 @@ private val policyId = "33333333-3333-4333-8333-333333333333"
 private val anchor = "44444444-4444-4444-8444-444444444444"
 private val scheduled = "55555555-5555-4555-8555-555555555555"
 private val boot = "66666666-6666-4666-8666-666666666666"
+private fun tzdb(zone: String) = ZoneRulesProvider.getVersions(zone).lastKey()
 private fun ms(s: String) = Instant.parse(s).toEpochMilli()
 private val start = ms("2026-10-20T04:00:00Z")
 private val end = ms("2026-10-20T12:00:00Z")
@@ -53,7 +55,7 @@ private class RecordingDiagnostics : DiagnosticRecorder {
     override fun recent(): List<DiagnosticEvent> = events.toList()
 }
 private fun engine(clock: FakeClock, store: AgentStore = MemoryAgentStore()): Pair<PolicyEngine, AgentStore> =
-    PolicyEngine(Identity(device, installation), clock, store) to store
+    PolicyEngine(Identity(device, installation), clock, store, ::tzdb) to store
 private fun PolicyEngine.load(snapshot: Snapshot) { refresh(object : AuthenticatedConfigTransport {
     override fun fetch(identity: Identity) = snapshot
 }) }
@@ -272,7 +274,7 @@ fun main() {
         val (policy, store) = engine(clock)
         val offline = snap(until = start + 4 * 86_400_000L).copy(
             schemaVersion = 2, assignmentStartMs = start,
-            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = "2026a",
+            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = tzdb("America/Guatemala"),
             display = PolicyDisplay("Offline", (1..7).toList(), "22:00", "06:00", "America/Guatemala"))
         policy.load(offline)
         check(policy.current() != null)
@@ -283,7 +285,7 @@ fun main() {
         check(policy.current() == null && policy.autonomousEligible())
         clock.advance(10 * 3_600_000L)
         check(policy.current() != null && policy.current()!!.window.startMs == start + 86_400_000L)
-        val restarted = PolicyEngine(Identity(device, installation), clock, store)
+        val restarted = PolicyEngine(Identity(device, installation), clock, store, ::tzdb)
         check(restarted.current() != null)
         clock.wall += 86_400_000L; clock.elapsed = 1000
         clock.bootId = UUID.randomUUID().toString()
@@ -297,12 +299,96 @@ fun main() {
         clock.wall = start + 4 * 86_400_000L
         check(restarted.current() == null)
     }
+    test("Wave B STARTED cooldown does not survive a physical reboot") {
+        val clock = FakeClock(elapsed = 10 * 3_600_000L)
+        val (policy, store) = engine(clock)
+        policy.load(snap(until = start + 4 * 86_400_000L).copy(
+            schemaVersion = 2, assignmentStartMs = start,
+            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = tzdb("America/Guatemala"),
+            display = PolicyDisplay("Offline", (1..7).toList(), "22:00", "06:00", "America/Guatemala")))
+        val runtime = FakeRuntime()
+        val controller = TrackingController(Identity(device, installation), clock, policy, store,
+            runtime, FakeHealth())
+        controller.tick()
+        check(store.read().pending.count { it.kind == RecordKind.SESSION &&
+            JSONObject(it.payload).optString("type") == "STARTED" } == 1)
+        check(store.read().lastStartAttemptAtMs == 10 * 3_600_000L)
+        controller.onProcessRestart()
+        clock.wall += 60_000
+        clock.elapsed = 120_000
+        clock.bootId = UUID.randomUUID().toString()
+        val restarted = TrackingController(Identity(device, installation), clock,
+            PolicyEngine(Identity(device, installation), clock, store, ::tzdb), store, FakeRuntime(), FakeHealth())
+        restarted.tick()
+        check(store.read().pending.count { it.kind == RecordKind.SESSION &&
+            JSONObject(it.payload).optString("type") == "STARTED" } == 2)
+        check(store.read().lastStartAttemptBootId == clock.bootId)
+    }
+    test("ADR-020 DST gap and fold boundaries match backend UTC fixtures") {
+        fun assessment(at: String, from: String, until: String, scheduleStart: String,
+                       scheduleEnd: String, version: String = tzdb("America/New_York"),
+                       utcWindows: List<Window> = emptyList()): DiagnosticReason {
+            val now = ms(at)
+            val clock = FakeClock(wall = now)
+            val (policy, store) = engine(clock)
+            val snapshot = snap(from = ms(from), until = ms(until), windows = utcWindows).copy(
+                serverTimeMs = now, verifiedAtMs = now, offlineNotAfterMs = ms(until),
+                schemaVersion = 2, assignmentStartMs = ms(from), authorizedUntilMs = ms(until),
+                tzdbVersion = version,
+                display = PolicyDisplay("DST", (1..7).toList(), scheduleStart, scheduleEnd,
+                    "America/New_York"))
+            policy.load(snapshot)
+            store.update { it.autonomousEnabled = true }
+            if (version != tzdb("America/New_York") && utcWindows.isEmpty())
+                check(!policy.autonomousEligible())
+            return policy.assess().reason
+        }
+        val springFrom = "2026-03-07T00:00:00Z"
+        val springUntil = "2026-03-10T00:00:00Z"
+        check(assessment("2026-03-08T06:50:00Z", springFrom, springUntil,
+            "01:00", "02:30") == DiagnosticReason.NONE)
+        check(assessment("2026-03-08T07:05:00Z", springFrom, springUntil,
+            "01:00", "02:30") == DiagnosticReason.OUTSIDE_WINDOW)
+        check(assessment("2026-03-08T07:05:00Z", springFrom, springUntil,
+            "02:30", "04:00") == DiagnosticReason.NONE)
+        val fallFrom = "2026-10-31T00:00:00Z"
+        val fallUntil = "2026-11-03T00:00:00Z"
+        check(assessment("2026-11-01T05:35:00Z", fallFrom, fallUntil,
+            "01:30", "02:30") == DiagnosticReason.NONE)
+        check(assessment("2026-11-01T06:20:00Z", fallFrom, fallUntil,
+            "00:30", "01:30") == DiagnosticReason.NONE)
+        check(assessment("2026-11-01T06:31:00Z", fallFrom, fallUntil,
+            "00:30", "01:30") == DiagnosticReason.OUTSIDE_WINDOW)
+        check(assessment("2026-03-08T07:05:00Z", springFrom, springUntil,
+            "02:30", "04:00", "unknown-tzdb") == DiagnosticReason.TZDB_MISMATCH)
+        val signedWindow = Window(scheduled, ms("2026-03-08T07:00:00Z"),
+            ms("2026-03-08T08:00:00Z"))
+        check(assessment("2026-03-08T07:05:00Z", springFrom, springUntil,
+            "02:30", "04:00", "unknown-tzdb", listOf(signedWindow)) == DiagnosticReason.NONE)
+        check(assessment("2026-03-08T08:05:00Z", springFrom, springUntil,
+            "02:30", "04:00", "unknown-tzdb", listOf(signedWindow)) == DiagnosticReason.TZDB_MISMATCH)
+    }
+    test("Wave B discards batched fixes older than two minutes") {
+        val clock = FakeClock(); val (policy, store) = engine(clock)
+        policy.load(snap())
+        val controller = TrackingController(Identity(device, installation), clock, policy, store,
+            FakeRuntime(), FakeHealth())
+        controller.tick()
+        clock.advance(10_000)
+        val oldFix = clock.read()
+        clock.advance(121_000)
+        check(controller.onLocationDecision(LocationFix(14.6, -90.5, 10.0, oldFix,
+            clock.wall)) == DiagnosticReason.STALE_FIX)
+        check(store.read().pending.none { it.kind == RecordKind.LOCATION })
+        check(controller.onLocationDecision(LocationFix(14.6, -90.5, 10.0,
+            clock.read(), clock.wall)) == DiagnosticReason.NONE)
+    }
     test("ADR-020 v2 exception OFF and replacement are enforced offline") {
         val clock = FakeClock()
         val (policy, _) = engine(clock)
         policy.load(snap(until = start + 4 * 86_400_000L).copy(
             schemaVersion = 2, assignmentStartMs = start,
-            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = "2026a",
+            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = tzdb("America/Guatemala"),
             display = PolicyDisplay("Exceptions", (1..7).toList(), "22:00", "06:00", "America/Guatemala",
                 listOf(PolicyException("2026-10-20", "OFF"),
                     PolicyException("2026-10-21", "REPLACE", "23:00", "05:00")))))

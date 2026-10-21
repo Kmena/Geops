@@ -37,7 +37,7 @@ data class AgentState(
     var anchorElapsedMs: Long = -1, var anchorBootId: String? = null,
     var session: LocalSession? = null, val pending: MutableList<PendingRecord> = mutableListOf(),
     var lastLocationDueMs: Long = -1, var lastHealthDueMs: Long = -1,
-    var lastStartAttemptAtMs: Long = -1,
+    var lastStartAttemptAtMs: Long = -1, var lastStartAttemptBootId: String? = null,
     var locationsCaptured: Long = 0, var locationsAcked: Long = 0,
     var lastLocationCapturedMs: Long = -1, var lastLocationAckedMs: Long = -1,
     var validatedInstance: ValidatedInstance? = null,
@@ -160,6 +160,7 @@ internal object StateCodec {
             .put("anchor_elapsed", s.anchorElapsedMs).put("anchor_boot", s.anchorBootId)
             .put("last_location_due", s.lastLocationDueMs).put("last_health_due", s.lastHealthDueMs)
             .put("last_start_attempt", s.lastStartAttemptAtMs)
+            .put("last_start_attempt_boot", s.lastStartAttemptBootId)
             .put("locations_captured", s.locationsCaptured).put("locations_acked", s.locationsAcked)
             .put("last_location_captured", s.lastLocationCapturedMs)
             .put("last_location_acked", s.lastLocationAckedMs)
@@ -213,6 +214,8 @@ internal object StateCodec {
             anchorBootId = o.optString("anchor_boot").takeUnless { it.isEmpty() || it == "null" },
             lastLocationDueMs = o.getLong("last_location_due"), lastHealthDueMs = o.getLong("last_health_due"),
             lastStartAttemptAtMs = o.optLong("last_start_attempt", -1),
+            lastStartAttemptBootId = o.optString("last_start_attempt_boot")
+                .takeUnless { it.isEmpty() || it == "null" },
             locationsCaptured = o.optLong("locations_captured", 0), locationsAcked = o.optLong("locations_acked", 0),
             lastLocationCapturedMs = o.optLong("last_location_captured", -1),
             lastLocationAckedMs = o.optLong("last_location_acked", -1),

@@ -454,6 +454,22 @@ try {
     ),
     'DST overlap uses early start offset and late end offset',
   );
+  const spring = { ...dst, valid_from: '2026-03-07T00:00:00Z',
+    valid_until: '2026-03-10T00:00:00Z', start_local: '01:00', end_local: '02:30' };
+  const gapEnd = windowsForRange(spring, new Date(spring.valid_from), new Date(spring.valid_until));
+  check(gapEnd.some((w) => w.local_date === '2026-03-08' &&
+    w.start_at === '2026-03-08T06:00:00.000Z' && w.end_at === '2026-03-08T07:00:00.000Z'),
+  'DST gap end resolves to the first valid instant');
+  const gapStart = windowsForRange({ ...spring, start_local: '02:30', end_local: '04:00' },
+    new Date(spring.valid_from), new Date(spring.valid_until));
+  check(gapStart.some((w) => w.local_date === '2026-03-08' &&
+    w.start_at === '2026-03-08T07:00:00.000Z' && w.end_at === '2026-03-08T08:00:00.000Z'),
+  'DST gap start resolves to the first valid instant');
+  const foldEnd = windowsForRange({ ...dst, start_local: '00:30', end_local: '01:30' },
+    new Date(dst.valid_from), new Date(dst.valid_until));
+  check(foldEnd.some((w) => w.local_date === '2026-11-01' &&
+    w.start_at === '2026-11-01T04:30:00.000Z' && w.end_at === '2026-11-01T06:30:00.000Z'),
+  'DST fold end resolves to the late offset');
   console.log(`GPS policy integration PASS: ${checks} assertions; disposable DB ${dbName}`);
 } finally {
   await app.close();
