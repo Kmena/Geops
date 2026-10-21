@@ -64,6 +64,9 @@ export interface GpsBatchV2 {
   client_session_id: string;
   events: GpsMixedEvent[];
 }
+export interface GpsBatchV3 extends Omit<GpsBatchV2, 'schema_version'> {
+  schema_version: 3;
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -253,6 +256,15 @@ export function parseGpsBatch(
 
 /** V2 keeps each original event payload unchanged so v1 and v2 share event digests. */
 export function parseGpsV2Batch(body: unknown, bytes: number): GpsBatchV2 {
+  return parseMixedBatch(body, bytes, 2) as GpsBatchV2;
+}
+
+/** Offline v3 retains v2 event payload IDs and exact ACK semantics. */
+export function parseGpsV3Batch(body: unknown, bytes: number): GpsBatchV3 {
+  return parseMixedBatch(body, bytes, 3) as GpsBatchV3;
+}
+
+function parseMixedBatch(body: unknown, bytes: number, version: 2 | 3): GpsBatchV2 | GpsBatchV3 {
   if (bytes > 256 * 1024) throw new ApiError(413, 'batch_too_large', 'Request too large', true);
   const b = object(body, [
     'schema_version',
@@ -263,7 +275,7 @@ export function parseGpsV2Batch(body: unknown, bytes: number): GpsBatchV2 {
     'events',
   ]);
   if (
-    b.schema_version !== 2 ||
+    b.schema_version !== version ||
     !isUuid(b.batch_id) ||
     !isUuid(b.device_id) ||
     !isUuid(b.installation_id) ||
@@ -291,7 +303,7 @@ export function parseGpsV2Batch(body: unknown, bytes: number): GpsBatchV2 {
   )
     throw new GpsValidationError(ids);
   return {
-    schema_version: 2,
+    schema_version: version,
     batch_id: b.batch_id,
     device_id: b.device_id,
     installation_id: b.installation_id,

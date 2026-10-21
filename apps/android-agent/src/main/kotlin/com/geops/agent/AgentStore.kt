@@ -15,7 +15,8 @@ import org.json.JSONObject
 enum class RecordKind { SESSION, LOCATION, HEALTH }
 data class PendingRecord(
     val id: String, val kind: RecordKind, val payload: String, val createdAtMs: Long,
-    var attempts: Int = 0, var retryAfterMs: Long = 0, var quarantined: Boolean = false
+    var attempts: Int = 0, var retryAfterMs: Long = 0, var quarantined: Boolean = false,
+    val wireVersion: Int = 2
 )
 data class LocalSession(
     val clientId: String, val scheduledId: String, val assignmentVersion: Long,
@@ -41,7 +42,11 @@ data class AgentState(
     var lastLocationCapturedMs: Long = -1, var lastLocationAckedMs: Long = -1,
     var validatedInstance: ValidatedInstance? = null,
     var trackingIntent: TrackingIntent? = null,
-    var uploadAuthBlocked: Boolean = false
+    var uploadAuthBlocked: Boolean = false,
+    var timeBootId: String? = null, var timeWallBaseMs: Long = -1,
+    var timeElapsedBaseMs: Long = -1, var lastEvaluatedMs: Long = -1,
+    var bufferUsageBytes: Int = 0, var bufferAlertLevel: Int = 0,
+    var autonomousEnabled: Boolean = false
 )
 interface AgentStore {
     fun read(): AgentState
@@ -98,7 +103,16 @@ class MemoryAgentStore : AgentStore {
 
 /** A key must come from AndroidKeyStore in production. Missing/corrupt key fails closed. */
 class EncryptedFileAgentStore(private val file: Path, private val key: SecretKey) : AgentStore {
-    private companion object { val locks = ConcurrentHashMap<Path, Any>() }
+    companion object {
+        private val locks = ConcurrentHashMap<Path, Any>()
+        const val MAX_BYTES = 32 * 1024 * 1024
+        const val MAX_RECORDS = 10_000
+        fun alertLevel(bytes: Int, records: Int): Int {
+            val percent = maxOf(bytes.toLong() * 100 / MAX_BYTES,
+                records.toLong() * 100 / MAX_RECORDS)
+            return if (percent >= 90) 90 else if (percent >= 70) 70 else 0
+        }
+    }
     private val fileLock = locks.computeIfAbsent(file.toAbsolutePath().normalize()) { Any() }
 
     override fun read(): AgentState = synchronized(fileLock) { readFile() }
@@ -106,7 +120,7 @@ class EncryptedFileAgentStore(private val file: Path, private val key: SecretKey
     private fun readFile(): AgentState {
         if (!Files.exists(file)) return AgentState()
         val bytes = Files.readAllBytes(file)
-        require(bytes.size in 29..4_000_000 && bytes[0] == 1.toByte()) { "state_corrupt" }
+        require(bytes.size in 29..MAX_BYTES && bytes[0] == 1.toByte()) { "state_corrupt" }
         val nonce = bytes.copyOfRange(1, 13)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, nonce))
@@ -116,7 +130,11 @@ class EncryptedFileAgentStore(private val file: Path, private val key: SecretKey
     override fun update(block: (AgentState) -> Unit): Unit = synchronized(fileLock) {
         val next = readFile()
         block(next)
-        require(next.pending.size <= 10_000) { "queue_full" }
+        require(next.pending.size <= MAX_RECORDS) { "queue_full" }
+        var raw = StateCodec.encode(next).toByteArray(Charsets.UTF_8)
+        next.bufferUsageBytes = raw.size + 29
+        next.bufferAlertLevel = alertLevel(next.bufferUsageBytes, next.pending.size)
+        raw = StateCodec.encode(next).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         // AndroidKeyStore rejects caller-provided IVs for encryption. Let the provider
         // generate a fresh IV and retain the existing on-disk format for decryption.
@@ -124,16 +142,13 @@ class EncryptedFileAgentStore(private val file: Path, private val key: SecretKey
         val nonce = cipher.iv ?: error("state_iv_missing")
         require(nonce.size == 12) { "state_iv_size" }
         cipher.updateAAD("GEOPS-AGENT-STATE-V1".toByteArray(Charsets.US_ASCII))
-        val sealed = byteArrayOf(1) + nonce + cipher.doFinal(StateCodec.encode(next).toByteArray(Charsets.UTF_8))
-        require(sealed.size <= 4_000_000) { "queue_bytes_full" }
+        val sealed = byteArrayOf(1) + nonce + cipher.doFinal(raw)
+        require(sealed.size <= MAX_BYTES) { "queue_bytes_full" }
         Files.createDirectories(file.parent)
         val tmp = Files.createTempFile(file.parent, ".agent-", ".tmp")
         try {
             FileOutputStream(tmp.toFile()).use { it.write(sealed); it.fd.sync() }
-            try { Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE) }
-            catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
-            }
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } finally { Files.deleteIfExists(tmp) }
         Unit
     }
@@ -149,11 +164,17 @@ internal object StateCodec {
             .put("last_location_captured", s.lastLocationCapturedMs)
             .put("last_location_acked", s.lastLocationAckedMs)
             .put("upload_auth_blocked", s.uploadAuthBlocked)
+            .put("time_boot", s.timeBootId).put("time_wall_base", s.timeWallBaseMs)
+            .put("time_elapsed_base", s.timeElapsedBaseMs).put("last_evaluated", s.lastEvaluatedMs)
+            .put("buffer_bytes", s.bufferUsageBytes).put("buffer_alert", s.bufferAlertLevel)
+            .put("autonomous_enabled", s.autonomousEnabled)
         s.snapshot?.let { v ->
             val snap = JSONObject().put("device", v.identity.deviceId).put("installation", v.identity.installationId)
                 .put("version", v.assignmentVersion).put("active", v.active).put("anchor", v.anchorId)
                 .put("server_time", v.serverTimeMs).put("verified", v.verifiedAtMs)
-                .put("offline_end", v.offlineNotAfterMs)
+                .put("offline_end", v.offlineNotAfterMs).put("contract", v.schemaVersion)
+                .put("assignment_start", v.assignmentStartMs)
+                .put("authorized_until", v.authorizedUntilMs).put("tzdb", v.tzdbVersion)
             val windows = JSONArray()
             v.windows.forEach { windows.put(JSONObject().put("id", it.scheduledSessionId).put("start", it.startMs).put("end", it.endMs)) }
             snap.put("windows", windows)
@@ -162,7 +183,11 @@ internal object StateCodec {
                 .put("from", p.validFromMs).put("until", p.validUntilMs)) }
             v.display?.let { d -> snap.put("display", JSONObject().put("name", d.name)
                 .put("days", JSONArray().also { a -> d.daysIso.forEach(a::put) })
-                .put("start", d.startLocal).put("end", d.endLocal).put("zone", d.timeZone)) }
+                .put("start", d.startLocal).put("end", d.endLocal).put("zone", d.timeZone)
+                .put("exceptions", JSONArray().also { array -> d.exceptions.forEach { ex ->
+                    array.put(JSONObject().put("date", ex.localDate).put("mode", ex.mode)
+                        .put("start", ex.startLocal).put("end", ex.endLocal))
+                } })) }
             o.put("snapshot", snap)
         }
         s.session?.let { o.put("session", JSONObject().put("id", it.clientId).put("scheduled", it.scheduledId)
@@ -175,7 +200,8 @@ internal object StateCodec {
         val pending = JSONArray()
         s.pending.forEach { pending.put(JSONObject().put("id", it.id).put("kind", it.kind.name)
             .put("payload", it.payload).put("created", it.createdAtMs).put("attempts", it.attempts)
-            .put("retry", it.retryAfterMs).put("quarantined", it.quarantined)) }
+            .put("retry", it.retryAfterMs).put("quarantined", it.quarantined)
+            .put("wire_version", it.wireVersion)) }
         o.put("pending", pending)
         return o.toString()
     }
@@ -190,7 +216,14 @@ internal object StateCodec {
             locationsCaptured = o.optLong("locations_captured", 0), locationsAcked = o.optLong("locations_acked", 0),
             lastLocationCapturedMs = o.optLong("last_location_captured", -1),
             lastLocationAckedMs = o.optLong("last_location_acked", -1),
-            uploadAuthBlocked = o.optBoolean("upload_auth_blocked", false))
+            uploadAuthBlocked = o.optBoolean("upload_auth_blocked", false),
+            timeBootId = o.optString("time_boot").takeUnless { it.isEmpty() || it == "null" },
+            timeWallBaseMs = o.optLong("time_wall_base", -1),
+            timeElapsedBaseMs = o.optLong("time_elapsed_base", -1),
+            lastEvaluatedMs = o.optLong("last_evaluated", -1),
+            bufferUsageBytes = o.optInt("buffer_bytes", 0),
+            bufferAlertLevel = o.optInt("buffer_alert", 0),
+            autonomousEnabled = o.optBoolean("autonomous_enabled", false))
         o.optJSONObject("snapshot")?.let { v ->
             val windows = v.getJSONArray("windows")
             val list = (0 until windows.length()).map { i -> windows.getJSONObject(i).let {
@@ -199,12 +232,21 @@ internal object StateCodec {
                 it.getInt("capture"), it.getInt("sync"), it.getLong("from"), it.getLong("until"), it.getInt("health")) }
             val display = v.optJSONObject("display")?.let { d ->
                 val days = d.getJSONArray("days")
+                val exceptions = d.optJSONArray("exceptions")
                 PolicyDisplay(d.getString("name"), (0 until days.length()).map(days::getInt),
-                    d.getString("start"), d.getString("end"), d.getString("zone"))
+                    d.getString("start"), d.getString("end"), d.getString("zone"),
+                    if (exceptions == null) emptyList() else (0 until exceptions.length()).map { i ->
+                        exceptions.getJSONObject(i).let { ex -> PolicyException(ex.getString("date"),
+                            ex.getString("mode"), ex.optString("start").takeUnless { it.isEmpty() || it == "null" },
+                            ex.optString("end").takeUnless { it.isEmpty() || it == "null" }) }
+                    })
             }
             s.snapshot = Snapshot(Identity(v.getString("device"), v.getString("installation")), v.getLong("version"),
                 v.getBoolean("active"), v.getString("anchor"), v.getLong("server_time"), v.getLong("verified"),
-                v.getLong("offline_end"), list, p, display)
+                v.getLong("offline_end"), list, p, display, v.optInt("contract", 1),
+                v.optLong("assignment_start").takeIf { v.has("assignment_start") && !v.isNull("assignment_start") },
+                v.optLong("authorized_until").takeIf { v.has("authorized_until") && !v.isNull("authorized_until") },
+                v.optString("tzdb").takeUnless { it.isEmpty() || it == "null" })
         }
         o.optJSONObject("session")?.let { s.session = LocalSession(it.getString("id"), it.getString("scheduled"),
             it.getLong("version"), it.getInt("revision"), it.getLong("started"), it.getString("state")) }
@@ -213,10 +255,11 @@ internal object StateCodec {
             TrackingIntent(it.getString("installation"), decodeInstance(it.getJSONObject("instance")),
                 it.getLong("requested"), it.getString("boot")) }
         val pending = o.getJSONArray("pending")
-        require(pending.length() <= 10_000) { "queue_corrupt" }
+        require(pending.length() <= EncryptedFileAgentStore.MAX_RECORDS) { "queue_corrupt" }
         for (i in 0 until pending.length()) pending.getJSONObject(i).let { s.pending.add(PendingRecord(
             it.getString("id"), RecordKind.valueOf(it.getString("kind")), it.getString("payload"),
-            it.getLong("created"), it.getInt("attempts"), it.getLong("retry"), it.getBoolean("quarantined"))) }
+            it.getLong("created"), it.getInt("attempts"), it.getLong("retry"), it.getBoolean("quarantined"),
+            it.optInt("wire_version", 2).also { version -> require(version in 2..3) { "queue_protocol" } })) }
         return s
     }
 

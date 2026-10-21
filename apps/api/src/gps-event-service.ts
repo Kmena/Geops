@@ -9,11 +9,13 @@ import {
   type GpsBatch,
   type GpsBatchAck,
   type GpsBatchV2,
+  type GpsBatchV3,
   type GpsEventKind,
   type PositionEvent,
   type SessionEvent,
 } from './gps-event-contracts.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
+import { windowsForRange, type GpsPolicySpec } from './gps-policy-windows.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const utc = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -43,6 +45,11 @@ interface Anchor {
   offline_not_after: Date;
   health_boot_id: string | null;
   session_boot_id: string | null;
+  contract_version: number;
+  policy_id: string | null;
+  policy_revision: number | null;
+  assignment_start: Date | null;
+  authorized_until: Date | null;
 }
 interface Effective {
   id: string;
@@ -184,6 +191,158 @@ export class GpsEventService {
     }
   }
 
+  /** V3 keeps a per-boot relative clock check; civil time after reboot remains device-reported. */
+  private async offlineTime(
+    db: PoolClient,
+    eventId: string,
+    anchor: Anchor,
+    bootId: string,
+    elapsed: number,
+    at: string,
+    terminal = false,
+  ): Promise<void> {
+    const observed = Date.parse(at);
+    if (
+      anchor.contract_version !== 2 ||
+      !anchor.authorized_until ||
+      !anchor.policy_id ||
+      !anchor.assignment_start ||
+      observed < anchor.server_time.getTime() ||
+      (!terminal && observed >= anchor.authorized_until.getTime()) ||
+      (terminal && observed > anchor.authorized_until.getTime() + DAY)
+    )
+      invalid(eventId);
+    await db.query(
+      `INSERT INTO gps_offline_boot_clock(capture_anchor_id,boot_id,first_reported_at,first_elapsed_ms)
+       VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+      [anchor.capture_anchor_id, bootId, at, elapsed],
+    );
+    const first = await db.query<{ first_reported_at: Date; first_elapsed_ms: string }>(
+      `SELECT first_reported_at,first_elapsed_ms FROM gps_offline_boot_clock
+       WHERE capture_anchor_id=$1 AND boot_id=$2 FOR UPDATE`,
+      [anchor.capture_anchor_id, bootId],
+    );
+    const baseline = first.rows[0] ?? invalid(eventId);
+    if (
+      Math.abs(
+        observed -
+          baseline.first_reported_at.getTime() -
+          (elapsed - Number(baseline.first_elapsed_ms)),
+      ) > 30_000
+    )
+      invalid(eventId);
+  }
+
+  /** Materialize an exact historical window from the delivered immutable revision. */
+  private async offlineScheduled(
+    db: PoolClient,
+    deviceId: string,
+    anchor: Anchor,
+    at: string,
+  ): Promise<{ id: string; start_at: Date; end_at: Date } | null> {
+    if (
+      !anchor.policy_id ||
+      !anchor.policy_revision ||
+      !anchor.assignment_start ||
+      !anchor.authorized_until
+    )
+      return null;
+    const assignment = await db.query<{
+      days_iso: number[];
+      start_local: string;
+      end_local: string;
+      time_zone: string;
+      valid_from: Date;
+      valid_until: Date;
+      lower_at: Date;
+      upper_at: Date;
+      exceptions: GpsPolicySpec['exceptions'];
+    }>(
+      `SELECT r.days_iso,to_char(r.start_local,'HH24:MI') AS start_local,
+         to_char(r.end_local,'HH24:MI') AS end_local,r.time_zone,r.valid_from,r.valid_until,
+         lower(e.effective_range) AS lower_at,upper(e.effective_range) AS upper_at,
+         COALESCE((SELECT json_agg(json_build_object('local_date',x.local_date,'mode',x.mode,
+           'start_local',CASE WHEN x.start_local IS NULL THEN NULL ELSE to_char(x.start_local,'HH24:MI') END,
+           'end_local',CASE WHEN x.end_local IS NULL THEN NULL ELSE to_char(x.end_local,'HH24:MI') END,
+           'reason',x.reason)) FROM gps_policy_exception x
+           WHERE x.policy_id=r.policy_id AND x.revision=r.revision),'[]'::json) AS exceptions
+       FROM gps_effective_assignment e JOIN gps_policy_revision r
+         ON r.policy_id=e.policy_id AND r.revision=e.revision
+       WHERE e.device_id=$1 AND e.assignment_version=$2 AND e.policy_id=$3 AND e.revision=$4
+         AND e.effective_range @> $5::timestamptz LIMIT 2`,
+      [deviceId, anchor.assignment_version, anchor.policy_id, anchor.policy_revision, at],
+    );
+    if (assignment.rows.length !== 1) return null;
+    const row = assignment.rows[0]!;
+    const time = Date.parse(at);
+    const lower = Math.max(
+      row.lower_at.getTime(),
+      anchor.assignment_start.getTime(),
+      anchor.server_time.getTime() - 2 * DAY,
+      time - 2 * DAY,
+    );
+    const upper = Math.min(
+      row.upper_at.getTime(),
+      anchor.authorized_until.getTime(),
+      time + 2 * DAY,
+    );
+    const spec: GpsPolicySpec = {
+      name: 'Published',
+      days_iso: row.days_iso,
+      start_local: row.start_local,
+      end_local: row.end_local,
+      time_zone: row.time_zone,
+      capture_interval_s: 60,
+      sync_interval_s: 60,
+      heartbeat_missing_after_s: 900,
+      health_interval_s: 300,
+      valid_from: row.valid_from.toISOString(),
+      valid_until: row.valid_until.toISOString(),
+      exceptions: (row.exceptions ?? []).map((ex) => ({
+        local_date: ex.local_date,
+        mode: ex.mode,
+        reason: ex.reason,
+        ...(ex.start_local ? { start_local: ex.start_local } : {}),
+        ...(ex.end_local ? { end_local: ex.end_local } : {}),
+      })),
+    };
+    const windows = windowsForRange(spec, new Date(lower), new Date(upper)).filter(
+      (window) => Date.parse(window.start_at) <= time && time < Date.parse(window.end_at),
+    );
+    if (windows.length !== 1) return null;
+    const window = windows[0]!;
+    await db.query(
+      `INSERT INTO gps_scheduled_session(id,device_id,policy_id,revision,assignment_version,
+       local_date,start_at,end_at,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'SCHEDULED')
+       ON CONFLICT DO NOTHING`,
+      [
+        randomUUID(),
+        deviceId,
+        anchor.policy_id,
+        anchor.policy_revision,
+        anchor.assignment_version,
+        window.local_date,
+        window.start_at,
+        window.end_at,
+      ],
+    );
+    const selected = await db.query<{ id: string; start_at: Date; end_at: Date }>(
+      `SELECT id,start_at,end_at FROM gps_scheduled_session
+       WHERE device_id=$1 AND policy_id=$2 AND revision=$3 AND assignment_version=$4
+         AND local_date=$5 AND start_at=$6 AND end_at=$7 AND state IN ('SCHEDULED','MISSED')`,
+      [
+        deviceId,
+        anchor.policy_id,
+        anchor.policy_revision,
+        anchor.assignment_version,
+        window.local_date,
+        window.start_at,
+        window.end_at,
+      ],
+    );
+    return selected.rows[0] ?? null;
+  }
+
   private validAge(eventId: string, at: string): void {
     const time = Date.parse(at),
       now = this.now().getTime();
@@ -312,12 +471,21 @@ export class GpsEventService {
     return this.ingest('POSITION', principal, batch, requestId);
   }
 
-  /** V2 commits the local STARTED, its canonical session, positions and receipt together. */
-  async ingestMixed(
+  async ingestOffline(
     principal: DevicePrincipal,
-    batch: GpsBatchV2,
+    batch: GpsBatchV3,
     requestId: string,
   ): Promise<GpsBatchAck | Pending> {
+    return this.ingestMixed(principal, batch, requestId);
+  }
+
+  /** V2/v3 commit local STARTED, canonical session, positions and receipt together. */
+  async ingestMixed(
+    principal: DevicePrincipal,
+    batch: GpsBatchV2 | GpsBatchV3,
+    requestId: string,
+  ): Promise<GpsBatchAck | Pending> {
+    const offline = batch.schema_version === 3;
     if (batch.device_id !== principal.deviceId)
       throw new ApiError(403, 'device_mismatch', 'Forbidden', true);
     const db = await this.pool.connect();
@@ -382,6 +550,8 @@ export class GpsEventService {
               event.assignment_version,
             ),
           );
+          if (offline && anchors.get(event.capture_anchor_id)?.contract_version !== 2)
+            invalid(event.event_id);
         }
       }
       const hasStarted = sessions.some((event) => event.type === 'STARTED');
@@ -400,7 +570,15 @@ export class GpsEventService {
       const duplicate: string[] = [];
       const mappings = new Map<string, string>();
       for (const event of sessions) {
-        const result = await this.sessionEvent(db, principal.deviceId, scope, event, anchors, true);
+        const result = await this.sessionEvent(
+          db,
+          principal.deviceId,
+          scope,
+          event,
+          anchors,
+          true,
+          offline,
+        );
         (result.duplicate ? duplicate : accepted).push(event.event_id);
         if (result.mapping)
           mappings.set(result.mapping.client_session_id, result.mapping.session_id);
@@ -410,7 +588,14 @@ export class GpsEventService {
         );
       }
       for (const event of positions) {
-        const isDuplicate = await this.positionEvent(db, principal.deviceId, scope, event, anchors);
+        const isDuplicate = await this.positionEvent(
+          db,
+          principal.deviceId,
+          scope,
+          event,
+          anchors,
+          offline,
+        );
         (isDuplicate ? duplicate : accepted).push(event.event_id);
         await db.query(
           "DELETE FROM gps_event_quarantine WHERE device_id=$1 AND event_id=$2 AND kind='POSITION'",
@@ -444,7 +629,7 @@ export class GpsEventService {
       await appendAudit(db, {
         actorType: 'DEVICE',
         deviceId: principal.deviceId,
-        action: 'gps.mixed.ingest',
+        action: offline ? 'gps.offline.ingest' : 'gps.mixed.ingest',
         outcome: 'success',
         correlationId: requestId,
         metadata: { accepted: accepted.length, duplicate: duplicate.length },
@@ -657,6 +842,7 @@ export class GpsEventService {
     event: SessionEvent,
     anchors: Map<string, Anchor>,
     historicalMode = false,
+    offline = false,
   ): Promise<{
     duplicate: boolean;
     mapping?: { client_session_id: string; session_id: string };
@@ -682,27 +868,46 @@ export class GpsEventService {
     if (!diagnostic && (!anchor || event.anchor_elapsed_realtime_ms === undefined))
       invalid(event.event_id);
     if (anchor && event.anchor_elapsed_realtime_ms !== undefined)
-      await this.anchorTime(
-        db,
-        event.event_id,
-        anchor,
-        event.boot_id,
-        event.anchor_elapsed_realtime_ms,
-        event.elapsed_realtime_ms,
-        event.occurred_at,
-        terminal,
-      );
+      if (offline)
+        await this.offlineTime(
+          db,
+          event.event_id,
+          anchor,
+          event.boot_id,
+          event.elapsed_realtime_ms,
+          event.occurred_at,
+          terminal,
+        );
+      else
+        await this.anchorTime(
+          db,
+          event.event_id,
+          anchor,
+          event.boot_id,
+          event.anchor_elapsed_realtime_ms,
+          event.elapsed_realtime_ms,
+          event.occurred_at,
+          terminal,
+        );
     let effective: Effective | null = null;
     let scheduledId: string | null = null;
     if (event.type === 'STARTED') {
-      const window = await this.scheduled(
-        db,
-        deviceId,
-        event.assignment_version,
-        event.occurred_at,
-        event.scheduled_session_id,
-      );
-      if (!window || window.id !== event.scheduled_session_id) invalid(event.event_id);
+      const window = offline
+        ? await this.offlineScheduled(
+            db,
+            deviceId,
+            anchor ?? invalid(event.event_id),
+            event.occurred_at,
+          )
+        : await this.scheduled(
+            db,
+            deviceId,
+            event.assignment_version,
+            event.occurred_at,
+            event.scheduled_session_id,
+          );
+      if (!window || (!offline && window.id !== event.scheduled_session_id))
+        invalid(event.event_id);
       scheduledId = window.id;
       await db.query(
         "UPDATE gps_scheduled_session SET state='SCHEDULED' WHERE id=$1 AND state='MISSED'",
@@ -802,31 +1007,41 @@ export class GpsEventService {
         conflict('session_order_conflict');
       if (event.type === 'INTERRUPTED') {
         if (effective.state !== 'OPEN') conflict('session_transition_conflict');
-        if (
-          !(await this.scheduled(
-            db,
-            deviceId,
-            event.assignment_version,
-            event.occurred_at,
-            effective.scheduled_session_id,
-          ))
-        )
-          invalid(event.event_id);
+        const window = offline
+          ? await this.offlineScheduled(
+              db,
+              deviceId,
+              anchor ?? invalid(event.event_id),
+              event.occurred_at,
+            )
+          : await this.scheduled(
+              db,
+              deviceId,
+              event.assignment_version,
+              event.occurred_at,
+              effective.scheduled_session_id,
+            );
+        if (!window || window.id !== effective.scheduled_session_id) invalid(event.event_id);
         await db.query("UPDATE gps_effective_session SET state='INTERRUPTED' WHERE id=$1", [
           effective.id,
         ]);
       } else if (event.type === 'RESUMED') {
         if (effective.state !== 'INTERRUPTED') conflict('session_transition_conflict');
-        if (
-          !(await this.scheduled(
-            db,
-            deviceId,
-            event.assignment_version,
-            event.occurred_at,
-            effective.scheduled_session_id,
-          ))
-        )
-          invalid(event.event_id);
+        const window = offline
+          ? await this.offlineScheduled(
+              db,
+              deviceId,
+              anchor ?? invalid(event.event_id),
+              event.occurred_at,
+            )
+          : await this.scheduled(
+              db,
+              deviceId,
+              event.assignment_version,
+              event.occurred_at,
+              effective.scheduled_session_id,
+            );
+        if (!window || window.id !== effective.scheduled_session_id) invalid(event.event_id);
         await db.query("UPDATE gps_effective_session SET state='OPEN' WHERE id=$1", [effective.id]);
       } else if (event.type === 'STOPPED') {
         if (!['OPEN', 'INTERRUPTED', 'UNKNOWN_END'].includes(effective.state))
@@ -853,8 +1068,8 @@ export class GpsEventService {
       `INSERT INTO gps_session_event(device_id,event_id,installation_id,client_session_id,
        session_id,type,occurred_at,reason_code,assignment_version,capture_anchor_id,
        boot_id,anchor_elapsed_realtime_ms,elapsed_realtime_ms,payload_digest,
-       tenant_id,mdm_binding_id,scheduled_session_id)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+        tenant_id,mdm_binding_id,scheduled_session_id,time_evidence)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [
         deviceId,
         event.event_id,
@@ -873,6 +1088,7 @@ export class GpsEventService {
         scope.tenantId,
         scope.bindingId,
         scheduledId,
+        offline ? 'DEVICE_CLOCK_OFFLINE_V2' : 'SERVER_ANCHORED_V1',
       ],
     );
     if (event.type === 'MISSED_START' && scheduledId && !effective)
@@ -891,6 +1107,7 @@ export class GpsEventService {
     scope: Scope,
     event: PositionEvent,
     anchors: Map<string, Anchor>,
+    offline = false,
   ): Promise<boolean> {
     const hash = digest(event);
     const previous = await db.query<{ payload_digest: Buffer }>(
@@ -913,25 +1130,35 @@ export class GpsEventService {
       invalid(event.event_id);
     const anchor = anchors.get(event.capture_anchor_id);
     if (!anchor) invalid(event.event_id);
-    await this.anchorTime(
-      db,
-      event.event_id,
-      anchor,
-      event.boot_id,
-      event.anchor_elapsed_realtime_ms,
-      event.elapsed_realtime_ms,
-      event.captured_at,
-    );
-    if (
-      !(await this.scheduled(
+    if (offline)
+      await this.offlineTime(
         db,
-        deviceId,
-        event.assignment_version,
+        event.event_id,
+        anchor,
+        event.boot_id,
+        event.elapsed_realtime_ms,
         event.captured_at,
-        effective.scheduled_session_id,
-      ))
-    )
-      invalid(event.event_id);
+      );
+    else
+      await this.anchorTime(
+        db,
+        event.event_id,
+        anchor,
+        event.boot_id,
+        event.anchor_elapsed_realtime_ms,
+        event.elapsed_realtime_ms,
+        event.captured_at,
+      );
+    const window = offline
+      ? await this.offlineScheduled(db, deviceId, anchor, event.captured_at)
+      : await this.scheduled(
+          db,
+          deviceId,
+          event.assignment_version,
+          event.captured_at,
+          effective.scheduled_session_id,
+        );
+    if (!window || window.id !== effective.scheduled_session_id) invalid(event.event_id);
     const last = await db.query<{ type: string }>(
       `SELECT type FROM gps_session_event WHERE device_id=$1 AND session_id=$2
        AND occurred_at<=$3 AND type IN ('STARTED','INTERRUPTED','RESUMED','STOPPED')
@@ -942,9 +1169,9 @@ export class GpsEventService {
     await db.query(
       `INSERT INTO position_event(device_id,event_id,session_id,assignment_version,
        captured_at,capture_anchor_id,boot_id,anchor_elapsed_realtime_ms,elapsed_realtime_ms,
-       geom,accuracy_m,payload_digest,quality_state,tenant_id,mdm_binding_id,installation_id)
+       geom,accuracy_m,payload_digest,quality_state,tenant_id,mdm_binding_id,installation_id,time_evidence)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,
-         ST_SetSRID(ST_MakePoint($10,$11),4326)::geography,$12,$13,'DEVICE_REPORTED',$14,$15,$16)`,
+         ST_SetSRID(ST_MakePoint($10,$11),4326)::geography,$12,$13,'DEVICE_REPORTED',$14,$15,$16,$17)`,
       [
         deviceId,
         event.event_id,
@@ -962,6 +1189,7 @@ export class GpsEventService {
         scope.tenantId,
         scope.bindingId,
         scope.installationId,
+        offline ? 'DEVICE_CLOCK_OFFLINE_V2' : 'SERVER_ANCHORED_V1',
       ],
     );
     return false;

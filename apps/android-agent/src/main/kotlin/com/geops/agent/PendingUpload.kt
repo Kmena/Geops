@@ -46,7 +46,8 @@ class PendingUpload(
         val now = clock.read().wallMs
         val pending = store.read().pending.filter { !it.quarantined }
         if (pending.isEmpty()) return UploadResult(UploadStatus.EMPTY)
-        val due = pending.minOf { it.retryAfterMs }
-        return UploadResult(UploadStatus.PENDING, (due - now).coerceAtLeast(0))
+        val due = sync.nextEligibleAtMs()
+        return UploadResult(UploadStatus.PENDING,
+            if (due == null) 15 * 60_000L else (due - now).coerceAtLeast(0))
     }
 }

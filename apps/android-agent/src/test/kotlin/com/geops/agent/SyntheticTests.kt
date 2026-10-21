@@ -24,8 +24,9 @@ private fun snap(version: Long = 7, active: Boolean = true, from: Long = start, 
     Snapshot(Identity(device, installation), version, active, anchor, start, start, end,
         if (active) windows else emptyList(),
         if (active) Policy(policyId, if (version == 7L) 2 else 3, 60, 300, from, until, healthInterval) else null)
-private class FakeClock(var wall: Long = start, var elapsed: Long = 1000, var bootId: String = boot) : AgentClock {
-    override fun read() = ClockReading(wall, elapsed, bootId)
+private class FakeClock(var wall: Long = start, var elapsed: Long = 1000, var bootId: String = boot,
+                        var automaticTime: Boolean = true) : AgentClock {
+    override fun read() = ClockReading(wall, elapsed, bootId, automaticTime)
     fun advance(delta: Long) { wall += delta; elapsed += delta }
 }
 private class FakeRuntime(var allowed: Boolean = true) : TrackingRuntime {
@@ -266,6 +267,52 @@ fun main() {
         clock.bootId = UUID.randomUUID().toString(); check(p.current() == null)
         clock.bootId = boot; clock.advance(7 * 3_600_000); check(p.current() == null)
     }
+    test("ADR-020 v2 authorizes later offline journeys and survives restart within explicit validity") {
+        val clock = FakeClock()
+        val (policy, store) = engine(clock)
+        val offline = snap(until = start + 4 * 86_400_000L).copy(
+            schemaVersion = 2, assignmentStartMs = start,
+            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = "2026a",
+            display = PolicyDisplay("Offline", (1..7).toList(), "22:00", "06:00", "America/Guatemala"))
+        policy.load(offline)
+        check(policy.current() != null)
+        clock.automaticTime = false
+        check(policy.current() == null && !policy.autonomousEligible())
+        clock.automaticTime = true
+        clock.advance(14 * 3_600_000L)
+        check(policy.current() == null && policy.autonomousEligible())
+        clock.advance(10 * 3_600_000L)
+        check(policy.current() != null && policy.current()!!.window.startMs == start + 86_400_000L)
+        val restarted = PolicyEngine(Identity(device, installation), clock, store)
+        check(restarted.current() != null)
+        clock.wall += 86_400_000L; clock.elapsed = 1000
+        clock.bootId = UUID.randomUUID().toString()
+        check(restarted.current() != null)
+        clock.wall = start - 1000; clock.bootId = UUID.randomUUID().toString()
+        check(restarted.current() == null)
+        clock.wall = start + 2 * 86_400_000L; clock.bootId = UUID.randomUUID().toString()
+        clock.automaticTime = false
+        check(restarted.current() == null)
+        clock.automaticTime = true
+        clock.wall = start + 4 * 86_400_000L
+        check(restarted.current() == null)
+    }
+    test("ADR-020 v2 exception OFF and replacement are enforced offline") {
+        val clock = FakeClock()
+        val (policy, _) = engine(clock)
+        policy.load(snap(until = start + 4 * 86_400_000L).copy(
+            schemaVersion = 2, assignmentStartMs = start,
+            authorizedUntilMs = start + 4 * 86_400_000L, tzdbVersion = "2026a",
+            display = PolicyDisplay("Exceptions", (1..7).toList(), "22:00", "06:00", "America/Guatemala",
+                listOf(PolicyException("2026-10-20", "OFF"),
+                    PolicyException("2026-10-21", "REPLACE", "23:00", "05:00")))))
+        clock.advance(86_400_000L)
+        check(policy.current() == null)
+        clock.advance(86_400_000L)
+        check(policy.current() == null)
+        clock.advance(3_600_000L)
+        check(policy.current() != null)
+    }
     test("policy diagnostic distinguishes no assignment, scheduled window and clock drift") {
         val clock = FakeClock(); val (p, store) = engine(clock)
         check(p.evaluate().reason == "NO_CONFIG")
@@ -433,10 +480,31 @@ fun main() {
         val wrongKey = KeyGenerator.getInstance("AES").run { init(256); generateKey() }
         check(runCatching { EncryptedFileAgentStore(path, wrongKey).read() }.isFailure)
         check(runCatching { reopened.update { it.pending.add(PendingRecord(UUID.randomUUID().toString(),
-            RecordKind.HEALTH, "x".repeat(4_000_000), start)) } }.isFailure)
+            RecordKind.HEALTH, "x".repeat(34_000_000), start)) } }.isFailure)
         check(reopened.read().pending.size == 1)
         bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte(); Files.write(path, bytes)
         check(runCatching { reopened.read() }.isFailure)
+        Files.deleteIfExists(path)
+    }
+    test("Wave C encrypted queue retains 4320 locations and reports 70/90 percent capacity") {
+        val path = Files.createTempFile("geops-capacity-", ".bin")
+        Files.delete(path)
+        val key = KeyGenerator.getInstance("AES").run { init(256); generateKey() }
+        val store = EncryptedFileAgentStore(path, key)
+        store.update { state -> repeat(4320) { index ->
+            state.pending.add(PendingRecord(UUID.randomUUID().toString(), RecordKind.LOCATION,
+                JSONObject().put("event_id", UUID.randomUUID().toString())
+                    .put("captured_at", utc(start + index * 60_000L))
+                    .put("latitude", 14.6).put("longitude", -90.5).toString(),
+                start + index * 60_000L, wireVersion = 3))
+        } }
+        val recovered = EncryptedFileAgentStore(path, key).read()
+        check(recovered.pending.size == 4320 && recovered.pending.first().id == store.read().pending.first().id)
+        check(recovered.pending.last().createdAtMs == start + 4319 * 60_000L)
+        check(recovered.bufferUsageBytes < EncryptedFileAgentStore.MAX_BYTES)
+        check(EncryptedFileAgentStore.alertLevel(23_500_000, 0) == 70)
+        check(EncryptedFileAgentStore.alertLevel(30_300_000, 0) == 90)
+        check(EncryptedFileAgentStore.alertLevel(0, 9000) == 90)
         Files.deleteIfExists(path)
     }
     test("existing version-one ciphertext remains readable") {
@@ -594,6 +662,87 @@ fun main() {
             setOf(aStart.id, aPoint.id))
         check(store.read().locationsAcked == 1L)
     }
+    test("Wave D v3 retries one offline session without downgrade or premature deletion") {
+        val clock = FakeClock()
+        val store = MemoryAgentStore()
+        val client = UUID.randomUUID().toString()
+        val started = UUID.randomUUID().toString()
+        val point = UUID.randomUUID().toString()
+        store.update { state ->
+            state.pending.add(PendingRecord(started, RecordKind.SESSION,
+                JSONObject().put("event_id", started).put("client_session_id", client)
+                    .put("type", "STARTED").toString(), start, wireVersion = 3))
+            state.pending.add(PendingRecord(point, RecordKind.LOCATION,
+                JSONObject().put("event_id", point).put("client_session_id", client).toString(),
+                start + 1000, wireVersion = 3))
+        }
+        var calls = 0
+        val transport = object : BatchTransport {
+            override fun supportsOffline() = true
+            override fun post(kind: RecordKind, body: String): HttpResult = error("v1 downgrade")
+            override fun postOffline(body: String): HttpResult {
+                calls++
+                val batch = JSONObject(body)
+                check(batch.getInt("schema_version") == 3 && batch.getJSONArray("events").length() == 2)
+                if (calls == 1) return HttpResult(429, "{}", 30)
+                return HttpResult(200, JSONObject().put("batch_id", batch.getString("batch_id"))
+                    .put("persisted_at", utc(clock.wall))
+                    .put("accepted_event_ids", JSONArray().put(started).put(point))
+                    .put("duplicate_event_ids", JSONArray())
+                    .put("session_mappings", JSONArray().put(JSONObject()
+                        .put("client_session_id", client).put("session_id", UUID.randomUUID().toString())))
+                    .toString(), null)
+            }
+        }
+        val sync = BatchSync(Identity(device, installation), store, clock, transport)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.RETRY)
+        check(store.read().pending.size == 2 && sync.nextEligibleAtMs() == clock.wall + 30_000L)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY && calls == 1)
+        clock.advance(30_000)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.ACKED && calls == 2)
+        check(store.read().pending.isEmpty() && store.read().locationsAcked == 1L)
+    }
+    test("Wave D v3 STARTED backoff does not block another offline session") {
+        val clock = FakeClock()
+        val store = MemoryAgentStore()
+        val first = UUID.randomUUID().toString(); val second = UUID.randomUUID().toString()
+        val ids = mutableMapOf<String, List<String>>()
+        store.update { state ->
+            for ((index, client) in listOf(first, second).withIndex()) {
+                val started = UUID.randomUUID().toString(); val point = UUID.randomUUID().toString()
+                ids[client] = listOf(started, point)
+                state.pending.add(PendingRecord(started, RecordKind.SESSION,
+                    JSONObject().put("event_id", started).put("client_session_id", client)
+                        .put("type", "STARTED").toString(), start + index, wireVersion = 3))
+                state.pending.add(PendingRecord(point, RecordKind.LOCATION,
+                    JSONObject().put("event_id", point).put("client_session_id", client).toString(),
+                    start + index + 1000, wireVersion = 3))
+            }
+        }
+        val attempted = mutableListOf<String>()
+        val transport = object : BatchTransport {
+            override fun supportsOffline() = true
+            override fun post(kind: RecordKind, body: String): HttpResult = error("v1 downgrade")
+            override fun postOffline(body: String): HttpResult {
+                val batch = JSONObject(body)
+                val client = batch.getString("client_session_id")
+                attempted.add(client)
+                if (client == first) return HttpResult(429, "{}", 30)
+                return HttpResult(200, JSONObject().put("batch_id", batch.getString("batch_id"))
+                    .put("persisted_at", utc(clock.wall))
+                    .put("accepted_event_ids", JSONArray().put(ids[client]!![0]).put(ids[client]!![1]))
+                    .put("duplicate_event_ids", JSONArray())
+                    .put("session_mappings", JSONArray().put(JSONObject()
+                        .put("client_session_id", client).put("session_id", UUID.randomUUID().toString())))
+                    .toString(), null)
+            }
+        }
+        val sync = BatchSync(Identity(device, installation), store, clock, transport)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.RETRY)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.ACKED)
+        check(attempted == listOf(first, second) && store.read().pending.map { it.id }.toSet() ==
+            ids[first]!!.toSet())
+    }
     test("upload loop sends STARTED and first position together before v1 session transport") {
         val clock = FakeClock(wall = end + 3_600_000)
         val store = MemoryAgentStore()
@@ -668,6 +817,9 @@ fun main() {
         store.update { it.pending.add(PendingRecord(freshId, RecordKind.LOCATION,
             JSONObject().put("event_id", freshId).put("client_session_id", clientId)
                 .toString(), start + 120_000)) }
+        val deferred = PendingUpload(identity, store, clock, sync).run()
+        check(deferred.status == UploadStatus.PENDING && deferred.nextDelayMs >= 30_000 &&
+            v2Calls == 1 && v1Calls == 0)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY &&
             sync.lastDetail == SyncDetail.BACKOFF && v2Calls == 1)
         val otherClient = UUID.randomUUID().toString()
@@ -681,6 +833,7 @@ fun main() {
                 JSONObject().put("event_id", otherPoint).put("client_session_id", otherClient)
                     .toString(), start + 180_000))
         }
+        check(sync.nextEligibleAtMs()!! <= clock.wall)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.RETRY && v2Calls == 2 && v1Calls == 0)
     }
     test("lost or malformed ACK retains original event and backs off") {

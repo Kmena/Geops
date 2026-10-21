@@ -4,7 +4,12 @@ import type { AdminAuthService } from './admin-auth/service.js';
 import { exactBody } from './device-identity/raw-body.js';
 import type { DeviceSessionService } from './device-identity/session.js';
 import { ApiError } from './errors.js';
-import { GpsValidationError, parseGpsBatch, parseGpsV2Batch } from './gps-event-contracts.js';
+import {
+  GpsValidationError,
+  parseGpsBatch,
+  parseGpsV2Batch,
+  parseGpsV3Batch,
+} from './gps-event-contracts.js';
 import { GpsRateLimited, type GpsEventService } from './gps-event-service.js';
 
 type Query = { cursor?: string; limit?: string; from?: string; to?: string; session_id?: string };
@@ -30,6 +35,27 @@ export function registerGpsEventRoutes(
       await events.checkQuota(principal.deviceId, 'SESSION');
       const batch = parseGpsV2Batch(request.body, exactBody(request).length);
       const result = await events.ingestMixed(principal, batch, request.id);
+      reply.code('pending_event_ids' in result ? 202 : 200);
+      return result;
+    } catch (error) {
+      if (error instanceof GpsRateLimited) reply.header('Retry-After', error.retryAfter);
+      if (error instanceof GpsValidationError) {
+        reply.code(422);
+        return {
+          code: error.code,
+          correlation_id: request.id,
+          invalid_event_ids: error.invalidIds,
+        };
+      }
+      throw error;
+    }
+  });
+  app.post('/v3/device/gps/batches', { bodyLimit: 256 * 1024 }, async (request, reply) => {
+    const principal = await sessions.verifyRequest(request, exactBody(request));
+    try {
+      await events.checkQuota(principal.deviceId, 'SESSION');
+      const batch = parseGpsV3Batch(request.body, exactBody(request).length);
+      const result = await events.ingestOffline(principal, batch, request.id);
       reply.code('pending_event_ids' in result ? 202 : 200);
       return result;
     } catch (error) {

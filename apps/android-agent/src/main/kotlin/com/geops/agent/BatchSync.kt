@@ -10,12 +10,16 @@ interface BatchTransport {
     fun post(kind: RecordKind, body: String): HttpResult
     fun supportsMixed(): Boolean = false
     fun postMixed(body: String): HttpResult = throw UnsupportedOperationException("mixed_not_supported")
+    fun supportsOffline(): Boolean = false
+    fun postOffline(body: String): HttpResult = throw UnsupportedOperationException("offline_not_supported")
 }
 
 /** Health ingestion is a proposed SDD delta; disabled against current backend by default. */
 class PopBatchTransport(private val http: PopHttpClient, private val healthContractApproved: Boolean = false) : BatchTransport {
     override fun supportsMixed(): Boolean = true
     override fun postMixed(body: String): HttpResult = http.request("POST", "/v2/device/gps/batches", body)
+    override fun supportsOffline(): Boolean = true
+    override fun postOffline(body: String): HttpResult = http.request("POST", "/v3/device/gps/batches", body)
     override fun post(kind: RecordKind, body: String): HttpResult {
         val path = when (kind) {
             RecordKind.SESSION -> "/v1/device/gps-session-events/batches"
@@ -37,6 +41,34 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
     @Volatile var lastDetail: SyncDetail = SyncDetail.NONE
         private set
     private var mixedAvailable = transport.supportsMixed()
+    private val offlineAvailable = transport.supportsOffline()
+
+    /** Earliest useful retry, including the STARTED dependency of each session. */
+    fun nextEligibleAtMs(): Long? {
+        val pending = store.read().pending.filter { !it.quarantined }
+        if (pending.isEmpty()) return null
+        fun client(record: PendingRecord) = JSONObject(record.payload).optString("client_session_id")
+        fun startFor(record: PendingRecord) = pending.firstOrNull { candidate ->
+            candidate.kind == RecordKind.SESSION &&
+                JSONObject(candidate.payload).optString("type") == "STARTED" &&
+                client(candidate) == client(record)
+        }
+        return pending.mapNotNull { record ->
+            when (record.kind) {
+                RecordKind.HEALTH -> record.retryAfterMs
+                RecordKind.SESSION -> if (record.wireVersion == 2 && mixedAvailable && pending.any {
+                    it.kind == RecordKind.LOCATION && it.wireVersion == 2 && client(it) == client(record)
+                }) null else record.retryAfterMs
+                RecordKind.LOCATION -> {
+                    val start = startFor(record)
+                    if (start == null) record.retryAfterMs
+                    else if (record.wireVersion == 3 || mixedAvailable)
+                        maxOf(record.retryAfterMs, start.retryAfterMs)
+                    else null // v1 must ACK STARTED first; its own retry determines wakeup.
+                }
+            }
+        }.minOrNull()
+    }
     private fun observe(kind: DiagnosticKind, record: RecordKind, count: Int,
                         reason: DiagnosticReason = DiagnosticReason.NONE) {
         diagnostics.recordSafely(DiagnosticEvent(kind, clock.read().wallMs, reason,
@@ -46,9 +78,14 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
     @Synchronized fun once(kind: RecordKind): SyncOutcome {
         val now = clock.read().wallMs
         val pending = store.read().pending
-        if (kind == RecordKind.LOCATION && mixedAvailable) return onceMixedLocations(pending, now)
+        if ((kind == RecordKind.LOCATION || kind == RecordKind.SESSION) && offlineAvailable) {
+            val offline = onceMixedLocations(pending, now, 3)
+            if (offline != SyncOutcome.EMPTY) return offline
+        }
+        if (kind == RecordKind.LOCATION && mixedAvailable) return onceMixedLocations(pending, now, 2)
         val available = pending.filter { record ->
-            record.kind == kind && !record.quarantined && record.retryAfterMs <= now &&
+            record.kind == kind && record.wireVersion == 2 && !record.quarantined &&
+                record.retryAfterMs <= now &&
                 (kind != RecordKind.SESSION || !mixedAvailable || pending.none { location ->
                     location.kind == RecordKind.LOCATION && !location.quarantined &&
                         JSONObject(location.payload).optString("client_session_id") ==
@@ -184,41 +221,44 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
         return SyncOutcome.RETRY
     }
 
-    /** One local session per v2 batch; another session's STARTED never gates this group. */
-    private fun onceMixedLocations(pending: List<PendingRecord>, now: Long): SyncOutcome {
-        val due = pending.filter { it.kind == RecordKind.LOCATION && !it.quarantined &&
+    /** One local session per mixed batch; v3 also sends session-only changes. */
+    private fun onceMixedLocations(pending: List<PendingRecord>, now: Long, version: Int): SyncOutcome {
+        val due = pending.filter { it.wireVersion == version &&
+            (it.kind == RecordKind.LOCATION || (version == 3 && it.kind == RecordKind.SESSION &&
+                JSONObject(it.payload).optString("client_session_id").isNotEmpty())) && !it.quarantined &&
             it.retryAfterMs <= now }.sortedWith(compareBy<PendingRecord> { it.createdAtMs }.thenBy { it.id })
         val first = due.firstOrNull { location ->
             val clientId = JSONObject(location.payload).optString("client_session_id")
-            pending.none { start -> start.kind == RecordKind.SESSION &&
+            pending.none { start -> start.wireVersion == version && start.kind == RecordKind.SESSION &&
                 (start.quarantined || start.retryAfterMs > now) &&
                 JSONObject(start.payload).optString("type") == "STARTED" &&
                 JSONObject(start.payload).optString("client_session_id") == clientId }
         }
         if (first == null) {
             val waiting = due.any { location -> pending.any { start ->
-                start.kind == RecordKind.SESSION && start.quarantined &&
+                start.wireVersion == version && start.kind == RecordKind.SESSION && start.quarantined &&
                     JSONObject(start.payload).optString("type") == "STARTED" &&
                     JSONObject(start.payload).optString("client_session_id") ==
                         JSONObject(location.payload).optString("client_session_id")
             } }
             lastDetail = if (waiting) SyncDetail.WAITING_SESSION else if (pending.any {
-                it.kind == RecordKind.LOCATION && !it.quarantined && it.retryAfterMs > now
+                it.wireVersion == version && it.kind == RecordKind.LOCATION && !it.quarantined && it.retryAfterMs > now
             } || due.isNotEmpty()) SyncDetail.BACKOFF else SyncDetail.NONE
             if (waiting) observe(DiagnosticKind.SYNC_PENDING, RecordKind.LOCATION, 0,
                 DiagnosticReason.WAITING_SESSION)
             return if (waiting) SyncOutcome.PENDING else SyncOutcome.EMPTY
         }
         val clientId = JSONObject(first.payload).optString("client_session_id")
-        val start = pending.firstOrNull { it.kind == RecordKind.SESSION && !it.quarantined &&
+        val start = pending.firstOrNull { it.wireVersion == version && it.kind == RecordKind.SESSION && !it.quarantined &&
             JSONObject(it.payload).optString("type") == "STARTED" &&
             JSONObject(it.payload).optString("client_session_id") == clientId }
         val selected = mutableListOf<PendingRecord>()
         if (start != null) selected.add(start)
-        for (location in due.filter { JSONObject(it.payload).optString("client_session_id") == clientId }
+        for (location in due.filter { it.id != start?.id &&
+                JSONObject(it.payload).optString("client_session_id") == clientId }
                 .take(100 - selected.size)) {
             val candidate = selected + location
-            if (encodeMixed(clientId, candidate).toByteArray(StandardCharsets.UTF_8).size > 256 * 1024) {
+            if (encodeMixed(clientId, candidate, version).toByteArray(StandardCharsets.UTF_8).size > 256 * 1024) {
                 if (selected.size == (if (start == null) 0 else 1)) {
                     store.update { state -> state.pending.first { it.id == location.id }.quarantined = true }
                     lastDetail = SyncDetail.REJECTED_EVENTS
@@ -230,11 +270,12 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
             }
             selected.add(location)
         }
-        if (selected.none { it.kind == RecordKind.LOCATION }) return SyncOutcome.EMPTY
+        if (version == 2 && selected.none { it.kind == RecordKind.LOCATION }) return SyncOutcome.EMPTY
         val ids = selected.map { it.id }.toSet()
-        val body = encodeMixed(clientId, selected)
+        val body = encodeMixed(clientId, selected, version)
         observe(DiagnosticKind.SYNC_ATTEMPT, RecordKind.LOCATION, ids.size)
-        val result = try { transport.postMixed(body) } catch (failure: Exception) {
+        val result = try { if (version == 3) transport.postOffline(body) else transport.postMixed(body) }
+            catch (failure: Exception) {
             if (failure.message in setOf("session_http_401", "session_http_403",
                     "session_challenge_http_401", "session_challenge_http_403")) {
                 lastDetail = SyncDetail.AUTH_REJECTED
@@ -260,7 +301,7 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
                     val item = mappings.optJSONObject(index) ?: return@all false
                     item.optString("client_session_id") == clientId && uuid(item.optString("session_id"))
                 }
-                if (ack?.optString("batch_id") != mixedBatchId(selected) || persistedAt == null ||
+                if (ack?.optString("batch_id") != mixedBatchId(selected, version) || persistedAt == null ||
                     accepted == null || duplicate == null || accepted.intersect(duplicate).isNotEmpty() ||
                     accepted.union(duplicate) != ids || !mapped ||
                     (start != null && mappings.length() != 1)) {
@@ -294,10 +335,16 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
                 return SyncOutcome.AUTH_REQUIRED
             }
             404, 405 -> {
-                // Older backend: retain all IDs and use per-session v1 ordering on the next pass.
-                mixedAvailable = false
-                lastDetail = SyncDetail.SERVER_PENDING
-                return SyncOutcome.PENDING
+                if (version == 2) {
+                    // Older backend: retain all IDs and use per-session v1 ordering.
+                    mixedAvailable = false
+                    lastDetail = SyncDetail.SERVER_PENDING
+                    return SyncOutcome.PENDING
+                }
+                // An offline event cannot be safely downgraded to v1/v2 time validation.
+                lastDetail = SyncDetail.SERVER_ERROR
+                retry(ids, now, null)
+                return SyncOutcome.RETRY
             }
             409 -> {
                 lastDetail = SyncDetail.REJECTED_EVENTS
@@ -334,17 +381,18 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
         return SyncOutcome.RETRY
     }
 
-    private fun mixedBatchId(records: List<PendingRecord>): String = UUID.nameUUIDFromBytes(
-        ("MIXED:" + records.joinToString(",") { it.id }).toByteArray(StandardCharsets.UTF_8)).toString()
+    private fun mixedBatchId(records: List<PendingRecord>, version: Int): String = UUID.nameUUIDFromBytes(
+        ((if (version == 3) "OFFLINE:" else "MIXED:") + records.joinToString(",") { it.id })
+            .toByteArray(StandardCharsets.UTF_8)).toString()
 
-    private fun encodeMixed(clientId: String, records: List<PendingRecord>): String {
+    private fun encodeMixed(clientId: String, records: List<PendingRecord>, version: Int): String {
         val events = JSONArray()
         records.forEach { record ->
             events.put(JSONObject().put("kind", record.kind.name.let {
                 if (it == "LOCATION") "POSITION" else it
             }).put("payload", JSONObject(record.payload)))
         }
-        return JSONObject().put("schema_version", 2).put("batch_id", mixedBatchId(records))
+        return JSONObject().put("schema_version", version).put("batch_id", mixedBatchId(records, version))
             .put("device_id", identity.deviceId).put("installation_id", identity.installationId)
             .put("client_session_id", clientId).put("events", events).toString()
     }

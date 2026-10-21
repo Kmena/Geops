@@ -41,6 +41,12 @@ const gpsPackaged = YAML.parse(await readFile(gpsPackageFile, 'utf8'));
 const gpsDesign = YAML.parse(await readFile(gpsSpecFile, 'utf8'));
 assert.deepEqual(gpsPackaged, gpsDesign, 'GPS design copy must match SPEC-02');
 await SwaggerParser.validate(gpsPackageFile);
+assert.deepEqual(gpsPackaged.paths['/v2/device/config']?.get?.security,
+  [{ deviceBearer: [], deviceProof: [] }]);
+assert.deepEqual(gpsPackaged.paths['/v3/device/gps/batches']?.post?.security,
+  [{ deviceBearer: [], deviceProof: [] }]);
+assert.equal(gpsPackaged.components.schemas.ConfigSnapshotV2.properties.schema_version.const, 2);
+assert.equal(gpsPackaged.components.schemas.GpsMixedBatchV3.properties.schema_version.const, 3);
 const continuityRoute = gpsPackaged.paths['/v1/admin/gps-continuity/alerts']?.get;
 assert.equal(continuityRoute?.operationId, 'listGpsContinuityAlertsV1');
 assert.deepEqual(continuityRoute?.security, [{ adminCookie: [] }]);

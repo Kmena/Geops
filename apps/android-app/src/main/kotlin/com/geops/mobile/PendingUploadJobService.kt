@@ -38,6 +38,7 @@ class PendingUploadJobService : JobService() {
         stopped.set(false)
         executor.execute {
             var retry = false
+            var nextDelayMs: Long? = null
             try {
                 val context = applicationContext
                 val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
@@ -50,7 +51,7 @@ class PendingUploadJobService : JobService() {
                     val stateFile = AgentStateFiles.resolve(context.filesDir.toPath(), identity, key)
                     val store = EncryptedFileAgentStore(stateFile, key)
                     if (store.read().pending.any { !it.quarantined } && !store.read().uploadAuthBlocked) {
-                        val clock = AndroidAgentClock { "upload-only" }
+                        val clock = AndroidAgentClock(applicationContext) { "upload-only" }
                         val diagnostics = EncryptedDiagnosticJournal(
                             DiagnosticFiles.scoped(context.noBackupFilesDir.toPath(), identity), key)
                         val signer = AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS)
@@ -62,7 +63,7 @@ class PendingUploadJobService : JobService() {
                             PopBatchTransport(http, healthContractApproved = true), diagnostics)
                         val result = PendingUpload(identity, store, clock, sync).run(12) { stopped.get() }
                         when (result.status) {
-                            UploadStatus.PENDING -> retry = true
+                            UploadStatus.PENDING -> nextDelayMs = result.nextDelayMs
                             UploadStatus.AUTH_REQUIRED -> {
                                 SyncJobs.cancelUploads(context)
                                 AgentRuntime.onUploadAuthorizationRejected()
@@ -77,7 +78,12 @@ class PendingUploadJobService : JobService() {
                 retry = true
             } finally {
                 running.set(false)
-                if (!stopped.get()) jobFinished(params, retry)
+                if (!stopped.get()) {
+                    jobFinished(params, retry)
+                    if (!retry) nextDelayMs?.let { delay ->
+                        runCatching { SyncJobs.enqueuePending(this, delay) }
+                    }
+                }
             }
         }
         return true

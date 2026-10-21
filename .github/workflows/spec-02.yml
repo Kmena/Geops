@@ -62,8 +62,8 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36 build-tools;36.0.0'
-      - name: Compile supervised Android test APK without release signing secrets
-        run: gradle -p apps/android-app assembleDebug --no-daemon
+      - name: Compile and lint diagnostic Android APK without release signing secrets
+        run: gradle -p apps/android-app assembleDebug lintDebug --no-daemon
       - name: Verify Android build output
         run: test -s apps/android-app/build/outputs/apk/debug/GeopsAndroid-debug.apk
 
@@ -104,12 +104,12 @@ jobs:
           docker exec "$container" createdb -U postgres geops_verify_20261025
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
           npm run gps:continuity:integration --workspace @geops/api
-      - name: Populated schema upgrade 14 to 20
+      - name: Populated schema upgrade 14 to 21
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
-      - name: Supervised 14 to 20 forward recovery fault injection
+      - name: Supervised 14 to 21 forward recovery fault injection
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024

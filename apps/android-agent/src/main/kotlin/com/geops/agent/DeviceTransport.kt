@@ -84,7 +84,7 @@ const val SYNTHETIC_STAGING_BASE_URL = "https://geops-staging.duckdns.org/"
 /** The dedicated hostname forwards canonical paths unchanged to Fastify. */
 internal class DeviceRequestTarget(baseUrl: String) {
     private val base = URL(baseUrl)
-    private val canonicalRoute = Regex("^/v[12]/device/[A-Za-z0-9_/-]+$")
+    private val canonicalRoute = Regex("^/v[123]/device/[A-Za-z0-9_/-]+$")
 
     init {
         require(base.protocol == "https" && base.query == null && base.ref == null &&
@@ -103,21 +103,26 @@ internal class DeviceRequestTarget(baseUrl: String) {
 
 class PopConfigTransport(private val http: PopHttpClient) : AuthenticatedConfigTransport {
     override fun fetch(identity: Identity): Snapshot {
-        val result = http.request("GET", "/v1/device/config")
+        val modern = http.request("GET", "/v2/device/config")
+        val result = if (modern.status == 404 || modern.status == 405)
+            http.request("GET", "/v1/device/config") else modern
         require(result.status == 200) { "config_http_${result.status}" }
         return ConfigParser.parse(result.body, identity)
     }
 }
 
-/** Strict subset of W1-A ConfigSnapshot; calendar fields are validated by the server and never used for capture. */
+/** Strict v1/v2 config parser. V2 recurrence is authenticated over bearer+PoP+TLS. */
 object ConfigParser {
     fun parse(raw: String, expected: Identity): Snapshot {
         require(raw.length <= 131_072) { "config_too_large" }
         val o = JSONObject(raw)
+        val schema = o.getInt("schema_version")
+        require(schema in 1..2) { "unknown_config_schema" }
         keys(o, setOf("schema_version", "capture_anchor_id", "device_id", "installation_id",
             "assignment_version", "active", "policy_id", "policy_revision", "policy",
-            "server_time", "verified_at", "offline_not_after", "tzdb_version", "window_instances"))
-        require(o.getInt("schema_version") == 1)
+            "server_time", "verified_at", "offline_not_after", "tzdb_version", "window_instances",
+            "assignment_start", "authorization_until"))
+        require(schema == 2 || (!o.has("assignment_start") && !o.has("authorization_until")))
         val identity = Identity(o.getString("device_id"), o.getString("installation_id"))
         require(identity == expected) { "foreign_config" }
         val active = o.getBoolean("active")
@@ -136,7 +141,7 @@ object ConfigParser {
             val ends = p.getString("end_local")
             require(begins.matches(localTime) && ends.matches(localTime) && begins != ends)
             require(p.getInt("heartbeat_missing_after_s") in 300..7200)
-            p.optJSONArray("exceptions")?.let { require(it.length() <= 100) }
+            p.optJSONArray("exceptions")?.let { require(it.length() <= 366) }
             require(o.getString("tzdb_version").isNotBlank())
             Policy(o.getString("policy_id"), o.getInt("policy_revision"), p.getInt("capture_interval_s"),
                 p.getInt("sync_interval_s"), at(p.getString("valid_from")), at(p.getString("valid_until")),
@@ -152,12 +157,25 @@ object ConfigParser {
             keys(w, setOf("scheduled_session_id", "start_at", "end_at"))
             Window(w.getString("scheduled_session_id"), at(w.getString("start_at")), at(w.getString("end_at")))
         }
-        val display = if (active) o.getJSONObject("policy").let { p -> PolicyDisplay(
-            p.getString("name"), (0 until p.getJSONArray("days_iso").length()).map { p.getJSONArray("days_iso").getInt(it) },
-            p.getString("start_local"), p.getString("end_local"), p.getString("time_zone")) } else null
+        val display = if (active) o.getJSONObject("policy").let { p ->
+            val exceptions = p.optJSONArray("exceptions")
+            PolicyDisplay(p.getString("name"),
+                (0 until p.getJSONArray("days_iso").length()).map { p.getJSONArray("days_iso").getInt(it) },
+                p.getString("start_local"), p.getString("end_local"), p.getString("time_zone"),
+                if (exceptions == null) emptyList() else (0 until exceptions.length()).map { i ->
+                    val ex = exceptions.getJSONObject(i)
+                    keys(ex, setOf("local_date", "mode", "start_local", "end_local", "reason"))
+                    PolicyException(ex.getString("local_date"), ex.getString("mode"),
+                        ex.optString("start_local").takeUnless { it.isEmpty() },
+                        ex.optString("end_local").takeUnless { it.isEmpty() })
+                })
+        } else null
         return Snapshot(identity, o.getLong("assignment_version"), active, o.getString("capture_anchor_id"),
             at(o.getString("server_time")), at(o.getString("verified_at")),
-            at(o.getString("offline_not_after")), windows, policy, display)
+            at(o.getString("offline_not_after")), windows, policy, display, schema,
+            if (schema == 2 && active) at(o.getString("assignment_start")) else null,
+            if (schema == 2 && active) at(o.getString("authorization_until")) else null,
+            if (schema == 2 && active) o.getString("tzdb_version") else null)
     }
     private fun at(value: String) = Instant.parse(value).toEpochMilli()
     private fun keys(o: JSONObject, allowed: Set<String>) {

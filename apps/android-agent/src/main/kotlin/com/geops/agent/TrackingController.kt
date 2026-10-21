@@ -29,15 +29,21 @@ class TrackingController(
 ) {
     private var lastWindowObservation: Triple<Long?, Long?, DiagnosticReason>? = null
 
-    @Synchronized fun refreshConfig(transport: AuthenticatedConfigTransport): Snapshot {
+    fun refreshConfig(transport: AuthenticatedConfigTransport): Snapshot {
         try {
-            val snapshot = policy.refresh(transport) { incoming ->
+            val beforeFetch = clock.read()
+            val incomingSnapshot = transport.fetch(identity)
+            val afterFetch = clock.read()
+            return synchronized(this) {
+            val snapshot = policy.acceptFetched(incomingSnapshot, beforeFetch, afterFetch) { incoming ->
                 val before = store.read()
                 val current = before.session
                 val old = before.snapshot
                 val changed = old == null || old.assignmentVersion != incoming.assignmentVersion ||
                     old.active != incoming.active || old.policy != incoming.policy ||
-                    old.windows != incoming.windows || incoming.offlineNotAfterMs < old.offlineNotAfterMs
+                    (incoming.schemaVersion == 1 && old.windows != incoming.windows) ||
+                    incoming.authorizedUntilMs != old.authorizedUntilMs ||
+                    (incoming.schemaVersion == 1 && incoming.offlineNotAfterMs < old.offlineNotAfterMs)
                 if (current != null && current.state == "RUNNING" && changed) {
                     stop(if (incoming.active) "POLICY_REPLACED" else "POLICY_REVOKED", keepService = true)
                     store.update { it.lastStartAttemptAtMs = -1 }
@@ -47,7 +53,8 @@ class TrackingController(
                 assignmentVersion = snapshot.assignmentVersion, policyRevision = snapshot.policy?.revision,
                 windowStartMs = snapshot.windows.firstOrNull()?.startMs,
                 windowEndMs = snapshot.windows.firstOrNull()?.endMs))
-            return snapshot
+            snapshot
+            }
         } catch (failure: Exception) {
             diagnostics.recordSafely(DiagnosticEvent(DiagnosticKind.POLICY_REFRESH_FAILED, clock.read().wallMs,
                 DiagnosticReason.CONFIG_REQUEST_FAILED))
@@ -73,7 +80,8 @@ class TrackingController(
         if (existing != null && existing.state == "RUNNING" &&
             (allowed == null || existing.assignmentVersion != allowed.snapshot.assignmentVersion ||
                 existing.scheduledId != allowed.window.scheduledSessionId || !runtime.isRegistered())) {
-            stop(if (allowed == null) "WINDOW_END" else if (!runtime.isRegistered()) "UNKNOWN" else "POLICY_REPLACED")
+            stop(if (allowed == null) "WINDOW_END" else if (!runtime.isRegistered()) "UNKNOWN" else "POLICY_REPLACED",
+                keepService = policy.snapshot()?.schemaVersion == 2)
         }
         if (allowed == null) return
         val current = store.read().session
@@ -91,13 +99,18 @@ class TrackingController(
             catch (_: SecurityException) { false }
             catch (_: IllegalStateException) { false }
         if (!started || !runtime.isRegistered() || policy.current() == null) {
-            runtime.stopAndUnregister()
+            if (allowed.snapshot.schemaVersion == 2) runtime.pauseCapture()
+            else runtime.stopAndUnregister()
             diagnostic("MISSED_START", "FGS_START_BLOCKED", clock.read(), allowed)
             return
         }
         val client = UUID.randomUUID().toString()
         val startedReading = clock.read()
-        val startedAt = policy.anchoredTime(startedReading) ?: run { runtime.stopAndUnregister(); return }
+        val startedAt = policy.anchoredTime(startedReading) ?: run {
+            if (allowed.snapshot.schemaVersion == 2) runtime.pauseCapture()
+            else runtime.stopAndUnregister()
+            return
+        }
         val session = LocalSession(client, allowed.window.scheduledSessionId,
             allowed.snapshot.assignmentVersion, allowed.snapshot.policy!!.revision, startedAt, "RUNNING")
         try {
@@ -107,10 +120,24 @@ class TrackingController(
                 assignmentVersion = session.assignmentVersion, policyRevision = session.policyRevision,
                 recordKind = RecordKind.SESSION, count = 1))
             notifyPending(RecordKind.SESSION)
-        } catch (e: Exception) { runtime.stopAndUnregister(); throw e }
+        } catch (e: Exception) {
+            if (allowed.snapshot.schemaVersion == 2) runtime.pauseCapture()
+            else runtime.stopAndUnregister()
+            throw e
+        }
     }
 
     @Synchronized fun onLocation(fix: LocationFix): Boolean = onLocationDecision(fix) == DiagnosticReason.NONE
+
+    /** Re-register a stale provider without inventing a new fix or session. */
+    @Synchronized fun recoverListener(): Boolean {
+        val allowed = policy.current() ?: return false
+        val session = store.read().session ?: return false
+        if (session.state != "RUNNING" || session.scheduledId != allowed.window.scheduledSessionId)
+            return false
+        runtime.pauseCapture()
+        return runtime.startVisibleAndRegister(allowed.snapshot.policy!!.captureIntervalS)
+    }
 
     /** Local UI compatibility; the detailed decision and authorization live in onLocationDecision. */
     @Synchronized fun onLocationResult(fix: LocationFix): LocationDecision = when (val reason = onLocationDecision(fix)) {
@@ -159,6 +186,7 @@ class TrackingController(
         if (store.read().lastLocationDueMs >= 0 && captured - store.read().lastLocationDueMs < minGap)
             return reject(DiagnosticReason.WAITING_INTERVAL)
         val id = UUID.randomUUID().toString()
+        val priorBufferAlert = store.read().bufferAlertLevel
         val payload = JSONObject().put("event_id", id).put("client_session_id", session.clientId)
             .put("assignment_version", session.assignmentVersion).put("captured_at", utc(captured))
             .put("latitude", fix.latitude).put("longitude", fix.longitude).put("accuracy_m", fix.accuracyM)
@@ -166,7 +194,8 @@ class TrackingController(
             .put("elapsed_realtime_ms", fix.reading.elapsedMs).put("capture_anchor_id", allowed.snapshot.anchorId)
         try {
             store.update {
-                it.pending.add(PendingRecord(id, RecordKind.LOCATION, payload.toString(), captured))
+                it.pending.add(PendingRecord(id, RecordKind.LOCATION, payload.toString(), captured,
+                    wireVersion = if (allowed.snapshot.schemaVersion == 2) 3 else 2))
                 it.lastLocationDueMs = captured
                 it.lastLocationCapturedMs = captured
                 it.locationsCaptured++
@@ -181,11 +210,18 @@ class TrackingController(
         diagnostics.recordSafely(DiagnosticEvent(DiagnosticKind.QUEUE_INSERTED, receivedAt,
             assignmentVersion = session.assignmentVersion, policyRevision = session.policyRevision,
             recordKind = RecordKind.LOCATION, count = 1))
+        val bufferAlert = store.read().bufferAlertLevel
+        if (bufferAlert > priorBufferAlert)
+            diagnostics.recordSafely(DiagnosticEvent(DiagnosticKind.BUFFER_ALERT, receivedAt,
+                recordKind = RecordKind.LOCATION, count = bufferAlert))
         notifyPending(RecordKind.LOCATION)
         return DiagnosticReason.NONE
     }
 
     private fun sampleHealth(allowed: AuthorizedWindow) {
+        // The v1 health endpoint requires the original same-boot time anchor.
+        // Keep v2 capture independent until the health contract is versioned.
+        if (allowed.snapshot.schemaVersion == 2) return
         val interval = allowed.snapshot.policy!!.healthIntervalS * 1000L
         val previous = store.read().lastHealthDueMs
         if (previous >= 0 && allowed.nowMs - previous < interval) return
@@ -289,7 +325,8 @@ class TrackingController(
             .put("anchor_elapsed_realtime_ms", policy.anchorElapsedMs())
             .put("capture_anchor_id", snapshot.anchorId).put("reason_code", reason)
         if (type == "STARTED") payload.put("scheduled_session_id", session.scheduledId)
-        return PendingRecord(id, RecordKind.SESSION, payload.toString(), at)
+        return PendingRecord(id, RecordKind.SESSION, payload.toString(), at,
+            wireVersion = if (snapshot.schemaVersion == 2) 3 else 2)
     }
 }
 

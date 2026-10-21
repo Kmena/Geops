@@ -25,7 +25,9 @@ const auth = new AdminAuthService(pool, { sessionKey: Buffer.alloc(32, 31),
 const sessions = new DeviceSessionService(pool);
 const policies = new GpsPolicyService(pool);
 const config = new GpsDeviceConfigService(pool);
-const events = new GpsEventService(pool, policies, Buffer.alloc(32, 33));
+const eventClock = { at: Date.now() };
+const events = new GpsEventService(pool, policies, Buffer.alloc(32, 33),
+  () => new Date(eventClock.at));
 const app = createApp({ readinessProbe: async () => true, logLevel: 'silent', adminAuth: auth,
   deviceSessions: sessions, gpsPolicies: policies, gpsDeviceConfig: config,
   gpsEvents: events, secureCookie: false });
@@ -350,6 +352,87 @@ try {
     'overlapping older session cannot be reconciled after a newer start');
   check((await pool.query('SELECT 1 FROM gps_effective_session WHERE client_session_id=$1',
     [overlapClient])).rowCount === 0, 'overlapping conflict leaves no canonical session');
+  const offlineResponse = await device('GET', '/v2/device/config');
+  check(offlineResponse.statusCode === 200, 'authenticated v2 recurring policy');
+  const offline = offlineResponse.json();
+  check(offline.schema_version === 2 && offline.authorization_until &&
+    offline.assignment_start && offline.policy?.exceptions,
+  'explicit offline bounds and recurrent policy delivered');
+  const offlineClient = randomUUID(), offlineBoot = randomUUID();
+  const tomorrow = at(offline.server_time, DAY);
+  eventClock.at = Date.parse(tomorrow) + 10_000;
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  const offlineStart = { ...start, event_id: randomUUID(), client_session_id: offlineClient,
+    scheduled_session_id: randomUUID(), occurred_at: at(tomorrow, 1000),
+    assignment_version: offline.assignment_version, capture_anchor_id: offline.capture_anchor_id,
+    boot_id: offlineBoot, anchor_elapsed_realtime_ms: 1000, elapsed_realtime_ms: 2000 };
+  const offlinePoint = { ...point, event_id: randomUUID(), client_session_id: offlineClient,
+    captured_at: at(tomorrow, 2000), assignment_version: offline.assignment_version,
+    capture_anchor_id: offline.capture_anchor_id, boot_id: offlineBoot,
+    anchor_elapsed_realtime_ms: 1000, elapsed_realtime_ms: 3000 };
+  const v3Path = '/v3/device/gps/batches';
+  const offlineBatch = mixed(offlineClient,
+    [['SESSION', offlineStart], ['POSITION', offlinePoint]]);
+  offlineBatch.schema_version = 3;
+  check((await app.inject({ method: 'POST', url: v3Path, payload: offlineBatch })).statusCode === 401,
+    'v3 retains device authentication');
+  const offlineAck = await device('POST', v3Path, offlineBatch);
+  if (offlineAck.statusCode !== 200) console.error('v3-offline', offlineAck.statusCode, offlineAck.payload);
+  check(offlineAck.statusCode === 200 && offlineAck.json().accepted_event_ids.length === 2,
+    'next offline journey commits STARTED and point atomically');
+  const replay = await device('POST', v3Path, offlineBatch);
+  check(replay.statusCode === 200 && replay.json().persisted_at === offlineAck.json().persisted_at,
+    'v3 lost ACK retry returns exact receipt');
+  check((await pool.query('SELECT time_evidence FROM position_event WHERE event_id=$1',
+    [offlinePoint.event_id])).rows[0]?.time_evidence === 'DEVICE_CLOCK_OFFLINE_V2',
+  'offline point retains weaker clock provenance');
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  const falsePoint = { ...offlinePoint, event_id: randomUUID(),
+    captured_at: at(tomorrow, 3000), elapsed_realtime_ms: 200_000 };
+  const falseBatch = { ...offlineBatch, batch_id: randomUUID(),
+    events: [{ kind: 'POSITION', payload: falsePoint }] };
+  check((await device('POST', v3Path, falseBatch)).statusCode === 422,
+    'v3 rejects inconsistent within-boot elapsed time');
+  check((await pool.query('SELECT 1 FROM position_event WHERE event_id=$1',
+    [falsePoint.event_id])).rowCount === 0, 'invalid offline point is not persisted');
+  const rebootClient = randomUUID(), rebootBoot = randomUUID();
+  const afterReboot = at(offline.server_time, 2 * DAY);
+  eventClock.at = Date.parse(afterReboot) + DAY;
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  const rebootStart = { ...offlineStart, event_id: randomUUID(),
+    client_session_id: rebootClient, boot_id: rebootBoot,
+    occurred_at: at(afterReboot, 1000), elapsed_realtime_ms: 6000,
+    anchor_elapsed_realtime_ms: 5000 };
+  const rebootPoint = { ...offlinePoint, event_id: randomUUID(),
+    client_session_id: rebootClient, boot_id: rebootBoot,
+    captured_at: at(afterReboot, 2000), elapsed_realtime_ms: 7000,
+    anchor_elapsed_realtime_ms: 5000 };
+  const rebootBatch = mixed(rebootClient,
+    [['SESSION', rebootStart], ['POSITION', rebootPoint]]);
+  rebootBatch.schema_version = 3;
+  const rebootAck = await device('POST', v3Path, rebootBatch);
+  if (rebootAck.statusCode !== 200) console.error('v3-reboot', rebootAck.statusCode, rebootAck.payload);
+  check(rebootAck.statusCode === 200 && rebootAck.json().accepted_event_ids.length === 2,
+    'new boot and later offline journey can be uploaded after another day');
+  check((await pool.query('SELECT count(*)::int AS n FROM gps_offline_boot_clock WHERE capture_anchor_id=$1',
+    [offline.capture_anchor_id])).rows[0].n === 2,
+  'separate boot clocks are recorded against the same policy delivery');
+  const wrongPolicyPoint = { ...rebootPoint, event_id: randomUUID(),
+    assignment_version: rebootPoint.assignment_version + 1 };
+  check((await device('POST', v3Path, { ...rebootBatch, batch_id: randomUUID(),
+    events: [{ kind: 'POSITION', payload: wrongPolicyPoint }] })).statusCode === 422,
+  'offline upload cannot cross assignment versions');
+  eventClock.at = Date.parse(offline.authorization_until) + DAY;
+  const expiredPoint = { ...rebootPoint, event_id: randomUUID(),
+    captured_at: at(offline.authorization_until, 1000), elapsed_realtime_ms: 8000 };
+  check((await device('POST', v3Path, { ...rebootBatch, batch_id: randomUUID(),
+    events: [{ kind: 'POSITION', payload: expiredPoint }] })).statusCode === 422,
+  'v3 never extends the delivered authorization beyond its explicit end');
+  await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);
+  await pool.query("UPDATE mdm_binding SET state='REVOKED' WHERE id=$1", [bindingId]);
+  check((await device('POST', v3Path, { ...offlineBatch, batch_id: randomUUID() })).statusCode === 403,
+    'v3 cannot replay an old receipt after current binding revocation');
+  await pool.query("UPDATE mdm_binding SET state='ACTIVE' WHERE id=$1", [bindingId]);
   console.log(`gps-mixed integration PASS: ${checks} assertions`);
 } finally {
   await app.close();

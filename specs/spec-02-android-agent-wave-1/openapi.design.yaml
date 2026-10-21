@@ -3,7 +3,7 @@
   "info": {
     "title": "GEOPS SPEC-02 GPS policies and sessions — DESIGN ONLY",
     "version": "0.1.0-design",
-    "description": "W1-A/v1 design baseline. Not deployed. SPEC-00 device PoP bytes and SPEC-01 admin cookie/CSRF remain authoritative; no anonymous policy access. ADR-020 (2026-10-21) supersedes offline semantics; this schema still expresses the older 12-hour/same-boot contract and must be versioned before offline later-day support is claimed."
+    "description": "W1-A/v1 baseline with additive ADR-020 v2 configuration and v3 historical batch contracts. Not deployed. SPEC-00 device PoP bytes and SPEC-01 admin cookie/CSRF remain authoritative; no anonymous policy access. V1 retains its 12-hour/same-boot authorization."
   },
   "servers": [
     {
@@ -20,6 +20,33 @@
     }
   ],
   "paths": {
+    "/v3/device/gps/batches": {
+      "post": {
+        "tags": ["GpsDevice"],
+        "operationId": "postGpsOfflineBatchV3",
+        "description": "ADR-020 historical recurring-policy ingestion. One local session per batch; STARTED and positions commit atomically. Bearer and GEOPS-REQ-V1 PoP required. Civil time after offline reboot is device reported and marked with time_evidence.",
+        "security": [{"deviceBearer": [], "deviceProof": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/KeyId"},
+          {"$ref": "#/components/parameters/Timestamp"},
+          {"$ref": "#/components/parameters/Nonce"},
+          {"$ref": "#/components/parameters/Signature"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GpsMixedBatchV3"}}}},
+        "responses": {
+          "200": {"description": "Exact ACK after atomic COMMIT", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BatchAck"}}}},
+          "202": {"description": "Missing STARTED dependency; no ACK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PendingBatch"}}}},
+          "401": {"description": "Unauthenticated or invalid proof"},
+          "403": {"description": "Inactive device, tenant, binding or installation"},
+          "409": {"description": "Idempotency or session conflict"},
+          "410": {"description": "Expired pending dependency"},
+          "413": {"description": "Batch exceeds 256 KiB"},
+          "422": {"description": "Invalid identity, policy, window or time evidence"},
+          "429": {"description": "Per-device quota"},
+          "503": {"description": "Temporary backend failure"}
+        }
+      }
+    },
     "/v2/device/gps/batches": {
       "post": {
         "tags": [
@@ -1341,6 +1368,26 @@
         }
       }
     },
+    "/v2/device/config": {
+      "get": {
+        "tags": ["GpsDevice"],
+        "operationId": "getDeviceGpsConfigV2",
+        "description": "Authenticated ADR-020 recurrent-policy delivery with explicit assignment and authorization bounds. Legacy offline_not_after is retained for v1 compatibility and does not extend v2 authorization.",
+        "security": [{"deviceBearer": [], "deviceProof": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/KeyId"},
+          {"$ref": "#/components/parameters/Timestamp"},
+          {"$ref": "#/components/parameters/Nonce"},
+          {"$ref": "#/components/parameters/Signature"}
+        ],
+        "responses": {
+          "200": {"description": "Current bounded policy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigSnapshotV2"}}}},
+          "401": {"description": "Unauthenticated"},
+          "403": {"description": "Forbidden"},
+          "503": {"description": "Unavailable"}
+        }
+      }
+    },
     "/v1/device/config": {
       "get": {
         "tags": [
@@ -2129,6 +2176,20 @@
         }
       ]
     },
+    "GpsMixedBatchV3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "batch_id", "device_id", "installation_id", "client_session_id", "events"],
+      "properties": {
+        "schema_version": {"const": 3},
+        "batch_id": {"type": "string", "format": "uuid"},
+        "device_id": {"type": "string", "format": "uuid"},
+        "installation_id": {"type": "string", "format": "uuid"},
+        "client_session_id": {"type": "string", "format": "uuid"},
+        "events": {"type": "array", "minItems": 1, "maxItems": 100,
+          "items": {"$ref": "#/components/schemas/GpsMixedEventV2"}}
+      }
+    },
     "GpsMixedBatchV2": {
       "type": "object",
       "additionalProperties": false,
@@ -2567,6 +2628,32 @@
             "format": "date-time"
           }
         }
+      },
+      "ConfigSnapshotV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema_version", "capture_anchor_id", "device_id", "installation_id",
+          "assignment_version", "active", "server_time", "verified_at", "offline_not_after", "window_instances"],
+        "properties": {
+          "schema_version": {"const": 2},
+          "capture_anchor_id": {"type": "string", "format": "uuid"},
+          "device_id": {"type": "string", "format": "uuid"},
+          "installation_id": {"type": "string", "format": "uuid"},
+          "assignment_version": {"type": "integer", "minimum": 0},
+          "active": {"type": "boolean"},
+          "server_time": {"type": "string", "format": "date-time"},
+          "verified_at": {"type": "string", "format": "date-time"},
+          "offline_not_after": {"type": "string", "format": "date-time"},
+          "window_instances": {"type": "array", "items": {"$ref": "#/components/schemas/WindowInstance"}},
+          "policy_id": {"type": "string", "format": "uuid"},
+          "policy_revision": {"type": "integer", "minimum": 1},
+          "assignment_start": {"type": "string", "format": "date-time"},
+          "authorization_until": {"type": "string", "format": "date-time"},
+          "tzdb_version": {"type": "string"},
+          "policy": {"type": "object", "description": "Published immutable recurrence, validity and exceptions. See ADR-020."}
+        },
+        "allOf": [{"if": {"properties": {"active": {"const": true}}, "required": ["active"]},
+          "then": {"required": ["policy_id", "policy_revision", "assignment_start", "authorization_until", "tzdb_version", "policy"]}}]
       },
       "ConfigSnapshot": {
         "type": "object",

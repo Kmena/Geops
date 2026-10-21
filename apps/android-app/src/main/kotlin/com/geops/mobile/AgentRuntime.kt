@@ -46,7 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 
-/** One foreground tracking run, initiated only from a visible Activity. */
+/** Foreground tracking run, bounded by the locally authorized assignment. */
 object AgentRuntime {
     const val SIGNING_ALIAS = "geops-test-identity-v1"
     internal const val STATE_ALIAS = "geops-test-state-v1"
@@ -66,7 +66,7 @@ object AgentRuntime {
 
     fun start(locationService: GeopsLocationService): String = startInternal(locationService, recovery = false)
 
-    /** Invoked only for Android redelivery of an already-started foreground service. */
+    /** Invoked for system redelivery or an explicitly eligible autonomous start. */
     fun recover(locationService: GeopsLocationService) {
         try { startInternal(locationService, recovery = true) }
         catch (failure: Exception) {
@@ -94,7 +94,7 @@ object AgentRuntime {
             val installationId = preferences.getString("installation_id", null) ?: error("installation_missing")
             val identity = Identity(deviceId, installationId)
             val boot = bootId(context)
-            val clock = AndroidAgentClock { boot }
+            val clock = AndroidAgentClock(context) { boot }
             val stateRoot = context.filesDir.toPath()
             val legacyStateFile = stateRoot.resolve("agent-state.bin")
             val scopedStateFile = AgentStateFiles.scoped(stateRoot, identity)
@@ -117,8 +117,9 @@ object AgentRuntime {
             lastGpsDecision = null
             val priorIntent = store.read().trackingIntent
             if (recovery) {
-                require(priorIntent != null && policy.mayRecover(priorIntent) &&
-                    !userRequestedExit(context, priorIntent.requestedAtMs)) { "recovery_not_authorized" }
+                val v1Recovery = priorIntent != null && policy.mayRecover(priorIntent) &&
+                    !userRequestedExit(context, priorIntent.requestedAtMs)
+                require(v1Recovery || policy.autonomousEligible()) { "recovery_not_authorized" }
             }
             // Process death is not evidence of an observed STOPPED event.
             store.update { if (it.session != null) it.session?.state = "UNKNOWN_END" }
@@ -155,29 +156,26 @@ object AgentRuntime {
             }
             synchronized(this) { activeController = controller }
             val config = PopConfigTransport(http)
-            if (recovery) {
-                try { controller.refreshConfig(config) }
-                catch (failure: Exception) {
-                    if (!transientConfigFailure(failure)) throw failure
-                    // The same verified instance may continue only until its bounded offline expiry.
-                }
-            } else controller.refreshConfig(config)
-            lastConfigIssue = null
+            try { controller.refreshConfig(config); lastConfigIssue = null }
+            catch (failure: Exception) {
+                if (!transientConfigFailure(failure) ||
+                    !(recovery || policy.autonomousEligible())) throw failure
+                lastConfigIssue = "Sin conexión; se usa la última política válida dentro de su vigencia."
+            }
             // A fresh authenticated config is required to clear a prior upload-auth rejection.
             if (store.read().uploadAuthBlocked) {
-                require(!recovery) { "upload_auth_blocked" }
-                store.update { it.uploadAuthBlocked = false }
+                if (!recovery && lastConfigIssue == null) store.update { it.uploadAuthBlocked = false }
             }
             synchronized(this) {
                 require(runGeneration == stopGeneration) { "tracking_stopped" }
                 controller.tick()
-                if (!runtime.isRegistered()) {
+                if (!runtime.isRegistered() && !policy.autonomousEligible()) {
                     lastRuntimeIssue = "El GPS no inició: comprueba el horario, el permiso y el GPS del teléfono."
                     locationService.stopSelf()
                     return "Sin ventana autorizada o inicio GPS bloqueado; se conservó el diagnóstico."
                 }
                 lastRuntimeIssue = null
-                persistIntent(store, policy, identity, clock.read().bootId,
+                if (runtime.isRegistered()) persistIntent(store, policy, identity, clock.read().bootId,
                     priorIntent?.requestedAtMs.takeIf { recovery } ?: clock.read().wallMs)
             }
             if (store.read().pending.any { !it.quarantined }) SyncJobs.enqueuePending(context,
@@ -208,7 +206,13 @@ object AgentRuntime {
                         if (runtime.isRegistered()) persistIntent(store, policy, identity,
                             clock.read().bootId, store.read().trackingIntent?.requestedAtMs ?: clock.read().wallMs)
                     }
-                    if (!runtime.isRegistered()) {
+                    if (runtime.isRegistered() &&
+                        System.currentTimeMillis() - locationService.registeredAtMs() > 180_000L &&
+                        lastGpsCallbackMs < System.currentTimeMillis() - 180_000L) {
+                        if (locationService.providerName() == "FUSED_GMS") locationService.preferPlatformProvider()
+                        controller.recoverListener()
+                    }
+                    if (!runtime.isRegistered() && !policy.autonomousEligible()) {
                         lastRuntimeIssue = "El servicio GPS dejó de estar registrado. Reabre GEOPS para revisar la política."
                         locationService.stopSelf(); stop()
                     }
@@ -292,7 +296,7 @@ object AgentRuntime {
         val policy = snapshot?.policy
         val display = snapshot?.display
         val evaluation = try {
-            PolicyEngine(Identity(device, installation), AndroidAgentClock { bootId(context) },
+            PolicyEngine(Identity(device, installation), AndroidAgentClock(context) { bootId(context) },
                 object : com.geops.agent.AgentStore {
                     override fun read() = state
                     override fun update(block: (AgentState) -> Unit) = error("read_only")
@@ -370,6 +374,10 @@ object AgentRuntime {
             append("\nÚltima lectura entregada por Android en este inicio: ").append(time(lastGpsCallbackMs))
             if (lastGpsDecision != null) append(" · ").append(locationReason(lastGpsDecision!!))
             append("\nPendientes de confirmación: ").append(pending)
+            append("\nBuffer cifrado: ").append(state.bufferUsageBytes).append(" / ")
+                .append(EncryptedFileAgentStore.MAX_BYTES).append(" bytes")
+            if (state.bufferAlertLevel > 0)
+                append(" · alerta ").append(state.bufferAlertLevel).append(" %")
             append("\nConfirmadas por servidor desde esta versión: ").append(state.locationsAcked)
             append("\nÚltimo envío confirmado: ").append(time(state.lastLocationAckedMs))
             append("\nÚltima revisión de envíos: ").append(time(lastSyncAttemptMs))
@@ -401,6 +409,7 @@ object AgentRuntime {
         val runningService: GeopsLocationService?
         synchronized(this) {
             try { activeController?.stop("USER_REQUESTED") } catch (_: Exception) { }
+            try { activeStore?.update { it.autonomousEnabled = false } } catch (_: Exception) { }
             runningService = service
             stop()
         }
@@ -411,7 +420,7 @@ object AgentRuntime {
                 preferences.getString("installation_id", null) ?: error("installation_missing"))
             val file = AgentStateFiles.resolve(context.filesDir.toPath(), identity, key)
             EncryptedFileAgentStore(file, key)
-                .update { it.trackingIntent = null }
+                .update { it.trackingIntent = null; it.autonomousEnabled = false }
         }
         runningService?.stopSelf()
     }
@@ -482,9 +491,37 @@ object AgentRuntime {
         val count = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
         val previous = preferences.getInt("count", -2)
         val saved = preferences.getString("id", null)
+        val epoch = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
         if (count >= 0 && count == previous && saved != null) return saved
+        if (count < 0 && saved != null &&
+            kotlin.math.abs(epoch - preferences.getLong("epoch", Long.MIN_VALUE)) <= 120_000L)
+            return saved
         val next = UUID.randomUUID().toString()
-        if (count >= 0) preferences.edit().putInt("count", count).putString("id", next).apply()
+        preferences.edit().putInt("count", count).putLong("epoch", epoch).putString("id", next).apply()
         return next
     }
+
+    fun markBoot(context: Context) {
+        val preferences = context.getSharedPreferences("geops_agent_boot", Context.MODE_PRIVATE)
+        val count = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val epoch = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+        preferences.edit().putInt("count", count).putLong("epoch", epoch)
+            .putString("id", UUID.randomUUID().toString()).commit()
+    }
+
+    /** Called by the boot receiver before trying Android's restricted FGS start. */
+    fun mayAutostart(context: Context): Boolean = try {
+        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
+            (Build.VERSION.SDK_INT >= 29 && context.checkSelfPermission(
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)) false
+        else {
+            val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+            val identity = Identity(preferences.getString("device_id", null) ?: return false,
+                preferences.getString("installation_id", null) ?: return false)
+            val key = AndroidKeys.existingStateKey(STATE_ALIAS)
+            val file = AgentStateFiles.resolve(context.filesDir.toPath(), identity, key)
+            PolicyEngine(identity, AndroidAgentClock(context) { bootId(context) },
+                EncryptedFileAgentStore(file, key)).autonomousEligible()
+        }
+    } catch (_: Exception) { false }
 }

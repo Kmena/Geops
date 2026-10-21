@@ -20,6 +20,7 @@ interface Assignment {
   health_interval_s: number;
   valid_from: Date;
   valid_until: Date;
+  assignment_start: Date;
   assignment_until: Date;
 }
 
@@ -38,7 +39,12 @@ export class GpsDeviceConfigService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async snapshot(principal: DevicePrincipal, requestId: string): Promise<Record<string, unknown>> {
+  async snapshot(
+    principal: DevicePrincipal,
+    requestId: string,
+    contractVersion = 1,
+  ): Promise<Record<string, unknown>> {
+    if (contractVersion !== 1 && contractVersion !== 2) throw new Error('invalid_config_contract');
     const db = await this.pool.connect();
     try {
       await db.query('BEGIN');
@@ -72,6 +78,7 @@ export class GpsDeviceConfigService {
            to_char(r.end_local,'HH24:MI') AS end_local,
            r.time_zone,r.capture_interval_s,r.sync_interval_s,
            r.heartbeat_missing_after_s,r.health_interval_s,r.valid_from,r.valid_until,
+           lower(e.effective_range) AS assignment_start,
            upper(e.effective_range) AS assignment_until
          FROM gps_effective_assignment e
          JOIN gps_policy p ON p.id=e.policy_id AND p.state='ACTIVE'
@@ -108,7 +115,7 @@ export class GpsDeviceConfigService {
         ),
       );
       const common = {
-        schema_version: 1,
+        schema_version: contractVersion,
         capture_anchor_id: anchorId,
         device_id: principal.deviceId,
         installation_id: holder.installation_id,
@@ -143,6 +150,19 @@ export class GpsDeviceConfigService {
             ...common,
             policy_id: assignment.policy_id,
             policy_revision: assignment.revision,
+            ...(contractVersion === 2
+              ? {
+                  assignment_start: iso(assignment.assignment_start),
+                  authorization_until: iso(
+                    new Date(
+                      Math.min(
+                        assignment.assignment_until.getTime(),
+                        assignment.valid_until.getTime(),
+                      ),
+                    ),
+                  ),
+                }
+              : {}),
             tzdb_version: process.versions.tz ?? `icu-${process.versions.icu}`,
             policy: {
               name: assignment.published_name,
@@ -169,8 +189,9 @@ export class GpsDeviceConfigService {
         : common;
       await db.query(
         `INSERT INTO gps_policy_delivery(capture_anchor_id,device_id,installation_id,
-           assignment_version,server_time,offline_not_after,health_mdm_binding_id,health_tenant_id)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+           assignment_version,server_time,offline_not_after,health_mdm_binding_id,health_tenant_id,
+           contract_version,policy_id,policy_revision,assignment_start,authorized_until)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [
           anchorId,
           principal.deviceId,
@@ -180,6 +201,15 @@ export class GpsDeviceConfigService {
           offlineNotAfter,
           holder.binding_id,
           holder.tenant_id,
+          contractVersion,
+          contractVersion === 2 ? (assignment?.policy_id ?? null) : null,
+          contractVersion === 2 ? (assignment?.revision ?? null) : null,
+          contractVersion === 2 ? (assignment?.assignment_start ?? null) : null,
+          contractVersion === 2 && assignment
+            ? new Date(
+                Math.min(assignment.assignment_until.getTime(), assignment.valid_until.getTime()),
+              )
+            : null,
         ],
       );
       await appendAudit(db, {
@@ -209,6 +239,12 @@ export function registerGpsDeviceConfigRoute(
   app.get('/v1/device/config', async (request, reply) => {
     const principal = await sessions.verifyRequest(request, exactBody(request));
     const body = await config.snapshot(principal, request.id);
+    reply.header('Cache-Control', 'no-store');
+    return body;
+  });
+  app.get('/v2/device/config', async (request, reply) => {
+    const principal = await sessions.verifyRequest(request, exactBody(request));
+    const body = await config.snapshot(principal, request.id, 2);
     reply.header('Cache-Control', 'no-store');
     return body;
   });

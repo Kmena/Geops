@@ -35,6 +35,8 @@ class AndroidHealthProbe(private val context: Context) : HealthProbe {
     }
 }
 
-class AndroidAgentClock(private val bootId: () -> String) : AgentClock {
-    override fun read(): ClockReading = ClockReading(System.currentTimeMillis(), SystemClock.elapsedRealtime(), bootId())
+class AndroidAgentClock(private val context: Context, private val bootId: () -> String) : AgentClock {
+    override fun read(): ClockReading = ClockReading(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+        bootId(), android.provider.Settings.Global.getInt(
+            context.contentResolver, android.provider.Settings.Global.AUTO_TIME, 0) == 1)
 }

@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.net.Uri
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -351,6 +353,18 @@ class EnrollmentActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION), 40)
             show("Concede ubicación precisa y vuelve a pulsar iniciar.")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 29 &&
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            if (Build.VERSION.SDK_INT == 29) {
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 42)
+                show("Concede ubicación todo el tiempo por separado y vuelve a pulsar iniciar.")
+            } else {
+                show("Abre permisos de GEOPS y concede ubicación todo el tiempo para inicio autónomo. Vuelve después a esta pantalla.")
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")))
+            }
             return
         }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

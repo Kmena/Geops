@@ -48,5 +48,7 @@ kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
 dependencies {
     implementation("androidx.activity:activity:1.13.0")
+    implementation("androidx.fragment:fragment:1.9.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("com.google.android.gms:play-services-location:21.4.0")
 }

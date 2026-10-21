@@ -1,5 +1,7 @@
 # Readiness — SPEC-02 después de la revisión W1-A
 
+**Actualización de ejecución A–D (2026-10-21):** [matriz, pruebas y gates vigentes](waves-a-d-execution-2026-10-21.md). Los estados históricos de abajo se conservan como evidencia de su fecha. La implementación sintética avanzó por instrucción del propietario; no equivale a aprobación operativa ni a PASS físico.
+
 **Corte de integración 2026-10-21:** la rama aislada incorpora P0 v2 y la
 migración 0020 con pruebas sintéticas. El gate P0 permanece abierto por
 auditoría independiente del SHA final y validación en el POCO; por ello las
