@@ -15,9 +15,10 @@ import { ApiError, handleError, sanitizedError } from './errors.js';
 import { registerHealth, type ReadinessProbe } from './health.js';
 import { registerSanitizedLogging } from './logging.js';
 import { registerInventoryRoutes } from './mdm/routes.js';
-import type { MdmProvider } from './mdm/provider.js';
+import { ManageEngineReadOnly, type MdmProvider } from './mdm/provider.js';
 import type { MdmInventoryService } from './mdm/inventory.js';
 import type { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
+import type { MdmConnectionControl } from './mdm/connection-control.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
 import { registerGpsPolicyRoutes } from './gps-policy-routes.js';
 import type { GpsHealthService } from './gps-health-service.js';
@@ -43,6 +44,7 @@ export interface AppOptions {
   mdm?: MdmProvider;
   mdmInventory?: MdmInventoryService;
   mdmOAuth?: MdmOAuthRuntime;
+  mdmControl?: MdmConnectionControl;
   enrollment?: EnrollmentService;
   deviceSessions?: DeviceSessionService;
   deviceLifecycle?: DeviceLifecycleService;
@@ -57,6 +59,12 @@ export interface AppOptions {
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
+  if (
+    options.mdm &&
+    (options.mdmOAuth || options.mdm instanceof ManageEngineReadOnly) &&
+    !options.mdmControl
+  )
+    throw new Error('Real MDM requires persistent connection control');
   const app = fastify({
     logger:
       options.logLevel === 'silent'
@@ -104,6 +112,7 @@ export function createApp(options: AppOptions): FastifyInstance {
         options.mdm,
         options.mdmInventory,
         options.mdmOAuth,
+        options.mdmControl,
       );
       if (options.enrollment && options.deviceSessions && options.deviceLifecycle) {
         registerIdentityRoutes(

@@ -3,6 +3,9 @@ import { test } from 'node:test';
 import { ManageEngineReadOnly } from '../src/mdm/provider.js';
 import { MdmOAuthRuntime } from '../src/mdm/oauth-runtime.js';
 import { loadConfig } from '../src/config.js';
+import { createApp } from '../src/app.js';
+import { MdmInventoryService } from '../src/mdm/inventory.js';
+import type { Pool } from 'pg';
 
 test('real adapter configuration is limited to explicit staging test tenants', () => {
   const key = Buffer.alloc(32, 8).toString('base64url');
@@ -145,4 +148,83 @@ test('invalid OAuth scope fails closed and does not cache access', async () => {
       ),
   });
   await assert.rejects(token.token(), { code: 'mdm_scope_insufficient' });
+});
+
+test('vendor response size and page bounds reject oversized and malformed content', async () => {
+  let response: Response = new Response(JSON.stringify({ devices: [] }));
+  const client = new ManageEngineReadOnly({
+    enabled: true,
+    origin: 'https://mdm.manageengine.com/',
+    expectedOrigin: 'https://mdm.manageengine.com',
+    token: async () => 'synthetic-access',
+    fetchImpl: async () => response,
+  });
+  assert.equal((await client.listDevices('123', undefined, 25)).items.length, 0);
+  response = new Response('{bad');
+  await assert.rejects(client.listDevices('123', undefined, 25), { code: 'mdm_invalid_shape' });
+  response = new Response('{}', { headers: { 'content-length': '2000000' } });
+  await assert.rejects(client.listDevices('123', undefined, 25), {
+    code: 'mdm_response_too_large',
+  });
+  response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(600_000));
+        controller.enqueue(new Uint8Array(600_000));
+        controller.close();
+      },
+    }),
+  );
+  await assert.rejects(client.listDevices('123', undefined, 25), {
+    code: 'mdm_response_too_large',
+  });
+  response = new Response(JSON.stringify({ devices: [{ device_id: '1' }, { device_id: '2' }] }));
+  await assert.rejects(client.listDevices('123', undefined, 1), { code: 'mdm_invalid_shape' });
+  response = new Response(JSON.stringify({ devices: [{ device_id: '1' }, { device_id: '1' }] }));
+  await assert.rejects(client.listDevices('123', undefined, 2), { code: 'mdm_duplicate_device' });
+});
+
+test('vendor timeout and HTTP 5xx are bounded and sanitized', async () => {
+  let timeout = false;
+  const client = new ManageEngineReadOnly({
+    enabled: true,
+    origin: 'https://mdm.manageengine.com/',
+    expectedOrigin: 'https://mdm.manageengine.com',
+    token: async () => 'synthetic-access',
+    timeoutMs: 50,
+    fetchImpl: async (_url, init) => {
+      if (!timeout) return new Response('synthetic upstream detail', { status: 503 });
+      return new Promise((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(new Error('synthetic timeout'));
+          return;
+        }
+        init?.signal?.addEventListener('abort', () => reject(new Error('synthetic timeout')), {
+          once: true,
+        });
+      });
+    },
+  });
+  await assert.rejects(client.listDevices('123', undefined, 25), { code: 'mdm_upstream_error' });
+  timeout = true;
+  await assert.rejects(client.listDevices('123', undefined, 25), { code: 'mdm_connection_error' });
+});
+
+test('real provider cannot be wired without persistent connection control', async () => {
+  const provider = new ManageEngineReadOnly({
+    enabled: true,
+    origin: 'https://mdm.manageengine.com/',
+    expectedOrigin: 'https://mdm.manageengine.com',
+    token: async () => 'synthetic-access',
+    fetchImpl: async () => new Response('{"devices":[]}'),
+  });
+  assert.throws(
+    () => createApp({ readinessProbe: async () => true, mdm: provider }),
+    /persistent connection control/,
+  );
+  const inventory = new MdmInventoryService({} as Pool, provider, {
+    region: 'com',
+    customerId: '12345',
+  });
+  await assert.rejects(inventory.sync(null), { code: 'mdm_control_unavailable' });
 });

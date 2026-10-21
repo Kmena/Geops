@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: GEOPS ManageEngine MSP inventory integration
-  version: 0.1.0
-  description: Staging test tenant only. Inventory links never authenticate a GEOPS Android agent.
+  version: 0.2.0
+  description: Single synthetic Staging tenant only. Inventory links never authenticate a GEOPS Android agent.
 paths:
   /v1/admin/mdm/status:
     get:
@@ -58,11 +58,11 @@ paths:
         '503': {$ref: '#/components/responses/Error'}
   /v1/admin/mdm/disconnect:
     post:
-      summary: Revoke the mounted OAuth refresh grant and disconnect this process
+      summary: Persistently block MDM before attempting remote refresh-grant revocation
       security: [{adminCookie: [], csrfHeader: []}]
       responses:
         '200':
-          description: Mounted secret must also be removed or rotated before restart
+          description: Local block survives restart; false remote_revoked means retry is required
           content:
             application/json:
               schema:
@@ -73,6 +73,28 @@ paths:
                   remote_revoked: {type: boolean}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/reconnect:
+    post:
+      summary: Authorize a newly mounted and verified OAuth grant after completed revocation
+      description: Requires gps.installation.manage, tenant access and gps.tenant.grant. The old grant cannot be reused.
+      security: [{adminCookie: [], csrfHeader: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 8, maxLength: 240}
+      responses:
+        '200': {description: New grant verified and connection enabled, content: {application/json: {schema: {type: object, required: [connected], properties: {connected: {const: true}}}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /v1/admin/devices/{device_id}/mdm-link:
     parameters:
       - {name: device_id, in: path, required: true, schema: {type: string, format: uuid}}

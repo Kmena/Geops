@@ -1,6 +1,6 @@
-// Prepare 14-18 or verify 14 -> 18 only in a fresh disposable geops_verify_* database.
+// Prepare 14-18 or verify 14 -> current schema only in a fresh disposable geops_verify_* database.
 import assert from 'node:assert/strict';
-import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import pg from 'pg';
 import { applyMigrations, loadMigrations } from '../src/db/migration-manager.ts';
@@ -58,11 +58,22 @@ try {
     allowedOrigins: ['https://geops.example.invalid'],
   });
   const adminId = await auth.bootstrap('existing@example.invalid', 'synthetic-password-12345678');
-  const session = await auth.login(
-    'existing@example.invalid',
-    'synthetic-password-12345678',
-    '192.0.2.15',
-    randomUUID(),
+  // Represent a session issued by the previous release. The current login deliberately
+  // requires 0019's persistent limiter and must fail closed on an older schema.
+  const session = { sessionId: randomUUID(), token: randomBytes(32).toString('base64url') };
+  const sessionKey = Buffer.alloc(32, 81);
+  const csrfKey = Buffer.alloc(32, 82);
+  const csrfToken = createHmac('sha256', csrfKey).update(session.token).digest('base64url');
+  await pool.query(
+    `INSERT INTO admin_session(id,admin_id,token_hash,csrf_hash,issued_at,last_seen_at,
+      idle_expires_at,absolute_expires_at)
+     VALUES($1,$2,$3,$4,now(),now(),now()+interval '30 minutes',now()+interval '8 hours')`,
+    [
+      session.sessionId,
+      adminId,
+      createHmac('sha256', sessionKey).update(session.token).digest(),
+      createHmac('sha256', csrfKey).update(csrfToken).digest(),
+    ],
   );
   const epoch = randomUUID();
   await pool.query('INSERT INTO security_epoch(singleton,epoch) VALUES(true,$1)', [epoch]);
@@ -150,6 +161,7 @@ try {
       '0016_gps_continuity_alerts.sql',
       '0017_gps_continuity_evaluated_at.sql',
       '0018_mdm_inventory.sql',
+      '0019_mdm_security.sql',
     ]);
     const rows = await pool.query(
       'SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL',
@@ -167,7 +179,7 @@ try {
     );
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
-      18,
+      19,
     );
     assert.equal((await pool.query('SELECT epoch FROM security_epoch')).rows[0].epoch, epoch);
     assert.equal(
@@ -230,7 +242,7 @@ try {
       ).rows[0].consumed_at,
       null,
     );
-    console.log('Migrations 0015-0018 upgrade from populated 14-migration database: PASS');
+    console.log('Migrations 0015-0019 upgrade from populated 14-migration database: PASS');
   }
 } finally {
   await pool.end();

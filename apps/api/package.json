@@ -14,6 +14,7 @@
     "gps:integration": "node --import tsx test/gps-policy.integration.mjs",
     "device:enrollment:integration": "node --import tsx test/device-enrollment.integration.mjs",
     "mdm:integration": "node --import tsx test/mdm-inventory.integration.mjs",
+    "mdm:security:integration": "node --import tsx test/mdm-security.integration.mjs",
     "gps:health:integration": "node --import tsx test/gps-health.integration.mjs",
     "gps:config:integration": "node --import tsx test/gps-config.integration.mjs",
     "gps:events:integration": "node --import tsx test/gps-events.integration.mjs",

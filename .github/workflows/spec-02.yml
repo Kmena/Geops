@@ -2,7 +2,7 @@ name: SPEC-02 synthetic validation
 
 on:
   push:
-    branches: [codex/spec-02-wave-1, codex/geops-integration]
+    branches: [codex/spec-02-wave-1, codex/geops-integration, codex/geops-mdm-security]
 
 permissions:
   contents: read
@@ -24,7 +24,9 @@ jobs:
       - name: Source and whitespace checks
         run: git diff --check HEAD~4..HEAD && npm run security:scan && npm run staging:check
       - name: Typecheck, lint and OpenAPI
-        run: npm run typecheck && npm run lint && npm run contracts:check
+        run: |
+          npm run typecheck && npm run lint && npm run contracts:check
+          npx biome check apps/api/test/mdm-real.test.ts apps/api/test/mdm-inventory.integration.mjs apps/api/test/mdm-security.integration.mjs
       - name: Node and Web tests
         run: npm test && node --test specs/spec-02-android-agent-wave-1/contract-vectors.test.mjs
       - name: API and Web builds
@@ -96,18 +98,18 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Explicit disposable migrations
         run: node apps/api/dist/db/migrate.js
-      - name: GPS continuity 0016 to 0017 migration and authenticated alerts
+      - name: GPS continuity 0016 to 0019 migration and authenticated alerts
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261025
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
           npm run gps:continuity:integration --workspace @geops/api
-      - name: Populated schema upgrade 14 to 18
+      - name: Populated schema upgrade 14 to 19
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
-      - name: Supervised 14 to 18 forward recovery fault injection
+      - name: Supervised 14 to 19 forward recovery fault injection
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024
@@ -149,7 +151,13 @@ jobs:
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261026
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261026 npm run mdm:integration --workspace @geops/api
+      - name: MDM disconnect persistence and administrator login limits
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261027
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261027 npm run mdm:security:integration --workspace @geops/api
       - name: Disposable clean Staging 0018 reinstall and interactive bootstrap
+        if: github.ref_name != 'codex/geops-mdm-security'
         run: |
           git -c advice.detachedHead=false switch --detach HEAD
           bash scripts/staging/test-clean-reinstall-0018.sh

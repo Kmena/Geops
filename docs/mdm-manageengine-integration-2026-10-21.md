@@ -1,5 +1,7 @@
 # GEOPS — Integración aislada ManageEngine MDM
 
+> Este documento conserva el estado de la integración inicial. La remediación posterior de seguridad, la migración 0019 y sus riesgos actuales están en `docs/mdm-security-remediation-2026-10-21.md`.
+
 **Fecha:** 2026-10-21. **Rama:** `feature/mdm-manageengine-integration`. **Base:** `5339b811bc2b62274b669ab60ae055718216b6a7` (`codex/geops-integration`, integración Web + GPS R0–R4A). **Worktree:** `C:\Users\kmena\Documents\proyectos\Geops-mdm-manageengine`.
 
 ## Aislamiento y auditoría Git inicial
@@ -41,7 +43,8 @@ La especificación versionada está en `specs/spec-mdm-manageengine/openapi.yaml
 | `POST /v1/admin/mdm/sync` | Sincronización completa bajo bloqueo; devuelve `run_id` y conteo. |
 | `PUT /v1/admin/devices/{device_id}/mdm-link` | Asociación única; body `{ "mdm_device_id": "…" }`. |
 | `DELETE /v1/admin/devices/{device_id}/mdm-link` | Desvinculación administrativa auditada. |
-| `POST /v1/admin/mdm/disconnect` | Limpia access token y solicita revocación remota; exige retirar/rotar el secreto montado antes de reiniciar. |
+| `POST /v1/admin/mdm/disconnect` | Registra primero `DISCONNECTING` en PostgreSQL y bloquea operaciones MDM en todos los procesos; luego intenta revocación remota. Si falla, permite repetir la revocación sin volver a conectar. |
+| `POST /v1/admin/mdm/reconnect` | Requiere sesión, CSRF, tenant, `gps.installation.manage` y `gps.tenant.grant`; solo admite un grant nuevo tras revocación remota confirmada y lo verifica antes de habilitarlo. |
 
 ## Validación y límites
 

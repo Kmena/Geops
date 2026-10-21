@@ -22,11 +22,8 @@ try {
     /^geops_verify_[0-9]+$/,
   );
   const applied = await applyMigrations(pool);
-  assert.equal(applied.length, 18);
-  assert.deepEqual(applied.slice(-2), [
-    '0017_gps_continuity_evaluated_at.sql',
-    '0018_mdm_inventory.sql',
-  ]);
+  assert.equal(applied.length, 19);
+  assert.deepEqual(applied.slice(-2), ['0018_mdm_inventory.sql', '0019_mdm_security.sql']);
   assert.equal(await checkReadiness(pool), true);
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
@@ -61,13 +58,6 @@ try {
           status: 'managed',
           platform: 'android',
           model: 'Pixel',
-          removed: false,
-        },
-        {
-          mdm_device_id: '9007199254740995124',
-          status: 'managed',
-          platform: 'android',
-          model: 'Samsung',
           removed: false,
         },
         {
@@ -184,6 +174,123 @@ try {
     ['SUCCESS', 'FAILED'],
   );
   assert.equal(runs.rows[1].error_code, 'mdm_sync_failure');
+  // A later failed page must not publish an earlier removal or metadata change.
+  let partialPage = 0;
+  const partial = new MdmInventoryService(
+    pool,
+    {
+      listDevices: async () => {
+        if (partialPage++ === 0)
+          return {
+            items: [
+              {
+                mdm_device_id: '9007199254740995123',
+                status: 'removed',
+                platform: 'android',
+                removed: true,
+              },
+            ],
+            next_cursor: 'missing-page',
+            source: 'manageengine',
+          };
+        throw new Error('synthetic second-page failure');
+      },
+      getDevice: async () => {
+        throw new Error('No detail for removal');
+      },
+    },
+    { region: 'com', customerId: '12345' },
+  );
+  await assert.rejects(partial.sync(admin));
+  const afterPartial = await pool.query(
+    "SELECT status,removed,geops_device_id FROM mdm_inventory_device WHERE customer_id='12345' AND mdm_device_id='9007199254740995123'",
+  );
+  assert.equal(afterPartial.rows[0].status, 'managed');
+  assert.equal(afterPartial.rows[0].removed, false);
+  assert.equal(afterPartial.rows[0].geops_device_id, geopsB);
+  const partialRun = await pool.query(
+    'SELECT outcome FROM mdm_sync_run ORDER BY started_at DESC LIMIT 1',
+  );
+  assert.equal(partialRun.rows[0].outcome, 'PARTIAL');
+  // Duplicated IDs across pages are ambiguous; reject the entire run and retain the cache.
+  let duplicatePage = 0;
+  const duplicate = new MdmInventoryService(
+    pool,
+    {
+      listDevices: async () =>
+        duplicatePage++ === 0
+          ? {
+              items: [
+                { mdm_device_id: '9007199254740995123', status: 'managed', platform: 'android' },
+              ],
+              next_cursor: 'more',
+              source: 'manageengine',
+            }
+          : {
+              items: [
+                {
+                  mdm_device_id: '9007199254740995123',
+                  status: 'removed',
+                  platform: 'android',
+                  removed: true,
+                },
+              ],
+              next_cursor: null,
+              source: 'manageengine',
+            },
+      getDevice: async (_customer, id) => ({
+        mdm_device_id: id,
+        status: 'managed',
+        platform: 'android',
+      }),
+    },
+    { region: 'com', customerId: '12345' },
+  );
+  await assert.rejects(duplicate.sync(admin), { code: 'mdm_duplicate_device' });
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT removed FROM mdm_inventory_device WHERE mdm_device_id='9007199254740995123' AND customer_id='12345'",
+      )
+    ).rows[0].removed,
+    false,
+  );
+  let releaseDetail;
+  let detailStarted;
+  const detailSignal = new Promise((resolve) => {
+    detailStarted = resolve;
+  });
+  const concurrentProvider = {
+    listDevices: async () => ({
+      items: [{ mdm_device_id: '9007199254740995123', status: 'managed', platform: 'android' }],
+      next_cursor: null,
+      source: 'manageengine',
+    }),
+    getDevice: async (_customer, id) => {
+      detailStarted();
+      await new Promise((resolve) => {
+        releaseDetail = resolve;
+      });
+      return { mdm_device_id: id, status: 'managed', platform: 'android' };
+    },
+  };
+  const activeSync = new MdmInventoryService(pool, concurrentProvider, {
+    region: 'com',
+    customerId: '12345',
+  }).sync(admin);
+  await detailSignal;
+  try {
+    await assert.rejects(
+      new MdmInventoryService(pool, concurrentProvider, {
+        region: 'com',
+        customerId: '12345',
+      }).sync(admin),
+      { code: 'mdm_sync_running' },
+    );
+  } finally {
+    releaseDetail();
+  }
+  await activeSync;
   // A complete empty inventory is valid and does not remove previously seen records.
   const empty = new MdmInventoryService(
     pool,

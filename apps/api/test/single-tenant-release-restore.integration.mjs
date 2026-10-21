@@ -28,7 +28,7 @@ const pool = new pg.Pool({ connectionString: url, max: 1 });
 const root = await mkdtemp(join(tmpdir(), 'geops-release-restore-'));
 const gatePath = join(root, 'security-gate.json');
 try {
-  assert.equal(await checkReadiness(pool), true, '15 checked migrations restored');
+  assert.equal(await checkReadiness(pool), true, 'current checked migrations restored');
   const before = await pool.query(
     `SELECT
       (SELECT count(*)::int FROM admin_user) AS admins,

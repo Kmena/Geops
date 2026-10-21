@@ -106,6 +106,51 @@ export interface RealClientOptions {
   configuredEdition?: 'TRIAL' | 'FREE' | 'LICENSED';
 }
 
+// A 25-device fleet can have more than 25 vendor records, but a page must stay bounded.
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_PAGE_RECORDS = 100;
+
+async function boundedJson(response: Response): Promise<unknown> {
+  const declared = response.headers.get('content-length');
+  if (declared && /^\d+$/.test(declared) && Number(declared) > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    throw new ApiError(503, 'mdm_response_too_large', 'MDM unavailable');
+  }
+  if (!response.body) throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new ApiError(503, 'mdm_response_too_large', 'MDM unavailable');
+      }
+      chunks.push(part.value);
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(503, 'mdm_connection_error', 'MDM unavailable');
+  } finally {
+    reader.releaseLock();
+  }
+  const body = Buffer.concat(chunks, size).toString('utf8');
+  try {
+    const parseLossless = JSON.parse as unknown as (
+      text: string,
+      reviver: (key: string, value: unknown, context: { source: string }) => unknown,
+    ) => unknown;
+    return parseLossless(body, (key, value, context) =>
+      key === 'device_id' && typeof value === 'number' ? context.source : value,
+    );
+  } catch {
+    throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
+  }
+}
+
 function exactId(value: unknown): string {
   if (typeof value === 'string' && /^[0-9]{1,30}$/.test(value)) return value;
   if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return String(value);
@@ -291,19 +336,7 @@ export class ManageEngineReadOnly implements MdmProvider {
     if (response.status >= 300 && response.status < 400)
       throw new ApiError(503, 'mdm_redirect_rejected', 'MDM unavailable');
     if (!response.ok) throw new ApiError(503, 'mdm_upstream_error', 'MDM unavailable');
-    try {
-      const body = await response.text();
-      const parseLossless = JSON.parse as unknown as (
-        text: string,
-        reviver: (key: string, value: unknown, context: { source: string }) => unknown,
-      ) => unknown;
-      const parsed = parseLossless(body, (key, value, context) =>
-        key === 'device_id' && typeof value === 'number' ? context.source : value,
-      );
-      return parsed;
-    } catch {
-      throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
-    }
+    return boundedJson(response);
   }
 
   async listDevices(
@@ -324,9 +357,15 @@ export class ManageEngineReadOnly implements MdmProvider {
       string,
       unknown
     >;
-    if (!Array.isArray(data?.devices))
+    if (
+      !Array.isArray(data?.devices) ||
+      data.devices.length > limit ||
+      data.devices.length > MAX_PAGE_RECORDS
+    )
       throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
     const items = data.devices.map(normalizeDevice);
+    if (new Set(items.map((item) => item.mdm_device_id)).size !== items.length)
+      throw new ApiError(503, 'mdm_duplicate_device', 'MDM unavailable');
     const next_cursor = nextRealCursor(data, start, items.length, limit);
     this.lastConnected = true;
     return { items, next_cursor, source: 'manageengine' };

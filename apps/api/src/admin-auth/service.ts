@@ -74,7 +74,6 @@ async function audit(
 
 export class AdminAuthService {
   private readonly now: () => Date;
-  private readonly failures = new Map<string, { count: number; blockedUntil: number }>();
   private dummyHash: string | undefined;
 
   get cookieName(): 'geops_admin' | '__Host-geops_stage_admin' {
@@ -141,59 +140,93 @@ export class AdminAuthService {
   ): Promise<AdminSession> {
     const normalized = normalizeEmail(email);
     const now = this.now();
-    const accountKey = `account:${normalized}`;
-    const ipKey = `ip:${ip}`;
-    if (
-      [accountKey, ipKey].some((key) => (this.failures.get(key)?.blockedUntil ?? 0) > now.getTime())
-    ) {
-      throw new ApiError(429, 'rate_limited', 'Try again later');
-    }
-    const result = await this.pool.query<{ id: string; password_hash: string; state: string }>(
-      'SELECT id,password_hash,state FROM admin_user WHERE email_normalized=$1',
-      [normalized],
-    );
-    const user = result.rows[0];
-    let valid = false;
-    if (user) valid = await argon2.verify(user.password_hash, password);
-    else await this.dummyVerify(password);
-    if (!valid || user?.state !== 'ACTIVE') {
-      for (const key of [accountKey, ipKey]) {
-        const count = (this.failures.get(key)?.count ?? 0) + 1;
-        this.failures.set(key, {
-          count,
-          blockedUntil:
-            count >= 5 ? now.getTime() + Math.min(15 * 60_000, 60_000 * 2 ** (count - 5)) : 0,
-        });
+    const keys = [`account:${normalized}`, `ip:${ip}`]
+      .map((key) => hmac(this.settings.sessionKey, `admin-login-limit:${key}`))
+      .sort((a, b) => a.compare(b));
+    const db = await this.pool.connect();
+    try {
+      await db.query('BEGIN');
+      for (const key of keys)
+        await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key.toString('hex')]);
+      await db.query(
+        `DELETE FROM admin_login_limit WHERE key_digest IN
+         (SELECT key_digest FROM admin_login_limit WHERE expires_at <= $1 LIMIT 100)`,
+        [now],
+      );
+      const limits = await db.query<{
+        key_digest: Buffer;
+        attempts: number;
+        blocked_until: Date | null;
+        expires_at: Date;
+      }>(
+        'SELECT key_digest,attempts,blocked_until,expires_at FROM admin_login_limit WHERE key_digest IN ($1,$2)',
+        keys,
+      );
+      if (limits.rows.some((row) => row.blocked_until && row.blocked_until > now)) {
+        await audit(db, { action: 'admin.login.rate_limited', outcome: 'rejected', correlationId });
+        await db.query('COMMIT');
+        throw new ApiError(429, 'rate_limited', 'Try again later');
       }
-      throw new ApiError(401, 'invalid_credentials', 'Invalid credentials');
+      const result = await db.query<{ id: string; password_hash: string; state: string }>(
+        'SELECT id,password_hash,state FROM admin_user WHERE email_normalized=$1',
+        [normalized],
+      );
+      const user = result.rows[0];
+      let valid = false;
+      if (user) valid = await argon2.verify(user.password_hash, password);
+      else await this.dummyVerify(password);
+      if (!valid || user?.state !== 'ACTIVE') {
+        for (const key of keys) {
+          const prior = limits.rows.find((row) => row.key_digest.equals(key));
+          const count = prior && prior.expires_at > now ? prior.attempts + 1 : 1;
+          const blocked =
+            count >= 5
+              ? new Date(now.getTime() + Math.min(15 * 60_000, 60_000 * 2 ** (count - 5)))
+              : null;
+          await db.query(
+            `INSERT INTO admin_login_limit(key_digest,attempts,blocked_until,expires_at)
+             VALUES($1,$2,$3,$4) ON CONFLICT(key_digest) DO UPDATE SET
+             attempts=$2,blocked_until=$3,expires_at=$4,updated_at=now()`,
+            [key, count, blocked, new Date(now.getTime() + 30 * 60_000)],
+          );
+        }
+        await audit(db, { action: 'admin.login', outcome: 'rejected', correlationId });
+        await db.query('COMMIT');
+        throw new ApiError(401, 'invalid_credentials', 'Invalid credentials');
+      }
+      await db.query('DELETE FROM admin_login_limit WHERE key_digest IN ($1,$2)', keys);
+      const token = randomBytes(32).toString('base64url');
+      const csrfToken = hmac(this.settings.csrfKey, token).toString('base64url');
+      const issued = now.toISOString();
+      const absolute = new Date(now.getTime() + ABSOLUTE_MS).toISOString();
+      const idle = new Date(now.getTime() + IDLE_MS).toISOString();
+      const sessionId = randomUUID();
+      await db.query(
+        'INSERT INTO admin_session(id,admin_id,token_hash,csrf_hash,issued_at,last_seen_at,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,$4,$5,$5,$6,$7)',
+        [
+          sessionId,
+          user.id,
+          hmac(this.settings.sessionKey, token),
+          hmac(this.settings.csrfKey, csrfToken),
+          issued,
+          idle,
+          absolute,
+        ],
+      );
+      await audit(db, {
+        actorId: user.id,
+        action: 'admin.login',
+        outcome: 'success',
+        correlationId,
+      });
+      await db.query('COMMIT');
+      return { id: user.id, email: normalized, csrfToken, sessionId, token, expiresAt: absolute };
+    } catch (error) {
+      await db.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      db.release();
     }
-    this.failures.delete(accountKey);
-    this.failures.delete(ipKey);
-    const token = randomBytes(32).toString('base64url');
-    const csrfToken = hmac(this.settings.csrfKey, token).toString('base64url');
-    const issued = now.toISOString();
-    const absolute = new Date(now.getTime() + ABSOLUTE_MS).toISOString();
-    const idle = new Date(now.getTime() + IDLE_MS).toISOString();
-    const sessionId = randomUUID();
-    await this.pool.query(
-      'INSERT INTO admin_session(id,admin_id,token_hash,csrf_hash,issued_at,last_seen_at,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,$4,$5,$5,$6,$7)',
-      [
-        sessionId,
-        user.id,
-        hmac(this.settings.sessionKey, token),
-        hmac(this.settings.csrfKey, csrfToken),
-        issued,
-        idle,
-        absolute,
-      ],
-    );
-    await audit(this.pool, {
-      actorId: user.id,
-      action: 'admin.login',
-      outcome: 'success',
-      correlationId,
-    });
-    return { id: user.id, email: normalized, csrfToken, sessionId, token, expiresAt: absolute };
   }
 
   async authenticate(token: string | undefined): Promise<AdminIdentity> {

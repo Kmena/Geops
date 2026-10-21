@@ -12,6 +12,7 @@ import { DeviceLifecycleService } from './device-identity/lifecycle.js';
 import { ManageEngineReadOnly } from './mdm/provider.js';
 import { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
 import { MdmInventoryService } from './mdm/inventory.js';
+import { MdmConnectionControl } from './mdm/connection-control.js';
 import { GpsPolicyService } from './gps-policy-service.js';
 import { GpsHealthService } from './gps-health-service.js';
 import { GpsDeviceConfigService } from './gps-device-config.js';
@@ -34,6 +35,14 @@ async function main(): Promise<void> {
   });
   const devices = new DeviceRepository(pool);
   const mdmOAuth = config.mdm ? new MdmOAuthRuntime(config.mdm) : undefined;
+  const mdmControl = config.mdm
+    ? new MdmConnectionControl(
+        pool,
+        config.mdm.region,
+        config.mdm.customerId,
+        config.mdm.refreshToken,
+      )
+    : undefined;
   const mdmOrigin = config.mdm ? `https://mdm.manageengine.${config.mdm.region}` : null;
   const mdm =
     config.mdm && mdmOAuth && mdmOrigin
@@ -50,10 +59,16 @@ async function main(): Promise<void> {
       : undefined;
   const mdmInventory =
     config.mdm && mdm
-      ? new MdmInventoryService(pool, mdm, {
-          region: config.mdm.region,
-          customerId: config.mdm.customerId,
-        })
+      ? new MdmInventoryService(
+          pool,
+          mdm,
+          {
+            region: config.mdm.region,
+            customerId: config.mdm.customerId,
+          },
+          undefined,
+          mdmControl,
+        )
       : undefined;
   const gpsPolicies = new GpsPolicyService(pool);
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
@@ -79,6 +94,7 @@ async function main(): Promise<void> {
     ...(mdm ? { mdm } : {}),
     ...(mdmInventory ? { mdmInventory } : {}),
     ...(mdmOAuth ? { mdmOAuth } : {}),
+    ...(mdmControl ? { mdmControl } : {}),
     secureCookie: config.secureCookie,
     adminCookiePath: config.adminCookiePath,
   });

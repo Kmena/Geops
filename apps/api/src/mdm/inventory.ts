@@ -4,7 +4,8 @@ import { ApiError } from '../errors.js';
 import { appendAudit } from '../audit/index.js';
 import { requireInstallationAccess } from '../device-identity/admin-scope.js';
 import { transaction } from '../device-identity/repository.js';
-import type { MdmDevice, MdmProvider } from './provider.js';
+import { ManageEngineReadOnly, type MdmDevice, type MdmProvider } from './provider.js';
+import type { MdmConnectionControl } from './connection-control.js';
 
 export interface InventoryConfig {
   region: string;
@@ -19,6 +20,7 @@ export class MdmInventoryService {
     readonly config: InventoryConfig,
     private readonly pause: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
+    private readonly control?: MdmConnectionControl,
   ) {}
 
   private async withRetry<T>(read: () => Promise<T>): Promise<T> {
@@ -47,11 +49,25 @@ export class MdmInventoryService {
     actorId: string | null,
     correlationId: string = randomUUID(),
   ): Promise<{ run_id: string; device_count: number }> {
+    if (this.provider instanceof ManageEngineReadOnly && !this.control)
+      throw new ApiError(503, 'mdm_control_unavailable', 'MDM unavailable');
+    return this.control
+      ? this.control.withConnected(() => this.syncUnlocked(actorId, correlationId))
+      : this.syncUnlocked(actorId, correlationId);
+  }
+
+  private async syncUnlocked(
+    actorId: string | null,
+    correlationId: string,
+  ): Promise<{ run_id: string; device_count: number }> {
     if (this.running) throw new ApiError(409, 'mdm_sync_running', 'Conflict');
     this.running = true;
     let connection: PoolClient | null = null;
     let locked = false;
     let runId: string | null = null;
+    let transactionOpen = false;
+    let pagesReceived = 0;
+    let traversalComplete = false;
     try {
       connection = await this.pool.connect();
       const client = connection;
@@ -60,6 +76,11 @@ export class MdmInventoryService {
       );
       locked = lock.rows[0]?.acquired === true;
       if (!locked) throw new ApiError(409, 'mdm_sync_running', 'Conflict');
+      await client.query(
+        `UPDATE mdm_sync_run SET outcome='FAILED',finished_at=now(),error_code='mdm_interrupted'
+         WHERE region=$1 AND customer_id=$2 AND outcome='RUNNING'`,
+        [this.config.region, this.config.customerId],
+      );
       runId = randomUUID();
       await client.query(
         "INSERT INTO mdm_sync_run(id,region,customer_id,outcome) VALUES($1,$2,$3,'RUNNING')",
@@ -68,6 +89,7 @@ export class MdmInventoryService {
       let cursor: string | undefined;
       const cursors = new Set<string>();
       const seen = new Set<string>();
+      const staged = new Map<string, MdmDevice>();
       let pages = 0;
       do {
         if (++pages > 200) throw new ApiError(503, 'mdm_pagination_limit', 'MDM unavailable');
@@ -76,6 +98,7 @@ export class MdmInventoryService {
         );
         if (response.source !== 'manageengine')
           throw new ApiError(503, 'mdm_real_source_required', 'MDM unavailable');
+        pagesReceived++;
         for (const candidate of response.items) {
           let item = candidate;
           if (item.platform !== 'android') {
@@ -89,11 +112,10 @@ export class MdmInventoryService {
             item = { ...item, platform: 'android' };
           }
           if (seen.has(item.mdm_device_id)) {
-            if (item.removed) await this.upsert(client, item);
-            continue;
+            throw new ApiError(503, 'mdm_duplicate_device', 'MDM unavailable');
           }
           seen.add(item.mdm_device_id);
-          if (seen.size > 10000) throw new ApiError(503, 'mdm_inventory_limit', 'MDM unavailable');
+          if (seen.size > 5000) throw new ApiError(503, 'mdm_inventory_limit', 'MDM unavailable');
           let device = item;
           if (!item.removed) {
             const detail = await this.withRetry(() =>
@@ -111,7 +133,7 @@ export class MdmInventoryService {
                   }
                 : { ...item, status: 'unknown' };
           }
-          await this.upsert(client, device);
+          staged.set(item.mdm_device_id, device);
         }
         cursor = response.next_cursor ?? undefined;
         if (cursor) {
@@ -120,6 +142,10 @@ export class MdmInventoryService {
           cursors.add(cursor);
         }
       } while (cursor);
+      traversalComplete = true;
+      await client.query('BEGIN');
+      transactionOpen = true;
+      for (const device of staged.values()) await this.upsert(client, device);
       await client.query(
         "UPDATE mdm_sync_run SET outcome='SUCCESS',finished_at=now(),device_count=$2 WHERE id=$1",
         [runId, seen.size],
@@ -132,15 +158,19 @@ export class MdmInventoryService {
         correlationId,
         metadata: { count: seen.size, pages },
       });
+      await client.query('COMMIT');
+      transactionOpen = false;
       return { run_id: runId, device_count: seen.size };
     } catch (error) {
+      if (transactionOpen && connection) await connection.query('ROLLBACK').catch(() => {});
       const code = error instanceof ApiError ? error.code : 'mdm_sync_failure';
       if (runId && connection) {
         await connection
-          .query(
-            "UPDATE mdm_sync_run SET outcome='FAILED',finished_at=now(),error_code=$2 WHERE id=$1",
-            [runId, code],
-          )
+          .query('UPDATE mdm_sync_run SET outcome=$3,finished_at=now(),error_code=$2 WHERE id=$1', [
+            runId,
+            code,
+            pagesReceived > 0 && !traversalComplete ? 'PARTIAL' : 'FAILED',
+          ])
           .catch(() => {});
         await appendAudit(connection, {
           actorType: actorId ? 'ADMIN' : 'SYSTEM',

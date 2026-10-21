@@ -1,4 +1,4 @@
-// One-shot 0016 -> 0018 upgrade rehearsal in a new disposable PostGIS database only.
+// One-shot 0016 -> current-schema upgrade rehearsal in a new disposable PostGIS database only.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
@@ -19,7 +19,7 @@ try {
   assert.match(identity.rows[0].name, /^geops_verify_[0-9]+$/);
   assert.equal(identity.rows[0].version_table, null, 'test needs an empty disposable database');
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 18);
+  assert.equal(migrations.length, 19);
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
@@ -101,6 +101,7 @@ try {
   assert.deepEqual(await applyMigrations(pool), [
     '0017_gps_continuity_evaluated_at.sql',
     '0018_mdm_inventory.sql',
+    '0019_mdm_security.sql',
   ]);
   assert.equal(await checkReadiness(pool), true);
   assert.equal(
@@ -126,7 +127,7 @@ try {
   );
   assert.deepEqual(await applyMigrations(pool), []);
   console.log(
-    'gps-continuity migration PASS: 0016 -> 0018, alerts and resolution preserved, idempotent',
+    'gps-continuity migration PASS: 0016 -> 0019, alerts and resolution preserved, idempotent',
   );
 } finally {
   await pool.end();

@@ -5,9 +5,10 @@ import { ApiError } from '../errors.js';
 import { appendAudit } from '../audit/index.js';
 import type { DeviceRepository } from '../device-identity/repository.js';
 import { requireInstallationAccess } from '../device-identity/admin-scope.js';
-import type { MdmProvider } from './provider.js';
+import type { MdmPage, MdmProvider } from './provider.js';
 import type { MdmInventoryService } from './inventory.js';
 import type { MdmOAuthRuntime } from './oauth-runtime.js';
+import type { MdmConnectionControl } from './connection-control.js';
 
 interface PageQuery {
   cursor?: string;
@@ -52,7 +53,10 @@ export function registerInventoryRoutes(
   mdm?: MdmProvider,
   inventory?: MdmInventoryService,
   oauth?: MdmOAuthRuntime,
+  control?: MdmConnectionControl,
 ): void {
+  const guarded = <T>(operation: () => Promise<T>): Promise<T> =>
+    control ? control.withConnected(operation) : operation();
   app.get<{ Querystring: PageQuery }>('/v1/admin/devices', async (request) => {
     const admin = await requireAdmin(request, auth);
     await requireInstallationCapability(devices, admin.id, request.id, 'device.inventory.read');
@@ -141,6 +145,10 @@ export function registerInventoryRoutes(
     const admin = await requireAdmin(request, auth);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.status.read');
     const status = await mdm.integrationStatus();
+    if (control && !(await control.isConnected())) {
+      status.connected = false;
+      status.sanitized_error_code = 'mdm_disconnected';
+    }
     await appendAudit(devices.pool, {
       actorType: 'ADMIN',
       actorId: admin.id,
@@ -156,11 +164,22 @@ export function registerInventoryRoutes(
     const admin = await requireAdmin(request, auth);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.read');
     const args = page(request.query);
-    const result = await mdm.listDevices(
-      inventory?.config.customerId ?? 'synthetic',
-      args.cursor,
-      args.limit,
-    );
+    let result: MdmPage;
+    try {
+      result = await guarded(() =>
+        mdm.listDevices(inventory?.config.customerId ?? 'synthetic', args.cursor, args.limit),
+      );
+    } catch (error) {
+      await appendAudit(devices.pool, {
+        actorType: 'ADMIN',
+        actorId: admin.id,
+        action: 'mdm.provider.read',
+        outcome: 'rejected',
+        correlationId: request.id,
+        metadata: { code: error instanceof ApiError ? error.code : 'mdm_upstream_error' },
+      }).catch(() => {});
+      throw error;
+    }
     await appendAudit(devices.pool, {
       actorType: 'ADMIN',
       actorId: admin.id,
@@ -183,9 +202,11 @@ export function registerInventoryRoutes(
           request.id,
           'mdm.inventory.cache.read',
         );
-        return inventory.list(
-          request.query.limit === undefined ? 25 : Number(request.query.limit),
-          request.query.after,
+        return guarded(() =>
+          inventory.list(
+            request.query.limit === undefined ? 25 : Number(request.query.limit),
+            request.query.after,
+          ),
         );
       },
     );
@@ -212,11 +233,13 @@ export function registerInventoryRoutes(
       },
       async (request) => {
         const admin = await requireAdmin(request, auth, true);
-        await inventory.link(
-          request.params.device_id,
-          request.body.mdm_device_id,
-          admin.id,
-          request.id,
+        await guarded(() =>
+          inventory.link(
+            request.params.device_id,
+            request.body.mdm_device_id,
+            admin.id,
+            request.id,
+          ),
         );
         return { linked: true };
       },
@@ -226,7 +249,7 @@ export function registerInventoryRoutes(
       '/v1/admin/devices/:device_id/mdm-link',
       async (request) => {
         const admin = await requireAdmin(request, auth, true);
-        await inventory.unlink(request.params.device_id, admin.id, request.id);
+        await guarded(() => inventory.unlink(request.params.device_id, admin.id, request.id));
         return { linked: false };
       },
     );
@@ -235,16 +258,41 @@ export function registerInventoryRoutes(
       app.post('/v1/admin/mdm/disconnect', async (request) => {
         const admin = await requireAdmin(request, auth, true);
         await requireInstallationCapability(devices, admin.id, request.id, 'mdm.disconnect');
-        const revoked = await oauth.revoke();
-        await appendAudit(devices.pool, {
-          actorType: 'ADMIN',
-          actorId: admin.id,
-          action: 'mdm.disconnect',
-          outcome: revoked ? 'success' : 'failure',
-          correlationId: request.id,
-          metadata: { remote_revoked: revoked },
-        });
+        if (!control) throw new ApiError(503, 'mdm_control_unavailable', 'MDM unavailable');
+        const revoked = await control.disconnect(admin.id, request.id, () => oauth.revoke());
         return { local_disconnected: true, remote_revoked: revoked };
       });
+
+    if (oauth && control)
+      app.post<{ Body: { reason: string } }>(
+        '/v1/admin/mdm/reconnect',
+        {
+          schema: {
+            body: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['reason'],
+              properties: { reason: { type: 'string', minLength: 8, maxLength: 240 } },
+            },
+          },
+        },
+        async (request) => {
+          const admin = await requireAdmin(request, auth, true);
+          await requireInstallationCapability(devices, admin.id, request.id, 'mdm.reconnect');
+          const extra = await devices.pool.query(
+            `SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.tenant.grant'
+           AND revoked_at IS NULL`,
+            [admin.id],
+          );
+          if (!extra.rowCount) throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+          await control.reconnect(
+            admin.id,
+            request.id,
+            () => oauth.token(true),
+            request.body.reason,
+          );
+          return { connected: true };
+        },
+      );
   }
 }
