@@ -21,6 +21,7 @@ import { GpsWorkspace, type GpsSection } from './gps/GpsWorkspace.js';
 import { EnrollmentPanel } from './EnrollmentPanel.js';
 import { DeviceManagement } from './DeviceManagement.js';
 import { ActivateAdmin, AdminUsers } from './AdminUsers.js';
+import { MdmOnly, mdmEnabled } from './MdmAvailability.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -142,7 +143,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link className="brand" to="/inventory" aria-label="GEOPS, ir a inventario">
             GEOPS
           </Link>
-          <span className="environment">Datos GEOPS sintéticos · MDM de prueba según conexión</span>
+          <span className="environment">Datos GEOPS sintéticos</span>
           <button className="text-button" type="button" onClick={() => void exit()}>
             Cerrar sesión
           </button>
@@ -155,9 +156,14 @@ function Shell({ children }: { children: React.ReactNode }) {
             >
               Inventario
             </Link>
-            <Link aria-current={location.pathname === '/status' ? 'page' : undefined} to="/status">
-              Integración MDM
-            </Link>
+            <MdmOnly>
+              <Link
+                aria-current={location.pathname === '/status' ? 'page' : undefined}
+                to="/status"
+              >
+                Integración MDM
+              </Link>
+            </MdmOnly>
             <span className="sidebar-heading">Administración GPS · W1-D</span>
             {canManageUsers && (
               <Link
@@ -209,13 +215,14 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function useLoad<T>(load: () => Promise<T>) {
+function useLoad<T>(load: () => Promise<T>, enabled = true) {
   const [state, setState] = useState<{ loading: boolean; data: T | null; error: unknown }>({
-    loading: true,
+    loading: enabled,
     data: null,
     error: null,
   });
   const refresh = () => {
+    if (!enabled) return;
     setState((current) => ({ ...current, loading: true, error: null }));
     void load()
       .then((data) => setState({ loading: false, data, error: null }))
@@ -230,14 +237,14 @@ function useLoad<T>(load: () => Promise<T>) {
         })),
       );
   };
-  useEffect(refresh, [load]);
+  useEffect(refresh, [load, enabled]);
   return { ...state, refresh };
 }
 
 function Inventory() {
   const geops = useLoad(api.geopsDevices);
   const enrollment = useLoad(api.enrollmentDevices);
-  const mdm = useLoad(api.mdmDevices);
+  const mdm = useLoad(api.mdmDevices, mdmEnabled);
   const gpsAccess = useLoad(api.gpsCapabilities);
   const [additionalDevices, setAdditionalDevices] = useState<Device[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null | undefined>();
@@ -274,7 +281,7 @@ function Inventory() {
   return (
     <Shell>
       <h1>Inventario</h1>
-      <p className="lead">Registros GEOPS e inventario del proveedor MDM configurado.</p>
+      <p className="lead">Registros GEOPS para la administración GPS.</p>
       {gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.data && (
         <DeviceManagement
           devices={managedDevices}
@@ -362,37 +369,39 @@ function Inventory() {
             />
           </div>
         )}
-        <section className="panel" aria-labelledby="mdm-title">
-          <div className="panel-head">
-            <h2 id="mdm-title">Inventario MDM</h2>
-            <span className="badge fake">Fuente: {mdm.data?.source ?? 'pendiente'}</span>
-          </div>
-          {mdm.loading ? (
-            <p role="status">Cargando inventario MDM…</p>
-          ) : mdm.error ? (
-            <>
-              <ErrorText error={mdm.error} />
-              <button type="button" onClick={mdm.refresh}>
-                Reintentar
-              </button>
-            </>
-          ) : !mdm.data?.items.length ? (
-            <p className="empty">
-              {mdm.data?.source === 'manageengine'
-                ? 'La consulta no devolvió equipos en esta página. Comprueba cliente, inscripción y paginación.'
-                : 'El proveedor simulado no tiene equipos. Una lista vacía no valida ManageEngine.'}
-            </p>
-          ) : (
-            <ul className="device-list">
-              {mdm.data.items.map((item: MdmDevice) => (
-                <li key={item.mdm_device_id}>
-                  <strong>{item.display_name ?? item.mdm_device_id}</strong>
-                  <span>{item.status}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <MdmOnly>
+          <section className="panel" aria-labelledby="mdm-title">
+            <div className="panel-head">
+              <h2 id="mdm-title">Inventario MDM</h2>
+              <span className="badge fake">Fuente: {mdm.data?.source ?? 'pendiente'}</span>
+            </div>
+            {mdm.loading ? (
+              <p role="status">Cargando inventario MDM…</p>
+            ) : mdm.error ? (
+              <>
+                <ErrorText error={mdm.error} />
+                <button type="button" onClick={mdm.refresh}>
+                  Reintentar
+                </button>
+              </>
+            ) : !mdm.data?.items.length ? (
+              <p className="empty">
+                {mdm.data?.source === 'manageengine'
+                  ? 'La consulta no devolvió equipos en esta página. Comprueba cliente, inscripción y paginación.'
+                  : 'El proveedor simulado no tiene equipos. Una lista vacía no valida ManageEngine.'}
+              </p>
+            ) : (
+              <ul className="device-list">
+                {mdm.data.items.map((item: MdmDevice) => (
+                  <li key={item.mdm_device_id}>
+                    <strong>{item.display_name ?? item.mdm_device_id}</strong>
+                    <span>{item.status}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </MdmOnly>
       </div>
     </Shell>
   );
@@ -684,9 +693,13 @@ function AppRoutes() {
       <Route
         path="/status"
         element={
-          <Protected>
-            <Status />
-          </Protected>
+          mdmEnabled ? (
+            <Protected>
+              <Status />
+            </Protected>
+          ) : (
+            <Navigate to="/inventory" replace />
+          )
         }
       />
       {(['policies', 'devices', 'sessions', 'executive'] as GpsSection[]).map((section) => (

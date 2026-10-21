@@ -49,6 +49,9 @@ test('configuration requires synthetic mode and refuses OAuth variables', () => 
     GEOPS_GPS_QUARANTINE_KEY: Buffer.alloc(32, 5).toString('base64url'),
   };
   assert.equal(loadConfig(base).port, 3500);
+  assert.equal(loadConfig(base).mdm, null);
+  assert.equal(loadConfig({ ...base, MDM_ENABLED: 'false' }).mdm, null);
+  assert.throws(() => loadConfig({ ...base, MDM_ENABLED: '1' }), /MDM_ENABLED/);
   assert.throws(() => loadConfig({ ...base, GEOPS_DATA_MODE: 'real' }));
   assert.throws(() => loadConfig({ ...base, MDM_CLIENT_SECRET: 'synthetic-test-value' }));
   assert.throws(() => loadConfig({ GEOPS_DATA_MODE: 'synthetic' }));

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireAdmin } from '../admin-auth/routes.js';
 import type { AdminAuthService } from '../admin-auth/service.js';
 import { ApiError } from '../errors.js';
@@ -49,7 +49,7 @@ export function registerInventoryRoutes(
   app: FastifyInstance,
   auth: AdminAuthService,
   devices: DeviceRepository,
-  mdm: MdmProvider,
+  mdm?: MdmProvider,
   inventory?: MdmInventoryService,
   oauth?: MdmOAuthRuntime,
 ): void {
@@ -121,6 +121,21 @@ export function registerInventoryRoutes(
       return record;
     },
   );
+
+  if (!mdm) {
+    const disabled = async (request: FastifyRequest): Promise<never> => {
+      await requireAdmin(request, auth);
+      throw new ApiError(503, 'mdm_disabled', 'MDM disabled');
+    };
+    app.get('/v1/admin/mdm/status', disabled);
+    app.get('/v1/admin/mdm/devices', disabled);
+    app.get('/v1/admin/mdm/inventory', disabled);
+    app.post('/v1/admin/mdm/sync', disabled);
+    app.put('/v1/admin/devices/:device_id/mdm-link', disabled);
+    app.delete('/v1/admin/devices/:device_id/mdm-link', disabled);
+    app.post('/v1/admin/mdm/disconnect', disabled);
+    return;
+  }
 
   app.get('/v1/admin/mdm/status', async (request) => {
     const admin = await requireAdmin(request, auth);

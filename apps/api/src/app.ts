@@ -96,7 +96,7 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerGpsAdministrationRoutes(app, options.adminAuth, options.gpsAdministration);
     if (options.gpsContinuity)
       registerGpsContinuityRoutes(app, options.adminAuth, options.gpsContinuity);
-    if (options.devices && options.mdm) {
+    if (options.devices) {
       registerInventoryRoutes(
         app,
         options.adminAuth,

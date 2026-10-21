@@ -35,6 +35,13 @@ assert.deepEqual(Object.keys(compose.services).sort(), [
 for (const [name, service] of Object.entries(compose.services))
   assert.equal(service.ports?.length ?? 0, 0, `${name} exposed`);
 assert.equal(compose.services['geops-api'].environment.GEOPS_DATA_MODE, 'synthetic');
+assert.equal(compose.services['geops-api'].environment.MDM_ENABLED, 'false');
+assert.equal(compose.services['geops-web'].build.args.MDM_ENABLED, 'false');
+assert.equal(compose.services['geops-api'].environment.GEOPS_MDM_ENABLED, undefined);
+for (const name of ['mdm_client_id', 'mdm_client_secret', 'mdm_refresh_token']) {
+  assert.equal(compose.secrets[name], undefined);
+  assert.ok(!compose.services['geops-api'].secrets.some((secret) => secret.source === name));
+}
 assert.equal(
   compose.services['geops-api'].environment.GEOPS_ADMIN_COOKIE_NAME,
   '__Host-geops_stage_admin',

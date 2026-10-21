@@ -9,6 +9,8 @@ COPY apps/web/tsconfig.json apps/web/vite.config.ts apps/web/index.html apps/web
 COPY apps/web/src apps/web/src
 ARG GEOPS_WEB_BASE=/
 ENV GEOPS_WEB_BASE=${GEOPS_WEB_BASE}
+ARG MDM_ENABLED=false
+ENV VITE_MDM_ENABLED=${MDM_ENABLED}
 RUN npm run build --workspace @geops/web
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine

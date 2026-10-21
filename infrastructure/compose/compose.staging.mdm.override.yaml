@@ -2,7 +2,7 @@
 services:
   geops-api:
     environment:
-      GEOPS_MDM_ENABLED: "1"
+      MDM_ENABLED: "true"
       GEOPS_MDM_REGION: ${GEOPS_MDM_REGION:?Confirm actual MSP Cloud region}
       GEOPS_MDM_EDITION: ${GEOPS_MDM_EDITION:?Confirm actual tenant edition}
       GEOPS_MDM_CUSTOMER_ID: ${GEOPS_MDM_CUSTOMER_ID:?Confirm test customer ID}
@@ -12,6 +12,10 @@ services:
       stage_app: {}
       stage_db: {}
       stage_egress: {}
+  geops-web:
+    build:
+      args:
+        MDM_ENABLED: "true"
 secrets:
   mdm_client_id:
     file: ./.local/staging/mdm/mdm_client_id

@@ -16,7 +16,7 @@ test('real adapter configuration is limited to explicit staging test tenants', (
     GEOPS_GPS_QUARANTINE_KEY: key,
     GEOPS_ALLOWED_ORIGINS: 'https://geops-staging.duckdns.org',
     GEOPS_ADMIN_COOKIE_NAME: '__Host-geops_stage_admin',
-    GEOPS_MDM_ENABLED: '1',
+    MDM_ENABLED: 'true',
     GEOPS_MDM_REGION: 'com',
     GEOPS_MDM_CUSTOMER_ID: '12345',
     GEOPS_MDM_EDITION: 'TRIAL',
@@ -26,6 +26,12 @@ test('real adapter configuration is limited to explicit staging test tenants', (
   };
   assert.throws(() => loadConfig(env), /staging test-tenant/);
   assert.equal(loadConfig({ ...env, GEOPS_MDM_TEST_TENANT: '1' }).mdm?.customerId, '12345');
+  assert.throws(() => loadConfig({ ...env, MDM_ENABLED: 'false' }), /credentials/);
+  assert.throws(() => loadConfig({ ...env, MDM_ENABLED: undefined }), /credentials/);
+  assert.throws(
+    () => loadConfig({ ...env, GEOPS_MDM_ENABLED: '1', GEOPS_MDM_TEST_TENANT: '1' }),
+    /Legacy MDM/,
+  );
   assert.throws(
     () =>
       loadConfig({

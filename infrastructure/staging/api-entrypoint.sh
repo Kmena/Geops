@@ -19,7 +19,7 @@ export GEOPS_ADMIN_CSRF_KEY=$(read_secret admin_csrf_key)
 export GEOPS_INVITATION_HMAC_KEY=$(read_secret invitation_hmac_key)
 export GEOPS_MDM_GRANT_KEY=$(read_secret mdm_grant_key)
 export GEOPS_GPS_QUARANTINE_KEY=$(read_secret gps_quarantine_key)
-if [ "${GEOPS_MDM_ENABLED:-0}" = "1" ] && [ "${1:-}" = "server" ]; then
+if [ "${MDM_ENABLED:-false}" = "true" ] && [ "${1:-}" = "server" ]; then
   export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)
   export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)
   export GEOPS_MDM_REFRESH_TOKEN=$(read_secret mdm_refresh_token)

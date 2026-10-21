@@ -9,7 +9,7 @@ import { DeviceRepository } from './device-identity/repository.js';
 import { EnrollmentService } from './device-identity/enrollment.js';
 import { DeviceSessionService } from './device-identity/session.js';
 import { DeviceLifecycleService } from './device-identity/lifecycle.js';
-import { FakeMdmProvider, ManageEngineReadOnly } from './mdm/provider.js';
+import { ManageEngineReadOnly } from './mdm/provider.js';
 import { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
 import { MdmInventoryService } from './mdm/inventory.js';
 import { GpsPolicyService } from './gps-policy-service.js';
@@ -47,13 +47,14 @@ async function main(): Promise<void> {
           token: () => mdmOAuth.token(),
           refresh: () => mdmOAuth.refresh(),
         })
-      : new FakeMdmProvider();
-  const mdmInventory = config.mdm
-    ? new MdmInventoryService(pool, mdm, {
-        region: config.mdm.region,
-        customerId: config.mdm.customerId,
-      })
-    : undefined;
+      : undefined;
+  const mdmInventory =
+    config.mdm && mdm
+      ? new MdmInventoryService(pool, mdm, {
+          region: config.mdm.region,
+          customerId: config.mdm.customerId,
+        })
+      : undefined;
   const gpsPolicies = new GpsPolicyService(pool);
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
     enrollment: new EnrollmentService(pool, devices, config.invitationHmacKey),
     deviceSessions: new DeviceSessionService(pool),
     deviceLifecycle: new DeviceLifecycleService(pool, devices),
-    mdm,
+    ...(mdm ? { mdm } : {}),
     ...(mdmInventory ? { mdmInventory } : {}),
     ...(mdmOAuth ? { mdmOAuth } : {}),
     secureCookie: config.secureCookie,

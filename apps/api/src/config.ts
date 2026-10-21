@@ -99,7 +99,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new Error('Insecure cookie only allowed on synthetic localhost');
   }
   let mdm: AppConfig['mdm'] = null;
-  if (env.GEOPS_MDM_ENABLED === '1') {
+  if (env.GEOPS_MDM_ENABLED && env.GEOPS_MDM_ENABLED !== '0')
+    throw new Error('Legacy MDM enablement is not supported');
+  if (env.MDM_ENABLED === 'true') {
     const region = env.GEOPS_MDM_REGION ?? '';
     const customerId = env.GEOPS_MDM_CUSTOMER_ID ?? '';
     const edition = env.GEOPS_MDM_EDITION ?? '';
@@ -124,8 +126,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
       refreshToken: env.GEOPS_MDM_REFRESH_TOKEN,
     };
   } else {
-    if (env.GEOPS_MDM_ENABLED && env.GEOPS_MDM_ENABLED !== '0')
-      throw new Error('GEOPS_MDM_ENABLED is invalid');
+    if (env.MDM_ENABLED && env.MDM_ENABLED !== 'false') throw new Error('MDM_ENABLED is invalid');
     if (
       ['GEOPS_MDM_CLIENT_ID', 'GEOPS_MDM_CLIENT_SECRET', 'GEOPS_MDM_REFRESH_TOKEN'].some(
         (name) => env[name],
