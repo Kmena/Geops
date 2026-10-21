@@ -2,7 +2,7 @@ name: SPEC-02 synthetic validation
 
 on:
   push:
-    branches: [codex/spec-02-wave-1]
+    branches: [codex/spec-02-wave-1, codex/geops-integration]
 
 permissions:
   contents: read
@@ -96,18 +96,27 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Explicit disposable migrations
         run: node apps/api/dist/db/migrate.js
+      - name: GPS continuity 0016 to 0017 migration and authenticated alerts
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261025
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
+          npm run gps:continuity:integration --workspace @geops/api
       - name: Populated schema upgrade 14 to 15
+        if: github.ref_name == 'codex/spec-02-wave-1'
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
       - name: Supervised 0015 forward recovery fault injection
+        if: github.ref_name == 'codex/spec-02-wave-1'
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run migration:0015:integration --workspace @geops/api -- prepare-14
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run maintenance:recovery:integration --workspace @geops/api
       - name: Isolated persistent-name maintenance rehearsal
+        if: github.ref_name == 'codex/spec-02-wave-1'
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261022
@@ -141,7 +150,8 @@ jobs:
           docker exec "$container" pg_restore -U postgres -d geops_verify_20261019_restore /tmp/spec02.dump
           source_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019 -Atc 'SELECT count(*) FROM geops_schema_migrations')
           restore_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -Atc 'SELECT count(*) FROM geops_schema_migrations')
-          test "$source_count" = 15
+          expected_count=$(find apps/api/src/db/migrations -maxdepth 1 -name '*.sql' | wc -l)
+          test "$source_count" = "$expected_count"
           test "$source_count" = "$restore_count"
           docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -v ON_ERROR_STOP=1 -c 'BEGIN; ALTER TABLE gps_scheduler_run ADD COLUMN ci_rollback_probe boolean; ROLLBACK;'
           probe_count=$(docker exec "$container" psql -U postgres -d geops_verify_20261019_restore -Atc "SELECT count(*) FROM information_schema.columns WHERE table_name='gps_scheduler_run' AND column_name='ci_rollback_probe'")
