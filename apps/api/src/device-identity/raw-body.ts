@@ -10,12 +10,19 @@ export function exactBody(request: FastifyRequest): Buffer {
 
 export function registerDeviceBodyCapture(app: FastifyInstance): void {
   app.addHook('onRequest', async (request) => {
-    if (request.url.startsWith('/v1/device/') && request.url.includes('?')) {
+    if (
+      (request.url.startsWith('/v1/device/') || request.url.startsWith('/v2/device/')) &&
+      request.url.includes('?')
+    ) {
       throw new ApiError(400, 'query_rejected', 'Invalid request', true);
     }
   });
   app.addHook('preParsing', (request, _reply, payload, done) => {
-    if (!request.url.startsWith('/v1/device/') && !request.url.startsWith('/v1/admin/gps-')) {
+    if (
+      !request.url.startsWith('/v1/device/') &&
+      !request.url.startsWith('/v2/device/') &&
+      !request.url.startsWith('/v1/admin/gps-')
+    ) {
       done(null, payload);
       return;
     }
@@ -26,7 +33,7 @@ export function registerDeviceBodyCapture(app: FastifyInstance): void {
       if (failed) return;
       length += piece.length;
       const limit =
-        request.url === '/v1/device/locations/batches'
+        request.url === '/v1/device/locations/batches' || request.url === '/v2/device/gps/batches'
           ? 256 * 1024
           : request.url === '/v1/device/health/batches' ||
               request.url === '/v1/device/gps-session-events/batches'

@@ -339,7 +339,7 @@ try {
   same(await gateAllowsTraffic(pool, path), false, 'incident starts new closed maintenance');
   same(
     await recoverMaintenance(pool, path, input()),
-    19,
+    20,
     'compatible image recovers without repeating committed migrations',
   );
   same(await gateAllowsTraffic(pool, path), true, 'service can reopen after incident recovery');

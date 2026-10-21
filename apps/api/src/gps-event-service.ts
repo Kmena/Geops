@@ -8,6 +8,7 @@ import {
   GpsValidationError,
   type GpsBatch,
   type GpsBatchAck,
+  type GpsBatchV2,
   type GpsEventKind,
   type PositionEvent,
   type SessionEvent,
@@ -311,6 +312,160 @@ export class GpsEventService {
     return this.ingest('POSITION', principal, batch, requestId);
   }
 
+  /** V2 commits the local STARTED, its canonical session, positions and receipt together. */
+  async ingestMixed(
+    principal: DevicePrincipal,
+    batch: GpsBatchV2,
+    requestId: string,
+  ): Promise<GpsBatchAck | Pending> {
+    if (batch.device_id !== principal.deviceId)
+      throw new ApiError(403, 'device_mismatch', 'Forbidden', true);
+    const db = await this.pool.connect();
+    try {
+      await db.query('BEGIN');
+      const scope = await this.scope(db, principal, batch.installation_id);
+      const fingerprint = digest(batch);
+      const receipt = await db.query<Receipt>(
+        'SELECT * FROM gps_mixed_batch_receipt WHERE device_id=$1 AND batch_id=$2 FOR UPDATE',
+        [principal.deviceId, batch.batch_id],
+      );
+      const previous = receipt.rows[0];
+      if (previous) {
+        if (!previous.payload_digest.equals(fingerprint)) conflict('batch_conflict');
+        await db.query('COMMIT');
+        return {
+          batch_id: batch.batch_id,
+          persisted_at: previous.persisted_at.toISOString(),
+          accepted_event_ids: previous.accepted_event_ids,
+          duplicate_event_ids: previous.duplicate_event_ids,
+          session_mappings: previous.session_mappings,
+          processing: 'complete',
+        };
+      }
+      const sessions = batch.events
+        .filter((event) => event.kind === 'SESSION')
+        .map((event) => event.payload as SessionEvent)
+        .sort(
+          (a, b) =>
+            Date.parse(a.occurred_at) - Date.parse(b.occurred_at) ||
+            (a.type === 'STARTED' ? -1 : 1),
+        );
+      const positions = batch.events
+        .filter((event) => event.kind === 'POSITION')
+        .map((event) => event.payload as PositionEvent)
+        .sort((a, b) => Date.parse(a.captured_at) - Date.parse(b.captured_at));
+      const hasStarted = sessions.some((event) => event.type === 'STARTED');
+      if (
+        !hasStarted &&
+        !(await this.effective(db, principal.deviceId, scope, batch.client_session_id))
+      ) {
+        await db.query('ROLLBACK');
+        return {
+          batch_id: batch.batch_id,
+          pending_event_ids: batch.events.map((event) => event.payload.event_id),
+          reason_code: 'pending_dependency',
+        };
+      }
+      const anchors = new Map<string, Anchor>();
+      for (const event of [...sessions, ...positions]) {
+        this.validAge(
+          event.event_id,
+          'occurred_at' in event ? event.occurred_at : event.captured_at,
+        );
+        const kind = 'occurred_at' in event ? 'SESSION' : 'POSITION';
+        const pending = await db.query<{ expires_at: Date; payload_digest: Buffer }>(
+          `SELECT expires_at,payload_digest FROM gps_event_quarantine
+           WHERE device_id=$1 AND event_id=$2 AND kind=$3 FOR UPDATE`,
+          [principal.deviceId, event.event_id, kind],
+        );
+        const priorPending = pending.rows[0];
+        if (priorPending && priorPending.expires_at.getTime() <= this.now().getTime())
+          throw new ApiError(410, 'dependency_expired', 'Gone', true);
+        if (priorPending && !priorPending.payload_digest.equals(digest(event))) conflict();
+        if (event.capture_anchor_id && !anchors.has(event.capture_anchor_id)) {
+          anchors.set(
+            event.capture_anchor_id,
+            await this.anchor(
+              db,
+              event.event_id,
+              event.capture_anchor_id,
+              principal.deviceId,
+              scope,
+              event.assignment_version,
+            ),
+          );
+        }
+      }
+      const accepted: string[] = [];
+      const duplicate: string[] = [];
+      const mappings = new Map<string, string>();
+      for (const event of sessions) {
+        const result = await this.sessionEvent(db, principal.deviceId, scope, event, anchors, true);
+        (result.duplicate ? duplicate : accepted).push(event.event_id);
+        if (result.mapping)
+          mappings.set(result.mapping.client_session_id, result.mapping.session_id);
+        await db.query(
+          "DELETE FROM gps_event_quarantine WHERE device_id=$1 AND event_id=$2 AND kind='SESSION'",
+          [principal.deviceId, event.event_id],
+        );
+      }
+      for (const event of positions) {
+        const isDuplicate = await this.positionEvent(db, principal.deviceId, scope, event, anchors);
+        (isDuplicate ? duplicate : accepted).push(event.event_id);
+        await db.query(
+          "DELETE FROM gps_event_quarantine WHERE device_id=$1 AND event_id=$2 AND kind='POSITION'",
+          [principal.deviceId, event.event_id],
+        );
+      }
+      const persisted = this.now();
+      const sessionMappings = [...mappings].map(([client_session_id, session_id]) => ({
+        client_session_id,
+        session_id,
+      }));
+      await db.query(
+        `INSERT INTO gps_mixed_batch_receipt(device_id,batch_id,payload_digest,
+         accepted_event_ids,duplicate_event_ids,session_mappings,persisted_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [
+          principal.deviceId,
+          batch.batch_id,
+          fingerprint,
+          accepted,
+          duplicate,
+          JSON.stringify(sessionMappings),
+          persisted,
+        ],
+      );
+      await db.query(
+        `INSERT INTO gps_sync_status(device_id,last_ack_at,updated_at) VALUES($1,$2,$2)
+         ON CONFLICT (device_id) DO UPDATE SET last_ack_at=$2,updated_at=$2`,
+        [principal.deviceId, persisted],
+      );
+      await appendAudit(db, {
+        actorType: 'DEVICE',
+        deviceId: principal.deviceId,
+        action: 'gps.mixed.ingest',
+        outcome: 'success',
+        correlationId: requestId,
+        metadata: { accepted: accepted.length, duplicate: duplicate.length },
+      });
+      await db.query('COMMIT');
+      return {
+        batch_id: batch.batch_id,
+        persisted_at: persisted.toISOString(),
+        accepted_event_ids: accepted,
+        duplicate_event_ids: duplicate,
+        session_mappings: sessionMappings,
+        processing: 'complete',
+      };
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
+  }
+
   private async ingest(
     kind: GpsEventKind,
     principal: DevicePrincipal,
@@ -501,6 +656,7 @@ export class GpsEventService {
     scope: Scope,
     event: SessionEvent,
     anchors: Map<string, Anchor>,
+    historicalMode = false,
   ): Promise<{
     duplicate: boolean;
     mapping?: { client_session_id: string; session_id: string };
@@ -559,6 +715,19 @@ export class GpsEventService {
         event.client_session_id ?? invalid(event.event_id),
       );
       if (effective) conflict('client_session_conflict');
+      let historical = false;
+      if (historicalMode) {
+        const later = await db.query<{ started_at: Date }>(
+          `SELECT started_at FROM gps_effective_session WHERE device_id=$1 AND started_at>=$2
+           ORDER BY started_at LIMIT 1`,
+          [deviceId, event.occurred_at],
+        );
+        if (later.rows[0]) {
+          if (window.end_at.getTime() > later.rows[0].started_at.getTime())
+            conflict('session_order_conflict');
+          historical = true;
+        }
+      }
       const open = await db.query<Effective & { window_end: Date }>(
         `SELECT e.*,s.end_at AS window_end FROM gps_effective_session e
          JOIN gps_scheduled_session s ON s.id=e.scheduled_session_id
@@ -566,7 +735,7 @@ export class GpsEventService {
         [deviceId],
       );
       const old = open.rows[0];
-      if (old) {
+      if (old && !historical) {
         if (old.started_at.getTime() >= Date.parse(event.occurred_at))
           conflict('session_order_conflict');
         if (
@@ -584,7 +753,7 @@ export class GpsEventService {
         `INSERT INTO gps_effective_session(id,device_id,installation_id,client_session_id,
          scheduled_session_id,assignment_version,started_at,start_event_id,state,evidence_state,
          tenant_id,mdm_binding_id,start_boot_id,start_anchor_id)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,'OPEN','DEVICE_REPORTED',$9,$10,$11,$12)`,
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           sessionId,
           deviceId,
@@ -594,6 +763,8 @@ export class GpsEventService {
           event.assignment_version,
           event.occurred_at,
           event.event_id,
+          historical ? 'UNKNOWN_END' : 'OPEN',
+          historical ? 'START_REPORTED_END_UNKNOWN' : 'DEVICE_REPORTED',
           scope.tenantId,
           scope.bindingId,
           event.boot_id,
@@ -1044,6 +1215,7 @@ export class GpsEventService {
         [cutoff],
       );
       await db.query('DELETE FROM gps_event_batch_receipt WHERE persisted_at<$1', [cutoff]);
+      await db.query('DELETE FROM gps_mixed_batch_receipt WHERE persisted_at<$1', [cutoff]);
       await db.query('DELETE FROM gps_event_request_quota WHERE minute_bucket<$1', [
         new Date(this.now().getTime() - DAY),
       ]);

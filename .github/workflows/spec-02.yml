@@ -98,18 +98,18 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Explicit disposable migrations
         run: node apps/api/dist/db/migrate.js
-      - name: GPS continuity 0016 to 0019 migration and authenticated alerts
+      - name: GPS continuity migration and authenticated alerts
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261025
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
           npm run gps:continuity:integration --workspace @geops/api
-      - name: Populated schema upgrade 14 to 19
+      - name: Populated schema upgrade 14 to 20
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
-      - name: Supervised 14 to 19 forward recovery fault injection
+      - name: Supervised 14 to 20 forward recovery fault injection
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024
@@ -140,6 +140,7 @@ jobs:
           npm run gps:config:integration --workspace @geops/api
           npm run gps:health:integration --workspace @geops/api
           npm run gps:events:integration --workspace @geops/api
+          npm run gps:mixed:integration --workspace @geops/api
           npm run gps:operations:integration --workspace @geops/api
           npm run gps:capability:integration --workspace @geops/api
           npm run admin:tenant:integration --workspace @geops/api

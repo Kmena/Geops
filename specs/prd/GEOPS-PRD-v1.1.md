@@ -1,5 +1,7 @@
 # GEOPS — PRD v1.1
 
+**Decisión posterior vigente (21/10/2026):** [ADR-020 / DEC-GPS-OFFLINE-001](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) precisa RF-04–RF-06: la APK conserva la última política válida y puede iniciar jornadas posteriores sin Internet dentro de su vigencia explícita y horario conocido, si Android permite iniciar el servicio. Captura, política descargada y envío no dependen de una llamada diaria al servidor ni al MDM. Este PRD conserva su historia; el contrato HTTP y APK existentes requieren implementación posterior. RN-07 y la retención de 90 días permanecen vigentes.
+
 **Producto:** Plataforma de rastreo corporativo y gestión territorial
 **Estado:** Alcance funcional confirmado; viabilidad técnica sujeta a validación
 **Fecha base:** 15 de octubre de 2026

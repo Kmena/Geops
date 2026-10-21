@@ -25,7 +25,9 @@ class PendingUpload(
         var processed = 0
         while (processed < maxBatches && !shouldStop()) {
             var progressed = false
-            for (kind in listOf(RecordKind.SESSION, RecordKind.LOCATION, RecordKind.HEALTH)) {
+            // Give v2 the first chance to commit STARTED with its positions atomically.
+            // A v1-only backend then falls back to the per-session SESSION path.
+            for (kind in listOf(RecordKind.LOCATION, RecordKind.SESSION, RecordKind.HEALTH)) {
                 if (processed >= maxBatches || shouldStop()) break
                 val current = store.read()
                 if (current.snapshot?.identity != identity) return UploadResult(UploadStatus.IDENTITY_MISMATCH)

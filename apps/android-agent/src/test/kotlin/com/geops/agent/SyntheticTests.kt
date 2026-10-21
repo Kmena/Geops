@@ -540,11 +540,96 @@ fun main() {
         val sync = BatchSync(Identity(device, installation), store, clock, sessionTransport)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.PENDING)
         check(store.read().locationsAcked == 0L)
-        check(sync.once(RecordKind.SESSION) == SyncOutcome.ACKED)
-        check(sync.once(RecordKind.LOCATION) == SyncOutcome.ACKED)
+        repeat(3) {
+            if (store.read().pending.any { it.kind == RecordKind.SESSION })
+                check(sync.once(RecordKind.SESSION) == SyncOutcome.ACKED)
+        }
+        val locationOutcome = sync.once(RecordKind.LOCATION)
+        check(locationOutcome == SyncOutcome.ACKED)
         check(store.read().locationsAcked == 1L && store.read().lastLocationAckedMs == clock.wall)
         check(sync.once(RecordKind.LOCATION) == SyncOutcome.EMPTY)
         check(store.read().locationsAcked == 1L)
+    }
+    test("v2 quarantines one local session without blocking another session's positions") {
+        val clock = FakeClock()
+        val store = MemoryAgentStore()
+        val a = UUID.randomUUID().toString(); val b = UUID.randomUUID().toString()
+        fun record(kind: RecordKind, clientId: String, type: String? = null): PendingRecord {
+            val id = UUID.randomUUID().toString()
+            val payload = JSONObject().put("event_id", id).put("client_session_id", clientId)
+            if (type != null) payload.put("type", type)
+            return PendingRecord(id, kind, payload.toString(), start)
+        }
+        val aStart = record(RecordKind.SESSION, a, "STARTED")
+        val bStart = record(RecordKind.SESSION, b, "STARTED").copy(createdAtMs = start + 1)
+        val aPoint = record(RecordKind.LOCATION, a)
+        val bPoint = record(RecordKind.LOCATION, b).copy(createdAtMs = start + 1)
+        store.update { it.pending.addAll(listOf(aStart, bStart, aPoint, bPoint)) }
+        val attempted = mutableListOf<String>()
+        val transport = object : BatchTransport {
+            override fun post(kind: RecordKind, body: String): HttpResult = error("v1 not used")
+            override fun supportsMixed() = true
+            override fun postMixed(body: String): HttpResult {
+                val batch = JSONObject(body)
+                val clientId = batch.getString("client_session_id")
+                attempted.add(clientId)
+                val events = batch.getJSONArray("events")
+                check(events.length() == 2 && events.getJSONObject(0).getString("kind") == "SESSION" &&
+                    events.getJSONObject(1).getString("kind") == "POSITION")
+                if (clientId == a) return HttpResult(409, "{}", null)
+                val ids = JSONArray().put(bStart.id).put(bPoint.id)
+                return HttpResult(200, JSONObject().put("batch_id", batch.getString("batch_id"))
+                    .put("persisted_at", utc(clock.wall)).put("accepted_event_ids", ids)
+                    .put("duplicate_event_ids", JSONArray()).put("session_mappings", JSONArray().put(
+                        JSONObject().put("client_session_id", b).put("session_id", UUID.randomUUID().toString())))
+                    .toString(), null)
+            }
+        }
+        val sync = BatchSync(Identity(device, installation), store, clock, transport)
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.QUARANTINED)
+        check(store.read().pending.filter { it.quarantined }.map { it.id }.toSet() ==
+            setOf(aStart.id, aPoint.id))
+        check(sync.once(RecordKind.LOCATION) == SyncOutcome.ACKED)
+        check(attempted == listOf(a, b) && store.read().pending.map { it.id }.toSet() ==
+            setOf(aStart.id, aPoint.id))
+        check(store.read().locationsAcked == 1L)
+    }
+    test("upload loop sends STARTED and first position together before v1 session transport") {
+        val clock = FakeClock(wall = end + 3_600_000)
+        val store = MemoryAgentStore()
+        val clientId = UUID.randomUUID().toString()
+        val startedId = UUID.randomUUID().toString()
+        val pointId = UUID.randomUUID().toString()
+        store.update { state ->
+            state.snapshot = snap()
+            state.pending.add(PendingRecord(startedId, RecordKind.SESSION,
+                JSONObject().put("event_id", startedId).put("client_session_id", clientId)
+                    .put("type", "STARTED").toString(), start))
+            state.pending.add(PendingRecord(pointId, RecordKind.LOCATION,
+                JSONObject().put("event_id", pointId).put("client_session_id", clientId)
+                    .toString(), start + 60_000))
+        }
+        var mixedCalls = 0
+        val transport = object : BatchTransport {
+            override fun supportsMixed() = true
+            override fun post(kind: RecordKind, body: String): HttpResult = error("v1 must not run")
+            override fun postMixed(body: String): HttpResult {
+                mixedCalls++
+                val batch = JSONObject(body)
+                val events = batch.getJSONArray("events")
+                check(events.length() == 2 && events.getJSONObject(0).getString("kind") == "SESSION")
+                return HttpResult(200, JSONObject().put("batch_id", batch.getString("batch_id"))
+                    .put("persisted_at", utc(clock.wall))
+                    .put("accepted_event_ids", JSONArray().put(startedId).put(pointId))
+                    .put("duplicate_event_ids", JSONArray()).put("session_mappings", JSONArray().put(
+                        JSONObject().put("client_session_id", clientId)
+                            .put("session_id", UUID.randomUUID().toString())))
+                    .toString(), null)
+            }
+        }
+        val identity = Identity(device, installation)
+        val result = PendingUpload(identity, store, clock, BatchSync(identity, store, clock, transport)).run()
+        check(result.status == UploadStatus.EMPTY && mixedCalls == 1 && store.read().pending.isEmpty())
     }
     test("lost or malformed ACK retains original event and backs off") {
         val clock = FakeClock(); val store = MemoryAgentStore(); val id = UUID.randomUUID().toString()

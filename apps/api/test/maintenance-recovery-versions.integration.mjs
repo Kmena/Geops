@@ -185,7 +185,7 @@ try {
       (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS permissions,
       (SELECT epoch::text FROM security_epoch WHERE singleton=true) AS epoch`)
   ).rows[0];
-  assert.deepEqual(after, { ...before, migrations: 19 }, 'identity, grants and epoch retained');
+  assert.deepEqual(after, { ...before, migrations: 20 }, 'identity, grants and epoch retained');
   if (initialVersion >= 15)
     assert.equal(
       (await pool.query('SELECT tenant_id FROM geops_operating_tenant')).rows[0].tenant_id,

@@ -21,7 +21,7 @@ if (
 const pool = new pg.Pool({ connectionString: url, max: 8 });
 try {
   const applied = await applyMigrations(pool);
-  assert.equal(applied.at(-1), '0019_mdm_security.sql');
+  assert.equal(applied.at(-1), '0020_gps_mixed_batch_receipt.sql');
   assert.deepEqual(await applyMigrations(pool), [], 'migration replay is idempotent');
   const clock = { now: new Date('2026-10-21T12:00:00Z') };
   const settings = {

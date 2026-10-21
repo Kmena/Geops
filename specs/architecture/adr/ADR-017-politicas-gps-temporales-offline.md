@@ -1,6 +1,6 @@
 # ADR-017 — Resolución temporal, reloj y revocación offline de GPS
 
-**Fecha:** 2026-10-19. **Estado:** aceptado como contrato de diseño para implementación sintética; concurrencia PostgreSQL y riesgo de revocación offline requieren validación/aceptación antes de captura real. Complementa [ADR-006](ADR-006-privacidad-administracion.md), [ADR-012](ADR-012-identidad-dispositivo.md) y [ADR-013](ADR-013-restore-security-epoch.md).
+**Fecha:** 2026-10-19. **Estado:** histórico en su regla de autorización offline desde 2026-10-21; [ADR-020](ADR-020-ultima-politica-valida-offline.md) la sustituye. Las reglas de publicación, no solapamiento, horario IANA y privacidad siguen vigentes salvo los deltas expresos de ADR-020. El código y el contrato HTTP v1 todavía implementan esta versión anterior; no son evidencia de ADR-020 implementado. Complementa [ADR-006](ADR-006-privacidad-administracion.md), [ADR-012](ADR-012-identidad-dispositivo.md) y [ADR-013](ADR-013-restore-security-epoch.md).
 
 ## Autoridad y asignación
 

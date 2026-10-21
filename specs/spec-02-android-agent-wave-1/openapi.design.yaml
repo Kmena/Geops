@@ -3,7 +3,7 @@
   "info": {
     "title": "GEOPS SPEC-02 GPS policies and sessions — DESIGN ONLY",
     "version": "0.1.0-design",
-    "description": "W1-A design baseline. Not deployed. SPEC-00 device PoP bytes and SPEC-01 admin cookie/CSRF remain authoritative; no anonymous policy access."
+    "description": "W1-A/v1 design baseline. Not deployed. SPEC-00 device PoP bytes and SPEC-01 admin cookie/CSRF remain authoritative; no anonymous policy access. ADR-020 (2026-10-21) supersedes offline semantics; this schema still expresses the older 12-hour/same-boot contract and must be versioned before offline later-day support is claimed."
   },
   "servers": [
     {
@@ -20,6 +20,91 @@
     }
   ],
   "paths": {
+    "/v2/device/gps/batches": {
+      "post": {
+        "tags": [
+          "GpsDevice"
+        ],
+        "operationId": "postGpsMixedBatchV2",
+        "description": "One local session per batch. Original STARTED and positions commit atomically; no prior STARTED ACK. Bearer and GEOPS-REQ-V1 PoP remain mandatory.",
+        "security": [
+          {
+            "deviceBearer": [],
+            "deviceProof": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/KeyId"
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GpsMixedBatchV2"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exact event ACK after one COMMIT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchAck"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Unknown local session without STARTED; no canonical writes or terminal ACK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingBatch"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated or invalid PoP"
+          },
+          "403": {
+            "description": "Device, binding, tenant or installation forbidden"
+          },
+          "409": {
+            "description": "Batch/event digest or session transition conflict; no partial ACK"
+          },
+          "410": {
+            "description": "Previously quarantined dependency expired; no ACK"
+          },
+          "413": {
+            "description": "Batch exceeds 256 KiB"
+          },
+          "422": {
+            "description": "Invalid batch or event; entire batch rolled back"
+          },
+          "429": {
+            "description": "Per-device quota exceeded; Retry-After header"
+          },
+          "503": {
+            "description": "Restore gate closed or temporary backend failure"
+          }
+        }
+      }
+    },
     "/v1/admin/enrollment/devices": {
       "get": {
         "tags": ["GpsAdmin"],
@@ -2008,6 +2093,83 @@
       }
     },
     "schemas": {
+    "GpsMixedEventV2": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "payload"
+          ],
+          "properties": {
+            "kind": {
+              "const": "SESSION"
+            },
+            "payload": {
+              "$ref": "#/components/schemas/SessionEvent"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "payload"
+          ],
+          "properties": {
+            "kind": {
+              "const": "POSITION"
+            },
+            "payload": {
+              "$ref": "#/components/schemas/LocationEvent"
+            }
+          }
+        }
+      ]
+    },
+    "GpsMixedBatchV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "batch_id",
+        "device_id",
+        "installation_id",
+        "client_session_id",
+        "events"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 2
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "device_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "installation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "client_session_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/components/schemas/GpsMixedEventV2"
+          }
+        }
+      }
+    },
       "PolicyInput": {
         "type": "object",
         "additionalProperties": false,

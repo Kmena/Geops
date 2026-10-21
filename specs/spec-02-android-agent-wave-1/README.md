@@ -1,10 +1,15 @@
 # SPEC-02 — Agente Android y políticas remotas GPS
 
+**Prioridad nueva 2026-10-21:** [P0 GPS-UPLOAD-STARTED-BLOCKER](gps-upload-started-blocker-p0-2026-10-21.md) precede las waves A–E de autonomía. La auditoría encontró que un `STARTED` pendiente de cualquier sesión bloquea el envío de todas las posiciones. Se propone ingesta v2 conjunta y atómica de STARTED y posiciones por sesión, sin ACK previo; diseño pendiente de implementación, revisión independiente y prueba en POCO. El OpenAPI v1 continúa intacto.
+
+**Decisión vigente 2026-10-21:** [ADR-020 / DEC-GPS-OFFLINE-001](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) y [SPEC de autonomía actualizada](ubicacion-autonoma-offline-propuesta-2026-10-21.md) sustituyen exclusivamente la regla de revalidación online por jornada/12 h de W1-A. W1-A permanece cerrada **para su contrato v1 sintético histórico**; la nueva decisión necesita versionado y pruebas. [Impacto y contradicciones pendientes](impacto-dec-gps-offline-001-2026-10-21.md).
+
 **Estado: W1-A CLOSED_FOR_SYNTHETIC_IMPLEMENTATION — línea base de diseño aprobada solo para iniciar W1-B sintético.** Corte: 2026-10-19. SDD: [Specify](requirements.md) → [Plan](plan.md) → [Tasks](tasks.md). **Solo GEOPS Web configura políticas**; el backend es su fuente autoritativa y Android las descarga, valida y ejecuta. MDM sigue línea independiente y no bloquea diseño ni desarrollo sintético sin privilegios MDM. No se declara interoperabilidad de producto ni contrato operativo congelado.
 
 | Documento | Propósito |
 | --- | --- |
 | [requirements.md](requirements.md) | Requisitos y aceptación trazable |
+| [gps-upload-started-blocker-p0-2026-10-21.md](gps-upload-started-blocker-p0-2026-10-21.md) | Hallazgo P0, propuesta de protocolo v2, compatibilidad de ramas y gate |
 | [architecture.md](architecture.md) | Fronteras, flujo y ejecución Android |
 | [data-model.md](data-model.md) | Políticas, sesiones, eventos, posiciones y retención |
 | [api-contracts.md](api-contracts.md) | Contratos HTTP propuestos |

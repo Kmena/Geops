@@ -18,6 +18,7 @@
     "gps:health:integration": "node --import tsx test/gps-health.integration.mjs",
     "gps:config:integration": "node --import tsx test/gps-config.integration.mjs",
     "gps:events:integration": "node --import tsx test/gps-events.integration.mjs",
+    "gps:mixed:integration": "node --import tsx test/gps-mixed.integration.mjs",
     "gps:operations:integration": "node --import tsx test/gps-operations.integration.mjs",
     "gps:capability:integration": "node --import tsx test/gps-capability-bootstrap.integration.mjs",
     "admin:tenant:integration": "node --import tsx test/admin-tenant-bootstrap.integration.mjs",

@@ -94,7 +94,7 @@ try {
       (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS permissions,
       (SELECT epoch::text FROM security_epoch WHERE singleton=true) AS epoch`,
   );
-  assert.deepEqual(after.rows[0], { ...before.rows[0], migrations: 19 });
+  assert.deepEqual(after.rows[0], { ...before.rows[0], migrations: 20 });
   assert.equal(await checkReadiness(db), true);
   await db.end();
   const legacyFinish = spawnSync(process.execPath, [gateCliPath, 'maintenance-finish'], {
@@ -128,7 +128,7 @@ try {
       ],
       compatibleReleaseConfirmed: true,
     }),
-    19,
+    20,
   );
   const opened = await readGate(gatePath);
   assert.equal(opened.phase, 'open');

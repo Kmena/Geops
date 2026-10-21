@@ -1,5 +1,7 @@
 # Arquitectura de referencia y límites operativos
 
+**Decisión posterior 2026-10-21:** [ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) confirma APK-FIRST/OFFLINE-FIRST/MDM-INDEPENDENT. El agente usa la última política válida para jornadas posteriores offline, dentro de `valid_until`; una caída de servidor o MDM no interrumpe por sí sola el motor GPS. El inicio real sigue sujeto a Android. Las notas de factibilidad previas son históricas donde presuponen revalidación online por jornada; contrato/ingesta v1 aún no implementan la nueva decisión.
+
 **Estado:** diseño propuesto, sin implementación. **Base:** [PRD v1.1](../prd/GEOPS-PRD-v1.1.md) RF-01–RF-07, RF-14–RF-15; [ADR-002](../architecture/adr/ADR-002-gps-propio.md), [ADR-003](../architecture/adr/ADR-003-ingesta-gps.md), [ADR-004](../architecture/adr/ADR-004-infraestructura.md), [ADR-006](../architecture/adr/ADR-006-privacidad-administracion.md), [ADR-007](../architecture/adr/ADR-007-mdm-externo.md), [ADR-008](../architecture/adr/ADR-008-buffer-offline.md), [ADR-009](../architecture/adr/ADR-009-datos-geoespaciales.md).
 
 ## Flujo y fronteras

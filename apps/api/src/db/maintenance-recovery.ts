@@ -27,8 +27,9 @@ const versions = [
   '0017_gps_continuity_evaluated_at.sql',
   '0018_mdm_inventory.sql',
   '0019_mdm_security.sql',
+  '0020_gps_mixed_batch_receipt.sql',
 ] as const;
-type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19;
+type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -91,7 +92,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18, 19].includes(actual.size) ||
+    ![14, 15, 16, 17, 18, 19, 20].includes(actual.size) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -122,6 +123,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_connection_control', 19, 'r'],
     ['admin_login_limit', 19, 'r'],
     ['admin_login_limit_expiry', 19, 'i'],
+    ['gps_mixed_batch_receipt', 20, 'r'],
+    ['gps_mixed_batch_receipt_retention', 20, 'i'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -166,6 +169,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_connection_control', 'remote_revoked', 19, true],
     ['admin_login_limit', 'key_digest', 19, true],
     ['admin_login_limit', 'blocked_until', 19, false],
+    ['gps_mixed_batch_receipt', 'payload_digest', 20, true],
+    ['gps_mixed_batch_receipt', 'session_mappings', 20, true],
   ];
   for (const [table, column, introduced, notNull] of columns) {
     const found = await db.query<{ attnotnull: boolean; type: string }>(
@@ -310,6 +315,7 @@ async function identityFingerprint(db: PoolClient, baseline: SchemaVersion): Pro
     ...(baseline >= 17 ? ['gps_continuity_read_quota'] : []),
     ...(baseline >= 18 ? ['mdm_inventory_device', 'mdm_sync_run'] : []),
     ...(baseline >= 19 ? ['mdm_connection_control', 'admin_login_limit'] : []),
+    ...(baseline >= 20 ? ['gps_mixed_batch_receipt'] : []),
   ];
   const digest = createHash('sha256');
   for (const table of tables) {
@@ -420,7 +426,7 @@ export async function recoverMaintenance(
       throw error;
     }
     await onStage?.('authorized');
-    for (let next = before + 1; next <= 19; next++) {
+    for (let next = before + 1; next <= 20; next++) {
       const migration = catalog[next - 1];
       if (!migration) throw new Error('Recovery migration missing');
       await db.query('BEGIN');
@@ -451,12 +457,12 @@ export async function recoverMaintenance(
         throw new Error('Identity or permission inventory changed during recovery');
     }
     await checkIdentity(db, path, auth);
-    if ((await schemaState(db, catalog)) !== 19) throw new Error('Schema 19 not committed');
+    if ((await schemaState(db, catalog)) !== 20) throw new Error('Schema 20 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
     try {
-      await audit(db, auth, 'maintenance.recovery.validated', 19);
+      await audit(db, auth, 'maintenance.recovery.validated', 20);
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
@@ -465,7 +471,7 @@ export async function recoverMaintenance(
     await onStage?.('audited');
     const gate = await checkIdentity(db, path, auth);
     if (
-      (await schemaState(db, catalog)) !== 19 ||
+      (await schemaState(db, catalog)) !== 20 ||
       identities !== (await identityFingerprint(db, before))
     )
       throw new Error('Final maintenance integrity check failed');

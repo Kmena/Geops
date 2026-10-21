@@ -84,7 +84,7 @@ const val SYNTHETIC_STAGING_BASE_URL = "https://geops-staging.duckdns.org/"
 /** The dedicated hostname forwards canonical paths unchanged to Fastify. */
 internal class DeviceRequestTarget(baseUrl: String) {
     private val base = URL(baseUrl)
-    private val canonicalRoute = Regex("^/v1/device/[A-Za-z0-9_/-]+$")
+    private val canonicalRoute = Regex("^/v[12]/device/[A-Za-z0-9_/-]+$")
 
     init {
         require(base.protocol == "https" && base.query == null && base.ref == null &&

@@ -1,5 +1,11 @@
 # Plan — SPEC-02 / Wave 1
 
+## Wave P0 — desbloqueo de envío GPS, anterior a autonomía A–E
+
+[GPS-UPLOAD-STARTED-BLOCKER](gps-upload-started-blocker-p0-2026-10-21.md) es la primera wave nueva: cerrar contrato v2 y compatibilidad Android/backend; implementar después ingesta transaccional de STARTED+posiciones, quitar compuerta global de `BatchSync`, conservar ACK exacto, adaptar buffers v1 sin pérdida, probar regresiones/seguridad y verificar envío en el mismo POCO. [T13–T17](tasks.md) y [P15–P19](test-plan.md) son sus trazas. **Estado actual: diseño documental, P0 abierto.** Compilación y unitarias no cierran el gate: se requieren integración HTTP/PostGIS, interoperabilidad Kotlin, concurrencia, migración/restore, auditoría independiente y evidencia física. El paso a Wave A requiere decisión explícita tras cerrar P0; esta secuencia no modifica ADR-020 ni autoriza despliegue. La secuencia A–E de la replanificación inferior está subordinada a este P0.
+
+**Replanificación documental 2026-10-21:** [waves A–E de DEC-GPS-OFFLINE-001](ubicacion-autonoma-offline-propuesta-2026-10-21.md#6-waves-sin-repetir-trabajo-completado) son el delta futuro sobre W1-A–E existentes, no un reinicio ni cierre de tareas previas. A versiona política/tiempo offline; B servicio Android; C capacidad/cola; D ingesta histórica y sincronización; E pruebas físicas. No se implementa ninguna en esta actualización. [ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) prevalece sobre límites offline históricos de la tabla inferior.
+
 ## Dependencias auditadas antes de implementar
 
 [SPEC-01 readiness](../spec-01-foundation-wave-0a/wave-readiness.md) **no declara terminada Wave 0A**. T06–T12/T14–T18 siguen parciales o bloqueadas; P06–P17/P22–P25 y Q2–Q4, revisión de seguridad W0A-E2, CI/restore Linux y validaciones de dos Android/MDM Free no están cerrados. Admin session/CSRF/audit existen, pero las capacidades GPS de [ADR-015](../architecture/adr/ADR-015-capacidades-administrativas-gps.md) requieren trabajo W1-B. Identidad/PoP/restore epoch son dependencias de descarga e ingesta. Una prueba fake o Trial no acredita activación real. Diseño, contratos, motor y UI con fixtures pueden avanzar en sintético; captura física exige gates propios. SPEC-00 permanece BLOCKED.

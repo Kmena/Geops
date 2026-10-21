@@ -1,5 +1,21 @@
 # Riesgos y bloqueos
 
+## Wave P0 — riesgos abiertos de GPS-UPLOAD-STARTED-BLOCKER
+
+Contrato, decisión y ramas en [diseño P0](gps-upload-started-blocker-p0-2026-10-21.md). Todos están **abiertos** hasta implementación y evidencia; las pruebas citadas son futuras.
+
+| ID | Riesgo | Mitigación y prueba |
+| --- | --- | --- |
+| R02-22 | Migrar/envolver buffer v1 pierde ubicaciones o cambia digest. | Preservar `event_id`/payload, comparar conteos, rollback sin borrado; P19. |
+| R02-23 | STARTED duplicado o ACK perdido crea dos sesiones. | Unicidad por dispositivo/instalación/sesión, recibo pos-COMMIT y replay; P15/P17. |
+| R02-24 | Rechazar posición offline válida bajo revisión anterior o ADR-020. | Validar versión/evidencia originales; conservar pendiente hasta extensión Wave A/D, sin ACK ficticio; P18/P19. |
+| R02-25 | Android/API de versiones distintas interpreta v2/v1 o ACK ambiguo. | Ruta v2 aditiva, gate de capacidad, sets exactos y fallback sin borrado; P17/P19. |
+| R02-26 | Locks, sesiones fuera de orden o retransmisiones concurrentes bloquean/duplican. | Serialización determinista por dispositivo, transacción corta, digest y prueba de carreras; P16/P17. |
+| R02-27 | Registros tardíos, dependencia v1 de siete días o revocación diferida causan pérdida. | Conservar cifrado, cuarentena explícita, decisión histórica en Wave D; P18/P19. |
+| R02-28 | Integración parcial de ramas omite `PendingUpload`/JobService o dependencias SQL. | Revisar diffs/commits y migraciones, E2E Kotlin↔API↔DB y POCO antes de cierre; P15/P19. |
+
+**Riesgo vigente DEC-GPS-OFFLINE-001 (2026-10-21):** [ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) amplía la exposición a revocación no recibida hasta la vigencia explícita de la última política válida, potencialmente varios días. La mitigación histórica de 12 h/primera ventana de R02-02 ya no es vigente. Se suman reloj civil después de reboot sin red, horizonte de asignación, compatibilidad de ingesta v1 y backlog >7 días. Seguridad/privacidad deben aceptar la exposición antes de captura real.
+
 **R02-21, release 2026-10-20 — rollback de 0015 (`BLOCKED`):** una migración fallida mantiene el gate en mantenimiento y la versión antigua no puede consumir el gate nuevo con nonce después del éxito. La cuarentena de backups protege identidades pero no devuelve acceso operativo. Se requiere un procedimiento de recuperación supervisado, probado en réplica y aprobado independientemente antes de publicar/actualizar Staging. Se corrigieron localmente dos riesgos de restauración: invitaciones/grants no invalidados y gate abierto sin vínculo al marcador. [Evidencia](w1-e2-single-tenant-release-readiness-2026-10-20.md).
 
 **Enmienda ADR-019, riesgos abiertos:** el administrador principal concentra gestión de cuentas y permisos; requiere selección/custodia formal, contraseñas fuertes, revisión independiente, auditoría y procedimiento de recuperación con dos custodios. El tenant único `synthetic` se establece una sola vez; un tenant equivocado o grants históricos incompatibles bloquean la ceremonia, sin corrección SQL manual. La invitación de un solo uso exige entrega privada del token y protección frente a intentos de activación; su ventana es limitada. La migración 0015 en Staging necesita backup probado, gate de mantenimiento/epoch y ensayo de restauración antes de ejecutarse. La implementación no concede acceso en Staging ni habilita dispositivos reales. El flujo de admin2/doble aprobación descrito abajo es histórico para operaciones ordinarias.

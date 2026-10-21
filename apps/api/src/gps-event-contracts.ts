@@ -52,6 +52,18 @@ export interface GpsBatchAck {
   session_mappings: Array<{ client_session_id: string; session_id: string }>;
   processing: 'complete';
 }
+export interface GpsMixedEvent {
+  kind: GpsEventKind;
+  payload: SessionEvent | PositionEvent;
+}
+export interface GpsBatchV2 {
+  schema_version: 2;
+  batch_id: string;
+  device_id: string;
+  installation_id: string;
+  client_session_id: string;
+  events: GpsMixedEvent[];
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -237,6 +249,55 @@ export function parseGpsBatch(
     installation_id: b.installation_id,
     events,
   } as GpsBatch<SessionEvent> | GpsBatch<PositionEvent>;
+}
+
+/** V2 keeps each original event payload unchanged so v1 and v2 share event digests. */
+export function parseGpsV2Batch(body: unknown, bytes: number): GpsBatchV2 {
+  if (bytes > 256 * 1024) throw new ApiError(413, 'batch_too_large', 'Request too large', true);
+  const b = object(body, [
+    'schema_version',
+    'batch_id',
+    'device_id',
+    'installation_id',
+    'client_session_id',
+    'events',
+  ]);
+  if (
+    b.schema_version !== 2 ||
+    !isUuid(b.batch_id) ||
+    !isUuid(b.device_id) ||
+    !isUuid(b.installation_id) ||
+    !isUuid(b.client_session_id) ||
+    !Array.isArray(b.events) ||
+    b.events.length < 1 ||
+    b.events.length > 100
+  )
+    throw new GpsValidationError();
+  const events = b.events.map((value: unknown): GpsMixedEvent => {
+    const item = object(value, ['kind', 'payload']);
+    if (item.kind !== 'SESSION' && item.kind !== 'POSITION') throw new GpsValidationError();
+    const payload = item.kind === 'SESSION' ? session(item.payload) : position(item.payload);
+    if (payload.client_session_id !== b.client_session_id) {
+      throw new GpsValidationError([payload.event_id]);
+    }
+    return { kind: item.kind, payload };
+  });
+  const ids = events.map((event) => event.payload.event_id);
+  if (new Set(ids).size !== ids.length) throw new GpsValidationError(ids);
+  if (
+    events.filter(
+      (event) => event.kind === 'SESSION' && (event.payload as SessionEvent).type === 'STARTED',
+    ).length > 1
+  )
+    throw new GpsValidationError(ids);
+  return {
+    schema_version: 2,
+    batch_id: b.batch_id,
+    device_id: b.device_id,
+    installation_id: b.installation_id,
+    client_session_id: b.client_session_id,
+    events,
+  };
 }
 
 function canonical(value: unknown): unknown {

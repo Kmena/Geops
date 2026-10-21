@@ -1,5 +1,19 @@
 # Tasks — backlog verificable
 
+## Wave P0 nueva — GPS-UPLOAD-STARTED-BLOCKER
+
+Trabajo futuro y secuencial. [Contrato y compatibilidad de ramas](gps-upload-started-blocker-p0-2026-10-21.md); ninguna fila está implementada por esta revisión documental. P0 se cierra solo con los gates de [readiness](wave-readiness.md), antes de iniciar autonomía A–E.
+
+| ID | Trabajo y dependencia | Requisitos | Verificación |
+| --- | --- | --- | --- |
+| S02-T13 | Cerrar esquema v2, errores, ACK, lotes por sesión, orden tardío y compatibilidad v1; revisar ADR-016 y ADR-020. | R12–R17 | P15–P19; contrato revisado por Android/backend/seguridad. |
+| S02-T14 | Integrar componentes de subida de `codex/geops-integration` por diff, con dependencias API/SQL verificadas; implementar recibo v2 y transacción STARTED+posiciones en DB desechable. Depende de T13. | R13–R15 | P15–P18; rollback, aislamiento, concurrencia y restore. |
+| S02-T15 | Quitar compuerta global de `BatchSync`; agrupar por `client_session_id`, conservar captura/cola cifrada, ACK exacto y reintentos. Depende de T13–T14. | R12,R14,R17 | P15–P18; interoperabilidad Kotlin/HTTP/PostGIS. |
+| S02-T16 | Adaptar pendientes v1 sin reescribir IDs/payload; gate de versión, fallback seguro, reinicio y rollback. Depende de T14–T15. | R14,R16 | P17,P19; recuentos/IDs antes y después, sin pérdida. |
+| S02-T17 | Regresión completa, auditoría independiente y POCO supervisado con captura concurrente; decisión formal de salida P0. Depende de T13–T16. | R12–R17 | P15–P19 y gate de readiness; no basta compilación/unitarias. |
+
+**Delta aprobado 2026-10-21, aún sin implementación:** [DEC-GPS-OFFLINE-001 / ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) agrega trabajo a T02/T06 (contrato versionado, asignación/tiempo local entre boots), T07 (inicio legal y Fused), T08 (capacidad y cola), T09 (ingesta de jornadas offline históricas) y T12 (POCO/matriz física). T01–T02 W1-A cerradas **solo para contrato sintético v1**; no reabrir ni presentar como implementada la nueva decisión. Orden A–E y gates en la [SPEC actualizada](ubicacion-autonoma-offline-propuesta-2026-10-21.md#6-waves-sin-repetir-trabajo-completado).
+
 **Enmienda ADR-019:** implementar y verificar ceremonia local de principal y tenant, migración 0015, API de usuarios/capacidades/acceso tenant, vista Web de permisos efectivos y runbook de mantenimiento. Implementación local sintética terminada; permanecen abiertos aprobación de ADR-019, revisión independiente de Seguridad, ensayo de actualización/restore de Staging y E2E autenticado. La dependencia ordinaria de admin2 del corte anterior queda sustituida por el principal explícito; recuperación excepcional mantiene control reforzado.
 
 **W1-E2 primer dispositivo (2026-10-19):** [implementación local y evidencia](w1-e2-first-device-2026-10-19.md). T05/T06–T10 recibieron conexiones Web/API y empaquetado Android, con pruebas sintéticas; T12 cuenta con APK firmada de prueba pero **no** con instalación ni evidencia física. T11, E2E único en Android/navegador y gates operativos siguen abiertos. No se altera el estado de SPEC-00 ni se cierra W1-E2.

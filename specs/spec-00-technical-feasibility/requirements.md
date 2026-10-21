@@ -1,5 +1,7 @@
 # Requisitos y trazabilidad
 
+**DEC-GPS-OFFLINE-001 (2026-10-21):** [ADR-020](../architecture/adr/ADR-020-ultima-politica-valida-offline.md) agrega a RF-04/RF-06 la evaluación local de la última política válida, incluidas nuevas jornadas sin Internet dentro de vigencia explícita. MDM sigue siendo gestión de dispositivo, no dependencia de cada captura. Android puede impedir un inicio automático desde fondo. La factibilidad física y la compatibilidad del contrato actual permanecen abiertas.
+
 **Fuente primaria:** [PRD v1.1](../prd/GEOPS-PRD-v1.1.md). **Fecha:** 2026-10-16. “Confirmado” describe la necesidad de producto; la factibilidad se evalúa por separado. Los parámetros no presentes en el PRD permanecen abiertos en [open-questions.md](open-questions.md).
 
 | PRD | Requisito confirmado | Diseño / evidencia SPEC-00 | Viabilidad |
