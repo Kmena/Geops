@@ -17,9 +17,13 @@
 
 La configuración predeterminada conserva `MDM_ENABLED=false`: no se carga OAuth ni se sincroniza MDM. GEOPS permanece single-tenant (`synthetic`); no se certifica aislamiento multiempresa. Las identidades y sesiones GPS no dependen del vínculo de inventario ManageEngine.
 
+## Publicación verificada
+
+El commit `a283a0b19049902d831a75ed4a2a65d2c9006374` ejecutó [GitHub Actions](https://github.com/Kmena/Geops/actions/runs/39674116866): Node/Web/contratos, Kotlin/JVM, Android debug y PostgreSQL/PostGIS finalizaron con éxito. Los pasos de migración 0019, recuperación supervisada, inventario MDM y desconexión/login se ejecutaron y pasaron. El ensayo histórico `clean-reinstall-0018.sh` quedó explícitamente omitido en esta rama porque exige exactamente 18 migraciones. Esta evidencia es sintética y no autoriza desplegar ni activar MDM.
+
 ## Puertas pendientes
 
-1. CI de la rama publicada, incluida la ejecución real de los dos tests MDM/PostGIS nuevos.
+1. Repetir CI sobre el futuro commit de integración antes de considerar un despliegue.
 2. Revisión independiente de la ceremonia de reconexión y de la procedencia de IP detrás del proxy.
 3. Plan de migración 0018→0019 con gate cerrado y procedimiento de imagen compatible, antes de cualquier Staging futuro.
 4. Verificación real de OAuth, edición/licencia y paginación ManageEngine con secretos de prueba, en un entorno autorizado separado.
