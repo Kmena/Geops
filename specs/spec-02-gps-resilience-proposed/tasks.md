@@ -2,6 +2,8 @@
 
 R0 tiene `PASS_PREPARATION` y R1–R4-A `CONDITIONAL_PASS` sintéticos aceptados. R4-A tiene evaluador y persistencia, con lectura HTTP/OpenAPI y Web pendientes por conflicto de contrato; véanse [informe R4-A](r4a-backend-alerts-2026-10-20.md) y [coordinación previa a R4-B](r4b-contract-coordination-2026-10-20.md). No se cambiaron contratos compartidos ni reglas de aceptación histórica.
 
+**Actualización 21/10:** lectura HTTP versionada, Web y migración 0017 de R4-B implementadas en `codex/geops-integration`; [detalle y evidencia](r4b-integration-2026-10-21.md). Faltan E2E navegador, revisión independiente, política definitiva de retención y prueba física. La frase anterior conserva el estado histórico antes de R4-B.
+
 | ID | Wave | Trabajo y dependencia | Evidencia de cierre |
 | --- | --- | --- | --- |
 | R-T01 | R0 | Reconciliar `c27f656` con diff local Android/API y auditoría no confirmada. | Tabla de cambios que se adoptan, se rehacen o se descartan; sin pérdida de trabajo ajeno. |

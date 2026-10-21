@@ -2,6 +2,8 @@
 
 **Estado de esta revisión:** `GPS-OFFLINE-001` aprobada; R0 aceptada como preparación y R1–R4-A aceptadas como `CONDITIONAL_PASS` sintético. La [coordinación contractual previa a R4-B](r4b-contract-coordination-2026-10-20.md) es una propuesta, no aprobación de implementación. `APPROVED` permite implementar únicamente dentro de la wave autorizada y sus gates; no autoriza teléfono ni despliegue. `CONDITIONAL` exige el gate indicado. `BLOCKED` no debe incorporarse hasta nueva decisión/evidencia.
 
+**Corte 21/10/2026:** R4-B fue implementada tras integrar frontend y resiliencia. [Contrato y resultados sintéticos](r4b-integration-2026-10-21.md). D08 permanece **CONDITIONAL para uso operativo** por revisión independiente de Seguridad/Privacidad, retención y pruebas físicas; la ruta aditiva y la migración 0017 ya existen localmente. Inicio diario automático y MDM continúan bloqueados para este alcance.
+
 | ID | Decisión | Estado | Alcance y siguiente gate |
 | --- | --- | --- | --- |
 | D01 | Captura solo en horario autorizado conocido por el dispositivo | **APPROVED** | Instancias UTC `[inicio,fin)` de la última política autenticada y vigente, versión/ancla/permiso/sesión efectivos; fail-closed. Reducción remota aún no observada se rige por D10. Probar Android y backend antes de uso. |

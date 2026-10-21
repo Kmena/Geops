@@ -2,6 +2,8 @@
 
 **Estado:** plan con evidencia sintética R0–R4-A. R-P01/R-P02/R-P13/R-P16/R-P17 tienen vectores JVM parciales; R-P03/R-P04/R-P05/R-P14 solo cobertura JVM/compilación, sin prueba de SO. R4-A tiene pruebas PostGIS descartables del monitor, pero ninguna prueba física ni de aceptación histórica R-P18/R-P19 se declara PASS. Ver [evidencia R2](r2-android-continuity-2026-10-20.md), [R3](r3-independent-upload-2026-10-20.md) y [R4-A](r4a-backend-alerts-2026-10-20.md). Datos GPS sintéticos, PostgreSQL/PostGIS desechable y reloj controlado antes del piloto autorizado. Nunca copiar coordenadas reales, secretos ni identificadores físicos al repositorio.
 
+**R4-B, corte 21/10:** migración 0016→0017 y API/monitor en PostGIS descartable, páginas de 25 dispositivos sintéticos, contrato y regresiones Web pasaron; véase [informe](r4b-integration-2026-10-21.md). La prueba E2E de navegador en móvil/tablet/escritorio, la carga sostenida, la revisión de privacidad y los dos teléfonos reales siguen abiertas. No elevar cobertura sintética a continuidad operativa.
+
 | ID | Nivel | Caso y criterio PASS futuro |
 | --- | --- | --- |
 | R-P01 | Kotlin | Límite `[inicio, fin)` con zona IANA, DST, medianoche, excepción, cambio de revisión, ancla vencida, reboot y reloj alterado: cero registros de posición fuera de intervalo. |

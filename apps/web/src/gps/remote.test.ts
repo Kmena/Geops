@@ -5,6 +5,63 @@ import { GpsRemote } from './remote.js';
 
 const id = '11111111-1111-4111-8111-111111111111';
 
+test('continuity client validates versioned alerts and preserves reason, filters and errors', async () => {
+  const calls: Array<{ path: string; headers: HeadersInit | undefined }> = [];
+  let response: unknown = {
+    schema_version: 1,
+    items: [
+      {
+        alert_id: id,
+        device_id: id,
+        scheduled_session_id: id,
+        status: 'OPEN',
+        reason_code: 'CAPTURE_STALE',
+        severity: 'WARNING',
+        source: 'SERVER_INFERENCE',
+        observed: {
+          tracking_state: 'RUNNING',
+          last_position_captured_at: null,
+          last_position_received_at: null,
+          last_health_observed_at: null,
+          last_health_received_at: null,
+        },
+        inference: { evidence_at: null, age_s: 300, threshold_s: 300, evaluated_at: null },
+        opened_at: '2026-10-20T15:00:00Z',
+        updated_at: '2026-10-20T15:00:00Z',
+        resolved_at: null,
+        resolution_reason: null,
+      },
+    ],
+    next_cursor: null,
+  };
+  let status = 200;
+  const remote = new GpsRemote(async (path, init) => {
+    calls.push({ path: String(path), headers: init?.headers });
+    return new Response(JSON.stringify(response), { status });
+  });
+  const page = await remote.continuityAlerts(
+    { device_id: id, status: 'OPEN', limit: 25 },
+    'Consulta operativa de alertas',
+  );
+  assert.equal(page.items.length, 1);
+  assert.match(calls[0]?.path ?? '', /gps-continuity\/alerts\?device_id=/);
+  assert.equal(
+    (calls[0]?.headers as Record<string, string> | undefined)?.['x-geops-access-reason'],
+    'Consulta operativa de alertas',
+  );
+  response = { schema_version: 2, items: [], next_cursor: null };
+  await assert.rejects(
+    remote.continuityAlerts({}, 'Consulta operativa de alertas'),
+    (error: unknown) => error instanceof ApiClientError && error.code === 'invalid_response',
+  );
+  status = 403;
+  response = { error: { code: 'gps_forbidden' } };
+  await assert.rejects(
+    remote.continuityAlerts({}, 'Consulta operativa de alertas'),
+    (error: unknown) => error instanceof ApiClientError && error.status === 403,
+  );
+});
+
 test('read-only remote carries session cookie, reason, cursor, and cancellation', async () => {
   const calls: Array<{ path: string; init: RequestInit }> = [];
   const transport: typeof fetch = async (path, init) => {

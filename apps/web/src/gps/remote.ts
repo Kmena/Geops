@@ -102,6 +102,124 @@ export interface RemotePosition {
   accuracy_m: number;
 }
 
+export interface RemoteContinuityAlert {
+  alert_id: string;
+  device_id: string;
+  scheduled_session_id: string;
+  status: 'OPEN' | 'RESOLVED';
+  reason_code: 'CAPTURE_STALE' | 'COMMUNICATION_MISSING';
+  severity: 'WARNING' | 'CRITICAL';
+  source: 'SERVER_INFERENCE';
+  observed: {
+    tracking_state: 'RUNNING' | 'STOPPED' | null;
+    last_position_captured_at: string | null;
+    last_position_received_at: string | null;
+    last_health_observed_at: string | null;
+    last_health_received_at: string | null;
+  };
+  inference: {
+    evidence_at: string | null;
+    age_s: number;
+    threshold_s: number;
+    evaluated_at: string | null;
+  };
+  opened_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  resolution_reason:
+    | 'EVIDENCE_RECOVERED'
+    | 'WINDOW_ENDED'
+    | 'POLICY_CHANGED'
+    | 'DEVICE_INACTIVE'
+    | 'INSTALLATION_CHANGED'
+    | null;
+}
+
+export interface RemoteContinuityPage extends RemotePage<RemoteContinuityAlert> {
+  schema_version: 1;
+}
+
+export interface ContinuityFilters {
+  device_id?: string;
+  status?: 'OPEN' | 'RESOLVED' | 'ALL';
+  severity?: 'WARNING' | 'CRITICAL';
+  reason_code?: 'CAPTURE_STALE' | 'COMMUNICATION_MISSING';
+  opened_from?: string;
+  opened_before?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+function validContinuityPage(value: unknown): value is RemoteContinuityPage {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const page = value as Record<string, unknown>;
+  if (
+    page.schema_version !== 1 ||
+    !Array.isArray(page.items) ||
+    !(
+      page.next_cursor === null ||
+      (typeof page.next_cursor === 'string' &&
+        page.next_cursor.length > 0 &&
+        page.next_cursor.length <= 1024)
+    )
+  )
+    return false;
+  return page.items.every((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+    const item = entry as Record<string, unknown>;
+    if (
+      !uuid.test(String(item.alert_id)) ||
+      !uuid.test(String(item.device_id)) ||
+      !uuid.test(String(item.scheduled_session_id)) ||
+      !['OPEN', 'RESOLVED'].includes(String(item.status)) ||
+      !['CAPTURE_STALE', 'COMMUNICATION_MISSING'].includes(String(item.reason_code)) ||
+      !['WARNING', 'CRITICAL'].includes(String(item.severity)) ||
+      item.source !== 'SERVER_INFERENCE'
+    )
+      return false;
+    const observed = item.observed;
+    const inference = item.inference;
+    if (!observed || typeof observed !== 'object' || !inference || typeof inference !== 'object')
+      return false;
+    const o = observed as Record<string, unknown>;
+    const i = inference as Record<string, unknown>;
+    const dateOrNull = (v: unknown) =>
+      v === null || (typeof v === 'string' && Number.isFinite(Date.parse(v)) && v.endsWith('Z'));
+    const date = (v: unknown) =>
+      typeof v === 'string' && Number.isFinite(Date.parse(v)) && v.endsWith('Z');
+    return (
+      (o.tracking_state === null || ['RUNNING', 'STOPPED'].includes(String(o.tracking_state))) &&
+      [
+        'last_position_captured_at',
+        'last_position_received_at',
+        'last_health_observed_at',
+        'last_health_received_at',
+      ].every((key) => dateOrNull(o[key])) &&
+      dateOrNull(i.evidence_at) &&
+      dateOrNull(i.evaluated_at) &&
+      Number.isInteger(i.age_s) &&
+      Number(i.age_s) >= 0 &&
+      Number.isInteger(i.threshold_s) &&
+      Number(i.threshold_s) > 0 &&
+      date(item.opened_at) &&
+      date(item.updated_at) &&
+      dateOrNull(item.resolved_at) &&
+      ((item.status === 'OPEN' && item.resolved_at === null && item.resolution_reason === null) ||
+        (item.status === 'RESOLVED' &&
+          item.resolved_at !== null &&
+          item.resolution_reason !== null)) &&
+      (item.resolution_reason === null ||
+        [
+          'EVIDENCE_RECOVERED',
+          'WINDOW_ENDED',
+          'POLICY_CHANGED',
+          'DEVICE_INACTIVE',
+          'INSTALLATION_CHANGED',
+        ].includes(String(item.resolution_reason)))
+    );
+  });
+}
+
 /** Authenticated transport; server capabilities, CSRF and ETags remain authoritative. */
 export class GpsRemote {
   constructor(private readonly send: typeof fetch = globalThis.fetch.bind(globalThis)) {}
@@ -339,5 +457,31 @@ export class GpsRemote {
       { 'x-geops-access-reason': reason },
       signal,
     );
+  }
+
+  async continuityAlerts(
+    filters: ContinuityFilters,
+    reason: string,
+    signal?: AbortSignal,
+  ): Promise<RemoteContinuityPage> {
+    if (
+      reason.trim().length < 8 ||
+      reason.length > 240 ||
+      (filters.device_id !== undefined && !uuid.test(filters.device_id)) ||
+      (filters.cursor !== undefined && (!filters.cursor || filters.cursor.length > 1024))
+    )
+      throw new ApiClientError(422, 'invalid_request');
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined) query.set(key, String(value));
+    }
+    const suffix = query.size ? `?${query}` : '';
+    const response = await this.get<unknown>(
+      `/v1/admin/gps-continuity/alerts${suffix}`,
+      { 'x-geops-access-reason': reason.trim() },
+      signal,
+    );
+    if (!validContinuityPage(response)) throw new ApiClientError(502, 'invalid_response');
+    return response;
   }
 }

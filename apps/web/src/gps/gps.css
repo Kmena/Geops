@@ -1000,6 +1000,74 @@
 .gps-device-main > section {
   min-width: 0;
 }
+.gps-continuity {
+  padding: 1rem;
+  border: 1px solid var(--gps-line);
+  border-radius: 10px;
+  background: #fff;
+}
+.gps-continuity .gps-section-heading {
+  flex-wrap: wrap;
+}
+.gps-continuity-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: fit-content;
+  margin: 0.6rem 0;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.45rem;
+  font-weight: 700;
+  color: #173d4c;
+  background: #e7f2f4;
+}
+.gps-continuity-status.is-warning {
+  color: #64420b;
+  background: #fff1d3;
+}
+.gps-continuity-status.is-critical {
+  color: #8b2020;
+  background: #fde8e6;
+}
+.gps-continuity-status.is-normal {
+  color: #175940;
+  background: #e2f2e9;
+}
+.gps-continuity-status.is-out_of_hours {
+  color: #334d6a;
+  background: #e9eff7;
+}
+.gps-continuity-note {
+  color: var(--gps-muted);
+  line-height: 1.5;
+}
+.gps-continuity-filter {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.gps-continuity-list {
+  display: grid;
+  gap: 0.7rem;
+  padding-left: 1.2rem;
+}
+.gps-continuity-list li {
+  padding: 0.65rem;
+  border: 1px solid var(--gps-line);
+  border-radius: 0.4rem;
+}
+.gps-continuity-fleet,
+.gps-continuity-history {
+  margin-top: 0.8rem;
+}
+.gps-continuity-fleet summary,
+.gps-continuity-history summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.gps-continuity-fleet li {
+  margin: 0.35rem 0;
+}
 .gps-device-main h3 {
   margin: 0;
   font-size: 1.18rem;
@@ -1216,6 +1284,11 @@
   .gps-section-heading span {
     text-align: left;
   }
+}
+.gps-continuity-list li > span {
+  display: block;
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
 }
 .gps-workspace > .gps-live-toolbar {
   width: fit-content;
