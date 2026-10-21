@@ -24,15 +24,29 @@ class PopBatchTransport(private val http: PopHttpClient, private val healthContr
 enum class SyncOutcome { EMPTY, ACKED, PENDING, RETRY, QUARANTINED, AUTH_REQUIRED }
 
 class BatchSync(private val identity: Identity, private val store: AgentStore,
-                private val clock: AgentClock, private val transport: BatchTransport) {
+                private val clock: AgentClock, private val transport: BatchTransport,
+                private val diagnostics: DiagnosticRecorder = NoopDiagnostics) {
+    private fun observe(kind: DiagnosticKind, record: RecordKind, count: Int,
+                        reason: DiagnosticReason = DiagnosticReason.NONE) {
+        diagnostics.recordSafely(DiagnosticEvent(kind, clock.read().wallMs, reason,
+            recordKind = record, count = count))
+    }
+
     @Synchronized fun once(kind: RecordKind): SyncOutcome {
         val now = clock.read().wallMs
         val pending = store.read().pending
         if (kind == RecordKind.LOCATION && pending.any { it.kind == RecordKind.SESSION &&
-                !it.quarantined && JSONObject(it.payload).optString("type") == "STARTED" }) return SyncOutcome.PENDING
+                !it.quarantined && JSONObject(it.payload).optString("type") == "STARTED" }) {
+            observe(DiagnosticKind.SYNC_PENDING, kind, 0, DiagnosticReason.WAITING_SESSION)
+            return SyncOutcome.PENDING
+        }
         val available = pending.filter { it.kind == kind && !it.quarantined && it.retryAfterMs <= now }
             .sortedWith(compareBy<PendingRecord> { it.createdAtMs }.thenBy { it.id })
-        if (available.isEmpty()) return SyncOutcome.EMPTY
+        if (available.isEmpty()) {
+            if (pending.any { it.kind == kind && !it.quarantined && it.retryAfterMs > now })
+                observe(DiagnosticKind.SYNC_PENDING, kind, 0, DiagnosticReason.BACKOFF)
+            return SyncOutcome.EMPTY
+        }
         val selected = mutableListOf<PendingRecord>()
         var body = ""
         for (record in available.take(100)) {
@@ -40,7 +54,10 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
             val next = encode(kind, candidate)
             val max = if (kind == RecordKind.LOCATION) 256 * 1024 else 128 * 1024
             if (next.toByteArray(StandardCharsets.UTF_8).size > max) {
-                if (selected.isEmpty()) store.update { s -> s.pending.first { it.id == record.id }.quarantined = true }
+                if (selected.isEmpty()) {
+                    store.update { s -> s.pending.first { it.id == record.id }.quarantined = true }
+                    observe(DiagnosticKind.SYNC_QUARANTINE, kind, 1, DiagnosticReason.REJECTED_EVENTS)
+                }
                 break
             }
             selected.add(record)
@@ -48,37 +65,70 @@ class BatchSync(private val identity: Identity, private val store: AgentStore,
         }
         if (selected.isEmpty()) return SyncOutcome.QUARANTINED
         val ids = selected.map { it.id }.toSet()
-        val result = try { transport.post(kind, body) } catch (_: Exception) {
+        observe(DiagnosticKind.SYNC_ATTEMPT, kind, ids.size)
+        val result = try { transport.post(kind, body) } catch (failure: Exception) {
+            if (failure.message in setOf("session_http_401", "session_http_403",
+                    "session_challenge_http_401", "session_challenge_http_403")) {
+                observe(DiagnosticKind.SYNC_AUTH_REQUIRED, kind, ids.size, DiagnosticReason.AUTH_REJECTED)
+                return SyncOutcome.AUTH_REQUIRED
+            }
+            observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.NETWORK)
             retry(ids, now, null); return SyncOutcome.RETRY
         }
         when (result.status) {
             200 -> {
-                val ack = try { JSONObject(result.body) } catch (_: Exception) { retry(ids, now, null); return SyncOutcome.RETRY }
+                val ack = try { JSONObject(result.body) } catch (_: Exception) {
+                    observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.INVALID_ACK)
+                    retry(ids, now, null); return SyncOutcome.RETRY
+                }
                 val batchId = batchId(kind, selected)
                 if (ack.optString("batch_id") != batchId ||
                     runCatching { Instant.parse(ack.getString("persisted_at")) }.isFailure) {
+                    observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.INVALID_ACK)
                     retry(ids, now, null); return SyncOutcome.RETRY
                 }
                 val accepted = idsFrom(ack.optJSONArray("accepted_event_ids"))
                 val duplicate = idsFrom(ack.optJSONArray("duplicate_event_ids"))
                 if (accepted == null || duplicate == null || accepted.intersect(duplicate).isNotEmpty() ||
-                    accepted.union(duplicate) != ids) { retry(ids, now, null); return SyncOutcome.RETRY }
+                    accepted.union(duplicate) != ids) {
+                    observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.INVALID_ACK)
+                    retry(ids, now, null); return SyncOutcome.RETRY
+                }
                 store.update { s -> s.pending.removeAll { it.id in ids } }
+                observe(DiagnosticKind.SYNC_ACK, kind, ids.size)
                 return SyncOutcome.ACKED
             }
-            202 -> { retry(ids, now, 30); return SyncOutcome.PENDING }
-            401, 403 -> return SyncOutcome.AUTH_REQUIRED
-            409 -> { store.update { s -> s.pending.filter { it.id in ids }.forEach { it.quarantined = true } }; return SyncOutcome.QUARANTINED }
+            202 -> {
+                observe(DiagnosticKind.SYNC_PENDING, kind, ids.size, DiagnosticReason.SERVER_PENDING)
+                retry(ids, now, 30); return SyncOutcome.PENDING
+            }
+            401, 403 -> {
+                observe(DiagnosticKind.SYNC_AUTH_REQUIRED, kind, ids.size, DiagnosticReason.AUTH_REJECTED)
+                return SyncOutcome.AUTH_REQUIRED
+            }
+            409 -> {
+                store.update { s -> s.pending.filter { it.id in ids }.forEach { it.quarantined = true } }
+                observe(DiagnosticKind.SYNC_QUARANTINE, kind, ids.size, DiagnosticReason.REJECTED_EVENTS)
+                return SyncOutcome.QUARANTINED
+            }
             422 -> {
                 val invalid = try { idsFrom(JSONObject(result.body).optJSONArray("invalid_event_ids")) } catch (_: Exception) { null }
                 if (invalid == null || invalid.isEmpty() || !ids.containsAll(invalid)) {
+                    observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.INVALID_ACK)
                     retry(ids, now, null); return SyncOutcome.RETRY
                 }
                 store.update { s -> s.pending.filter { it.id in invalid }.forEach { it.quarantined = true } }
+                observe(DiagnosticKind.SYNC_QUARANTINE, kind, invalid.size, DiagnosticReason.REJECTED_EVENTS)
                 return SyncOutcome.QUARANTINED
             }
-            429 -> retry(ids, now, result.retryAfterSeconds?.coerceIn(1, 3600))
-            else -> retry(ids, now, null)
+            429 -> {
+                observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.RATE_LIMIT)
+                retry(ids, now, result.retryAfterSeconds?.coerceIn(1, 3600))
+            }
+            else -> {
+                observe(DiagnosticKind.SYNC_RETRY, kind, ids.size, DiagnosticReason.SERVER_ERROR)
+                retry(ids, now, null)
+            }
         }
         return SyncOutcome.RETRY
     }
