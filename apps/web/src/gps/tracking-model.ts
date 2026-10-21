@@ -15,14 +15,31 @@ export function deviceNames(devices: RemoteGpsDevice[]): Map<string, string> {
     const name = device.display_label?.trim() || 'Dispositivo sin nombre';
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
+  const needsId = devices.filter((device) => {
+    const label = device.display_label?.trim();
+    return !label || (counts.get(label) ?? 0) > 1;
+  });
+  const suffix = (id: string) => {
+    const compact = id.replaceAll('-', '');
+    let length = 6;
+    while (
+      length < compact.length &&
+      needsId.some(
+        (other) =>
+          other.device_id !== id &&
+          other.device_id.replaceAll('-', '').endsWith(compact.slice(-length)),
+      )
+    )
+      length += 2;
+    return compact.slice(-length);
+  };
   return new Map(
     devices.map((device) => {
-      const name = device.display_label?.trim() || 'Dispositivo sin nombre';
+      const label = device.display_label?.trim();
+      const name = label || 'Dispositivo sin nombre';
       return [
         device.device_id,
-        (counts.get(name) ?? 0) > 1
-          ? `${name} · ${device.device_id.replaceAll('-', '').slice(-6)}`
-          : name,
+        !label || (counts.get(name) ?? 0) > 1 ? `${name} · ${suffix(device.device_id)}` : name,
       ];
     }),
   );

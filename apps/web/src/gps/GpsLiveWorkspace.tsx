@@ -161,6 +161,13 @@ function GpsOtherWorkspace({ section }: { section: Exclude<Section, 'devices'> }
           <p>
             {policies.length} políticas visibles · {devices.length} dispositivos autorizados.
           </p>
+          {devices.length > 0 && (
+            <ul aria-label="Dispositivos autorizados">
+              {devices.map((item) => (
+                <li key={item.device_id}>{names.get(item.device_id)}</li>
+              ))}
+            </ul>
+          )}
           <p>Estas cifras describen configuración técnica; no son métricas de productividad.</p>
         </div>
       )}
@@ -181,6 +188,7 @@ function GpsOtherWorkspace({ section }: { section: Exclude<Section, 'devices'> }
                   ))}
                 </select>
               </label>
+              <p>Sesiones de {names.get(selected)}</p>
               {sessionLoading && <p role="status">Cargando sesiones…</p>}
               {sessionError !== null && <p role="alert">{gpsReadErrorMessage(sessionError)}</p>}
               {!sessionLoading && sessions.length === 0 && sessionError === null && (

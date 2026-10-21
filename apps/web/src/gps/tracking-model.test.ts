@@ -41,10 +41,30 @@ test('duplicate device names get stable short suffixes and unnamed records remai
     device('11111111-aaaa', 'Android 01'),
     device('22222222-bbbb', 'Android 01'),
     device('33333333-cccc', 'Oficina'),
+    device('44444444-dddd', ''),
+    device('55555555-eeee', '  '),
   ]);
   assert.equal(labels.get('11111111-aaaa'), 'Android 01 · 11aaaa');
   assert.equal(labels.get('22222222-bbbb'), 'Android 01 · 22bbbb');
   assert.equal(labels.get('33333333-cccc'), 'Oficina');
+  assert.equal(labels.get('44444444-dddd'), 'Dispositivo sin nombre · 44dddd');
+  assert.equal(labels.get('55555555-eeee'), 'Dispositivo sin nombre · 55eeee');
+});
+
+test('five distinct inventory labels remain unchanged in every GPS name map', () => {
+  const items = Array.from({ length: 5 }, (_, index) =>
+    device(`00000000-0000-4000-8000-00000000000${index + 1}`, `Android-Prueba-0${index + 1}`),
+  );
+  assert.deepEqual(
+    [...deviceNames(items).values()],
+    [
+      'Android-Prueba-01',
+      'Android-Prueba-02',
+      'Android-Prueba-03',
+      'Android-Prueba-04',
+      'Android-Prueba-05',
+    ],
+  );
 });
 
 test('route keeps chronology, removes duplicate pages and breaks long gaps and session changes', () => {

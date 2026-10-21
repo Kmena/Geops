@@ -6,6 +6,8 @@ import { requestProofBytes } from '@geops/api-contracts';
 import { createApp } from '../src/app.ts';
 import { AdminAuthService } from '../src/admin-auth/service.ts';
 import { DeviceSessionService } from '../src/device-identity/session.ts';
+import { DeviceRepository } from '../src/device-identity/repository.ts';
+import { FakeMdmProvider } from '../src/mdm/provider.ts';
 import { GpsAdministrationService } from '../src/gps-administration.ts';
 import { GpsDeviceConfigService } from '../src/gps-device-config.ts';
 import { GpsEventService } from '../src/gps-event-service.ts';
@@ -13,6 +15,7 @@ import { GpsHealthService } from '../src/gps-health-service.ts';
 import { GpsPolicyService } from '../src/gps-policy-service.ts';
 import { GpsScheduler } from '../src/gps-scheduler.ts';
 import { GpsRemote } from '../../web/src/gps/remote.ts';
+import { deviceNames } from '../../web/src/gps/tracking-model.ts';
 
 const url = process.env.DATABASE_URL;
 if (
@@ -42,6 +45,8 @@ const app = createApp({
   readinessProbe: async () => true,
   logLevel: 'silent',
   adminAuth: auth,
+  devices: new DeviceRepository(pool),
+  mdm: new FakeMdmProvider(),
   deviceSessions: sessions,
   gpsPolicies: policies,
   gpsEvents: events,
@@ -282,9 +287,11 @@ try {
       .statusCode === 200,
     'approval retry idempotent',
   );
+  const authorizedDevices = (await admin(operator, 'GET', '/v1/admin/gps-devices')).json().items;
+  check(authorizedDevices.length === 1, 'tenant device visible after approved grant');
   check(
-    (await admin(operator, 'GET', '/v1/admin/gps-devices')).json().items.length === 1,
-    'tenant device visible after approved grant',
+    authorizedDevices[0].display_label === 'synthetic operations device',
+    'GPS list includes device display label',
   );
   const policy = {
     name: 'Synthetic scheduler policy',
@@ -564,6 +571,104 @@ try {
     'single operating tenant rejects activation in another tenant',
   );
   check((await deviceConfig()).statusCode === 403, 'rejected transfer cannot restore PoP config');
+  const addFixtureDevice = async (
+    displayLabel,
+    status = 'ACTIVE',
+    tenant = 'synthetic',
+    bindingState = 'ACTIVE',
+  ) => {
+    const id = randomUUID();
+    await pool.query('INSERT INTO geops_device(id,display_label,status) VALUES($1,$2,$3)', [
+      id,
+      displayLabel,
+      status,
+    ]);
+    await pool.query(
+      "INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state) VALUES($1,$2,'fake',$3,$4,$5)",
+      [randomUUID(), id, tenant, randomUUID(), bindingState],
+    );
+    return id;
+  };
+  const fiveIds = [];
+  for (let number = 1; number <= 5; number++)
+    fiveIds.push(await addFixtureDevice(`Android-Prueba-0${number}`));
+  const activeInstallationId = randomUUID();
+  await pool.query(
+    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at) VALUES($1,$2,now())',
+    [activeInstallationId, fiveIds[0]],
+  );
+  const inventoryResponse = await admin(operator, 'GET', '/v1/admin/devices');
+  check(
+    inventoryResponse.statusCode === 200,
+    `Inventory fixture status ${inventoryResponse.statusCode}`,
+  );
+  const inventory = inventoryResponse.json().items;
+  const inventoryById = new Map(inventory.map((device) => [device.id, device.display_label]));
+  const gpsDevices = (await admin(operator, 'GET', '/v1/admin/gps-devices')).json().items;
+  check(gpsDevices.length === 5, 'GPS lists five eligible synthetic devices');
+  check(
+    fiveIds.every((id, index) => inventoryById.get(id) === `Android-Prueba-0${index + 1}`),
+    'Inventory reads five canonical display labels',
+  );
+  check(
+    fiveIds.every(
+      (id) =>
+        gpsDevices.find((device) => device.device_id === id)?.display_label ===
+        inventoryById.get(id),
+    ),
+    'GPS labels match canonical Inventory values by device identity',
+  );
+  check(
+    gpsDevices.find((device) => device.device_id === fiveIds[0])?.installation_id ===
+      activeInstallationId &&
+      fiveIds
+        .slice(1)
+        .every(
+          (id) => gpsDevices.find((device) => device.device_id === id)?.installation_id === null,
+        ),
+    'GPS lists eligible devices with and without active installation',
+  );
+  const webDevices = (await wire.devices()).items;
+  const webNames = deviceNames(webDevices);
+  check(
+    fiveIds.every((id, index) => webNames.get(id) === `Android-Prueba-0${index + 1}`),
+    'Web client renders the five canonical Inventory names',
+  );
+  const unnamedId = await addFixtureDevice('');
+  const duplicateA = await addFixtureDevice('Android-Duplicado');
+  const duplicateB = await addFixtureDevice('Android-Duplicado');
+  const revokedId = await addFixtureDevice('Android-Revocado', 'REVOKED');
+  const revokedBindingId = await addFixtureDevice(
+    'Android-Vínculo-Revocado',
+    'ACTIVE',
+    'synthetic',
+    'REVOKED',
+  );
+  const pendingId = await addFixtureDevice('Android-Pendiente', 'ACTIVE', 'synthetic', 'PENDING');
+  const otherTenantId = await addFixtureDevice('Android-Otro-Tenant', 'ACTIVE', 'tenant-new');
+  const scopedDevices = (await wire.devices()).items;
+  const scopedIds = new Set(scopedDevices.map((device) => device.device_id));
+  check(scopedDevices.length === 8, 'GPS includes named, unnamed and duplicate eligible devices');
+  check(
+    ![revokedId, revokedBindingId, pendingId, otherTenantId].some((id) => scopedIds.has(id)),
+    'GPS excludes revoked identity or binding, pending binding and another tenant',
+  );
+  check(
+    scopedDevices.every((device) => device.tenant_id === 'synthetic'),
+    'GPS tenant isolation',
+  );
+  const scopedNames = deviceNames(scopedDevices);
+  check(
+    scopedNames.get(unnamedId)?.startsWith('Dispositivo sin nombre · ') &&
+      scopedNames.get(duplicateA)?.startsWith('Android-Duplicado · ') &&
+      scopedNames.get(duplicateB)?.startsWith('Android-Duplicado · ') &&
+      scopedNames.get(duplicateA) !== scopedNames.get(duplicateB),
+    'Web adds short IDs only for missing and duplicate names',
+  );
+  check(
+    (await admin(unprivileged, 'GET', '/v1/admin/gps-devices')).statusCode === 403,
+    'GPS device list requires permission',
+  );
   console.log(`gps-operations integration PASS: ${checks} assertions`);
 } finally {
   await app.close();

@@ -1560,9 +1560,20 @@
     "/v1/admin/gps-devices": {
       "get": {
         "operationId": "listAuthorizedGpsDevices",
-        "description": "Requires gps.session.read and an explicit active tenant grant; at most 100 devices.",
+        "description": "Requires gps.session.read and an explicit active tenant grant; at most 100 devices. Each item includes canonical display_label alongside its stable device_id for compatible clients.",
         "security": [{ "adminCookie": [] }],
-        "responses": { "200": { "description": "Tenant-filtered devices" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Missing capability" } }
+        "responses": { "200": { "description": "Tenant-filtered devices", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "maxItems": 100, "items": {
+            "type": "object", "required": ["device_id", "display_label", "tenant_id", "installation_id", "assignment_version"],
+            "properties": {
+              "device_id": { "type": "string", "format": "uuid" },
+              "display_label": { "type": "string", "description": "Canonical name from geops_device; may be empty" },
+              "tenant_id": { "type": "string" },
+              "installation_id": { "type": "string", "format": "uuid", "nullable": true },
+              "assignment_version": { "type": "integer", "minimum": 0 }
+            }
+          } } }
+        } } } }, "401": { "description": "Unauthenticated" }, "403": { "description": "Missing capability" } }
       }
     },
     "/v1/admin/gps-installations": {

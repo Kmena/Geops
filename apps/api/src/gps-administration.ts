@@ -89,11 +89,12 @@ export class GpsAdministrationService {
     await this.policies.requireCapability(adminId, 'gps.session.read', requestId);
     const rows = await this.pool.query<{
       device_id: string;
+      display_label: string;
       tenant_id: string;
       installation_id: string | null;
       assignment_version: string | null;
     }>(
-      `SELECT d.id AS device_id,b.customer_id AS tenant_id,i.installation_id,
+      `SELECT d.id AS device_id,d.display_label,b.customer_id AS tenant_id,i.installation_id,
          s.assignment_version FROM geops_device d
        JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
        JOIN gps_data_tenant_access g ON g.tenant_id=b.customer_id
@@ -114,6 +115,7 @@ export class GpsAdministrationService {
     return {
       items: rows.rows.map((row) => ({
         device_id: row.device_id,
+        display_label: row.display_label,
         tenant_id: row.tenant_id,
         installation_id: row.installation_id,
         assignment_version: Number(row.assignment_version ?? 0),

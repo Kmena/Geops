@@ -576,7 +576,9 @@ export function GpsDeviceWorkspace() {
               <h3>Posiciones</h3>
               <div className="gps-table-scroll">
                 <table>
-                  <caption>Ubicaciones autorizadas ordenadas por hora de captura</caption>
+                  <caption>
+                    Ubicaciones autorizadas de {names.get(selected)} ordenadas por hora de captura
+                  </caption>
                   <thead>
                     <tr>
                       <th scope="col">Captura</th>
