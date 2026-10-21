@@ -2,11 +2,14 @@ import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { DiagnosticError, DiagnosticSession, equalSecret, loadLocalConfig, randomUrlSafe } from './mdm-oauth-core.mjs';
+import { saveLocalMdmGrant } from './mdm-oauth-secret-export.mjs';
 
 const PORT = 3500;
 const ORIGIN = 'http://localhost:' + PORT;
 const COOKIE = 'geops_mdm_oauth_flow';
-const CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), '.env.local');
+const SAVE_REFRESH = process.env.GEOPS_MDM_SAVE_REFRESH === '1';
+const CONFIG_PATH = process.env.GEOPS_MDM_LOCAL_CONFIG_PATH ?? join(dirname(fileURLToPath(import.meta.url)), '.env.local');
+const GRANT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'infrastructure', 'compose', '.local', 'staging', 'mdm');
 const csrfToken = randomUrlSafe(32);
 
 function securityHeaders(response) {
@@ -65,7 +68,7 @@ const homepage = `<!doctype html><html lang="es"><meta charset="utf-8"><title>GE
 <form method="post" action="/api/integrations/mdm/oauth/start/inventory"><input type="hidden" name="csrf" value="${csrfToken}"><button>Autorizar lectura de inventario</button></form>
 <form method="post" action="/api/integrations/mdm/oauth/start/customers"><input type="hidden" name="csrf" value="${csrfToken}"><button>Autorizar búsqueda de DEFAULT_CUSTOMER</button></form>
 <p><a href="/api/integrations/mdm/status">Estado sanitario</a> · <a href="/api/integrations/mdm/customers">Buscar cliente</a> · <a href="/api/integrations/mdm/devices?limit=1&offset=0">Listar dispositivos (1)</a></p>
-<form method="post" action="/api/integrations/mdm/disconnect"><input type="hidden" name="csrf" value="${csrfToken}"><button>Revocar y desconectar</button></form>
+${SAVE_REFRESH ? '<p>Al guardar el grant para Staging de prueba, detén este servidor sin revocarlo. Para revocarlo más tarde, usa Zoho Connected Apps o el endpoint administrativo de GEOPS.</p>' : `<form method="post" action="/api/integrations/mdm/disconnect"><input type="hidden" name="csrf" value="${csrfToken}"><button>Revocar y desconectar</button></form>`}
 <p>Las respuestas muestran solo códigos HTTP y estructura resumida. No incluyen tokens ni datos de dispositivos.</p></html>`;
 
 let session;
@@ -99,14 +102,24 @@ if (session) {
       }
       if (request.method === 'GET' && url.pathname === '/api/integrations/mdm/oauth/callback') {
         try {
-          await session.complete({
+          const completed = await session.complete({
             state: url.searchParams.get('state'),
             code: url.searchParams.get('code'),
             cookie: cookieValue(request),
             location: url.searchParams.get('location'),
             error: url.searchParams.get('error')
           });
-          redirect(response, '/?result=connected', clearFlowCookie());
+          if (completed.mode === 'inventory' && SAVE_REFRESH) {
+            try {
+              await saveLocalMdmGrant(GRANT_DIR, session.config, session.tokens.inventory?.refreshToken);
+            } catch {
+              await session.disconnect().catch(() => {});
+              throw new DiagnosticError('grant_export_failed', 503);
+            }
+            redirect(response, '/?result=connected_grant_saved', clearFlowCookie());
+          } else {
+            redirect(response, '/?result=connected', clearFlowCookie());
+          }
         } catch (error) {
           const code = error instanceof DiagnosticError ? error.code : 'oauth_callback_failed';
           redirect(response, '/?result=' + encodeURIComponent(code), clearFlowCookie());
