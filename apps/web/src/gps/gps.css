@@ -44,7 +44,6 @@
   margin: 0.6rem 0;
   overflow-wrap: anywhere;
 }
-
 .gps-workspace ::selection {
   background: #b8dfe4;
   color: #102c44;
@@ -887,5 +886,511 @@
   }
   .gps-gates li {
     align-items: flex-start;
+  }
+}
+
+.gps-device-workspace {
+  padding: 0;
+  border: 0;
+}
+.gps-device-heading,
+.gps-period-head,
+.gps-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.gps-device-heading {
+  margin: 0 0 1rem;
+}
+.gps-device-heading h2 {
+  margin: 0 0 0.3rem;
+  font-size: 1.7rem;
+  letter-spacing: -0.025em;
+}
+.gps-device-heading p {
+  margin: 0;
+  color: var(--gps-muted);
+}
+.gps-device-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 255px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.gps-device-sidebar {
+  border: 1px solid var(--gps-line);
+  border-radius: 10px;
+  padding: 1rem;
+  background: #f4f8fa;
+  position: sticky;
+  top: 1rem;
+}
+.gps-live .gps-device-selector {
+  display: flex;
+  margin: 0 0 1rem;
+  width: 100%;
+}
+.gps-device-selector select {
+  width: 100%;
+}
+.gps-device-status {
+  display: grid;
+  gap: 0.4rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--gps-line);
+}
+.gps-device-sidebar .gps-device-status strong {
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+.gps-device-status span {
+  color: #185b6d;
+  font-weight: 600;
+}
+.gps-device-sidebar .gps-device-status small {
+  color: var(--gps-muted);
+  line-height: 1.4;
+}
+.gps-device-identity,
+.gps-diagnostics dl {
+  display: grid;
+  gap: 0.75rem;
+}
+.gps-device-identity div,
+.gps-diagnostics dl div {
+  display: grid;
+  gap: 0.15rem;
+}
+.gps-device-identity dt,
+.gps-diagnostics dt,
+.gps-device-technical dt {
+  color: var(--gps-muted);
+  font-size: 0.86rem;
+}
+.gps-device-identity dd,
+.gps-diagnostics dd,
+.gps-device-technical dd {
+  margin: 0;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.gps-device-technical {
+  border-top: 1px solid var(--gps-line);
+  padding-top: 0.8rem;
+}
+.gps-device-technical summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.gps-device-technical dl {
+  display: grid;
+  gap: 0.7rem;
+}
+.gps-device-technical code {
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.gps-device-main {
+  min-width: 0;
+  display: grid;
+  gap: 1.35rem;
+}
+.gps-device-main > section {
+  min-width: 0;
+}
+.gps-device-main h3 {
+  margin: 0;
+  font-size: 1.18rem;
+  letter-spacing: -0.012em;
+}
+.gps-period {
+  padding: 1rem;
+  border: 1px solid var(--gps-line);
+  border-radius: 10px;
+}
+.gps-period-head label {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.gps-period-head select {
+  min-width: 155px;
+}
+.gps-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.gps-presets button {
+  min-height: 2.65rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #b9cbd3;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--gps-ink);
+  cursor: pointer;
+}
+.gps-presets button[aria-pressed="true"] {
+  background: #176b82;
+  border-color: #176b82;
+  color: #fff;
+}
+.gps-custom-period,
+.gps-period-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+}
+.gps-period-actions {
+  justify-content: space-between;
+}
+.gps-period-actions label {
+  flex: 1 1 220px;
+}
+.gps-period-actions select {
+  width: 100%;
+}
+.gps-custom-period button,
+.gps-period-actions button {
+  min-height: 2.65rem;
+}
+.gps-period-summary {
+  color: var(--gps-muted);
+  margin: 0.65rem 0 0;
+  font-size: 0.9rem;
+}
+.gps-map-section {
+  display: grid;
+  gap: 0.65rem;
+}
+.gps-section-heading span {
+  color: var(--gps-muted);
+  font-size: 0.85rem;
+  text-align: right;
+}
+.gps-map-shell,
+.gps-map-unavailable {
+  position: relative;
+  height: clamp(280px, 40vw, 460px);
+  border: 1px solid #b9cbd3;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.gps-map-canvas {
+  width: 100%;
+  height: 100%;
+}
+.gps-map-unavailable {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 1.5rem;
+  background: #eaf0f3;
+  text-align: center;
+}
+.gps-map-unavailable p {
+  max-width: 52ch;
+  margin: 0.6rem 0 0;
+}
+.gps-map-overlay {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  right: 1rem;
+  width: fit-content;
+  max-width: calc(100% - 2rem);
+  background: #fff;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  box-shadow: 0 5px 15px #102c4430;
+}
+.gps-selected-point {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 0.9rem;
+  background: #eaf5f5;
+  border-radius: 8px;
+}
+.gps-position-section,
+.gps-diagnostics {
+  display: grid;
+  gap: 0.7rem;
+}
+.gps-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--gps-line);
+  border-radius: 8px;
+}
+.gps-position-section table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.89rem;
+}
+.gps-position-section caption {
+  text-align: left;
+  padding: 0.65rem;
+  color: var(--gps-muted);
+}
+.gps-position-section th,
+.gps-position-section td {
+  padding: 0.65rem;
+  text-align: left;
+  border-top: 1px solid var(--gps-line);
+  white-space: nowrap;
+}
+.gps-position-section th {
+  background: #f4f8fa;
+}
+.gps-map-overlay[role="alert"] {
+  border-color: #e8b8b2;
+  background: #fff0ee;
+  color: #8d3328;
+}
+.gps-position-section tr.is-selected {
+  background: #eaf5f5;
+}
+.gps-position-section td button {
+  border: 0;
+  background: transparent;
+  color: #115d74;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.2rem;
+}
+.gps-diagnostics {
+  border-top: 1px solid var(--gps-line);
+  padding-top: 1rem;
+}
+.gps-diagnostics dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.gps-diagnostics p {
+  color: var(--gps-muted);
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .gps-device-grid {
+    display: block;
+  }
+  .gps-device-sidebar {
+    position: static;
+    margin-bottom: 1rem;
+  }
+  .gps-device-identity {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .gps-device-technical {
+    margin-top: 0.6rem;
+  }
+  .gps-diagnostics dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 540px) {
+  .gps-device-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+  .gps-period-head {
+    align-items: start;
+    flex-direction: column;
+  }
+  .gps-device-identity,
+  .gps-diagnostics dl {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gps-map-shell,
+  .gps-map-unavailable {
+    height: 320px;
+  }
+  .gps-section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+  .gps-section-heading span {
+    text-align: left;
+  }
+}
+.gps-workspace > .gps-live-toolbar {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.gps-workspace > .gps-live-toolbar button {
+  min-height: 2.5rem;
+  border: 1px solid #b9cbd3;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  background: #fff;
+  color: var(--gps-ink);
+}
+.gps-workspace > .gps-live-toolbar button[aria-pressed="true"] {
+  background: #176b82;
+  color: #fff;
+  border-color: #176b82;
+}
+
+/* Leaflet tracking workspace */
+.gps-map-frame {
+  display: grid;
+  gap: 0.5rem;
+}
+.gps-device-grid {
+  grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
+  gap: 1rem;
+}
+.gps-device-sidebar {
+  position: static;
+}
+.gps-device-identity-details,
+.gps-device-technical {
+  border-top: 1px solid var(--gps-line);
+  padding-top: 0.55rem;
+  margin-top: 0.55rem;
+}
+.gps-device-identity-details summary,
+.gps-device-technical summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 650;
+}
+.gps-device-identity-details summary:focus-visible,
+.gps-device-technical summary:focus-visible {
+  outline: 3px solid #2176d2;
+  outline-offset: 2px;
+}
+.gps-device-identity-details .gps-device-identity {
+  margin-bottom: 0;
+}
+.gps-device-main {
+  gap: 1rem;
+}
+.gps-period {
+  padding: 0.8rem 1rem;
+}
+.gps-workspace .gps-presets button,
+.gps-workspace .gps-custom-period button,
+.gps-workspace .gps-period-actions button {
+  min-height: 44px;
+}
+.gps-map-shell {
+  height: clamp(360px, 48vw, 560px);
+}
+.gps-map-canvas,
+.gps-map-shell .leaflet-container {
+  background: #e6eef0;
+}
+.gps-map-shell .leaflet-container {
+  font: inherit;
+}
+.gps-map-shell .leaflet-container img.leaflet-tile {
+  mix-blend-mode: normal;
+}
+.gps-map-shell .leaflet-control-zoom a {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+}
+.gps-map-shell .leaflet-control-zoom a:focus-visible,
+.gps-map-shell .leaflet-interactive:focus-visible {
+  outline: 3px solid #2176d2;
+  outline-offset: 2px;
+}
+.gps-map-popup {
+  display: grid;
+  gap: 0.25rem;
+  line-height: 1.4;
+}
+.gps-map-overlay {
+  position: static;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  box-shadow: none;
+  border: 1px solid var(--gps-line);
+  background: #f4f8fa;
+}
+.gps-workspace .gps-position-section td button {
+  min-height: 44px;
+  padding: 0.4rem;
+}
+@media (max-width: 1100px) and (min-width: 901px) {
+  .gps-device-grid {
+    display: grid;
+  }
+  .gps-device-sidebar {
+    margin-bottom: 0;
+  }
+}
+@media (max-width: 900px) {
+  .gps-device-grid {
+    display: block;
+  }
+  .gps-device-sidebar {
+    margin-bottom: 1rem;
+  }
+}
+@media (max-width: 540px) {
+  .gps-device-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.5rem;
+  }
+  .gps-device-heading h2 {
+    font-size: 1.4rem;
+  }
+  .gps-device-heading > button {
+    padding: 0.4rem;
+    min-height: 44px;
+  }
+  .gps-device-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 0.75rem;
+    padding: 0.7rem 0.85rem;
+  }
+  .gps-device-selector,
+  .gps-device-status {
+    grid-column: 1 / -1;
+  }
+  .gps-device-identity-details,
+  .gps-device-technical {
+    min-width: 0;
+  }
+  .gps-device-identity-details summary,
+  .gps-device-technical summary {
+    font-size: 0.82rem;
+    line-height: 1.25;
+  }
+  .gps-period-head {
+    flex-direction: row;
+    align-items: center;
+  }
+  .gps-period-head select {
+    min-width: 0;
+    width: 140px;
+  }
+  .gps-presets {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0.6rem 0;
+    padding-bottom: 0.2rem;
+  }
+  .gps-presets button {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .gps-map-shell {
+    height: 360px;
   }
 }

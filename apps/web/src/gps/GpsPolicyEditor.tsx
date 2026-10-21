@@ -8,6 +8,7 @@ import {
   type RemotePolicy,
   type RemotePolicySpec,
 } from './remote.js';
+import { deviceNames } from './tracking-model.js';
 
 const remote = new GpsRemote();
 const names = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -63,6 +64,7 @@ export function GpsPolicyEditor({
   const canWrite = capabilities.includes('gps.policy.write');
   const canAssign = capabilities.includes('gps.policy.assign');
   const canActivate = capabilities.includes('gps.policy.activate') && canWrite;
+  const deviceLabels = deviceNames(devices);
 
   useEffect(() => {
     if (!id) {
@@ -182,6 +184,9 @@ export function GpsPolicyEditor({
           {policies.map((item) => (
             <option key={item.id} value={item.id}>
               {item.policy.name} · {item.state} · rev. {item.revision}
+              {policies.filter((other) => other.policy.name === item.policy.name).length > 1
+                ? ` · ${item.id.replaceAll('-', '').slice(-6)}`
+                : ''}
             </option>
           ))}
         </select>
@@ -342,7 +347,7 @@ export function GpsPolicyEditor({
                   )
                 }
               />
-              {device.device_id} · {device.tenant_id}
+              {deviceLabels.get(device.device_id)} · {device.tenant_id}
             </label>
           ))}
           <button type="button" disabled={!canAssign || busy} onClick={() => void assign()}>

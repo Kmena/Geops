@@ -72,6 +72,8 @@ export interface RemotePage<T> {
 
 export interface RemoteGpsDevice {
   device_id: string;
+  display_label?: string;
+  identity_state?: string;
   tenant_id: string;
   installation_id: string | null;
   assignment_version: number;

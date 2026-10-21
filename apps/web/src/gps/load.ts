@@ -15,6 +15,8 @@ export function gpsReadErrorMessage(error: unknown): string {
   if (error.status === 403) return 'No tienes la capacidad necesaria para esta consulta.';
   if (error.status === 409) return 'Los datos cambiaron. Actualiza la vista antes de continuar.';
   if (error.status === 429) return 'Se alcanzó la cuota. Espera antes de reintentar.';
+  if (error.status === 422 && error.code === 'invalid_period')
+    return 'El período debe ser menor o igual a 24 horas. Revisa «Desde» y «Hasta».';
   if (error.code === 'invalid_response')
     return 'El servidor devolvió una respuesta GPS inválida. Reintenta o informa al administrador.';
   if (error.status === 404) return 'El dispositivo no está disponible en tu tenant.';

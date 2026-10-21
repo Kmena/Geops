@@ -117,6 +117,10 @@ test('capability endpoint error stops policy loading and stays distinct from 403
   );
 });
 
+test('invalid location period explains the 24-hour limit', () => {
+  assert.match(gpsReadErrorMessage(new ApiClientError(422, 'invalid_period')), /24 horas/);
+});
+
 test('capability endpoint 403 is not treated as an empty permission list', async () => {
   const remote = new GpsRemote(async () => failure(403));
   let confirmed = false;
