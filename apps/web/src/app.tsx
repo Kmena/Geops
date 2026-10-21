@@ -14,7 +14,6 @@ import {
   type BasicDevice,
   type Device,
   type MdmDevice,
-  type MdmStatus,
 } from './api/client.js';
 import { webBase } from './api/base.js';
 import { AuthProvider, useAuth } from './auth.js';
@@ -143,7 +142,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link className="brand" to="/inventory" aria-label="GEOPS, ir a inventario">
             GEOPS
           </Link>
-          <span className="environment">Datos sintéticos · sin conexión MDM real</span>
+          <span className="environment">Datos GEOPS sintéticos · MDM de prueba según conexión</span>
           <button className="text-button" type="button" onClick={() => void exit()}>
             Cerrar sesión
           </button>
@@ -188,7 +187,11 @@ function Shell({ children }: { children: React.ReactNode }) {
           <main id="content" tabIndex={-1} ref={main}>
             {!location.pathname.startsWith('/gps/') && (
               <div className="page-head">
-                <span className="eyebrow">Wave 0A · simulación</span>
+                <span className="eyebrow">
+                  {location.pathname === '/status'
+                    ? 'Integración MDM · entorno de prueba'
+                    : 'Wave 0A · simulación'}
+                </span>
                 <span className="user-label">{profile?.email}</span>
               </div>
             )}
@@ -271,7 +274,7 @@ function Inventory() {
   return (
     <Shell>
       <h1>Inventario</h1>
-      <p className="lead">Registros GEOPS y respuesta de un proveedor MDM simulado.</p>
+      <p className="lead">Registros GEOPS e inventario del proveedor MDM configurado.</p>
       {gpsAccess.data?.capabilities.includes('gps.installation.manage') && enrollment.data && (
         <DeviceManagement
           devices={managedDevices}
@@ -362,10 +365,10 @@ function Inventory() {
         <section className="panel" aria-labelledby="mdm-title">
           <div className="panel-head">
             <h2 id="mdm-title">Inventario MDM</h2>
-            <span className="badge fake">Fuente: fake</span>
+            <span className="badge fake">Fuente: {mdm.data?.source ?? 'pendiente'}</span>
           </div>
           {mdm.loading ? (
-            <p role="status">Cargando inventario simulado…</p>
+            <p role="status">Cargando inventario MDM…</p>
           ) : mdm.error ? (
             <>
               <ErrorText error={mdm.error} />
@@ -375,7 +378,9 @@ function Inventory() {
             </>
           ) : !mdm.data?.items.length ? (
             <p className="empty">
-              El proveedor simulado no tiene equipos. Una lista vacía no valida ManageEngine.
+              {mdm.data?.source === 'manageengine'
+                ? 'La consulta no devolvió equipos en esta página. Comprueba cliente, inscripción y paginación.'
+                : 'El proveedor simulado no tiene equipos. Una lista vacía no valida ManageEngine.'}
             </p>
           ) : (
             <ul className="device-list">
@@ -398,9 +403,11 @@ function Status() {
   return (
     <Shell>
       <h1>Integración MDM</h1>
-      <p className="lead">Estado visible de la fuente usada durante Wave 0A.</p>
+      <p className="lead">
+        Conexión de inventario ManageEngine y sincronización de equipos Android de prueba.
+      </p>
       <section className="panel status-panel" aria-labelledby="status-title">
-        <h2 id="status-title">Proveedor de desarrollo</h2>
+        <h2 id="status-title">Estado de la conexión</h2>
         {state.loading ? (
           <p role="status">Cargando estado…</p>
         ) : state.error ? (
@@ -410,28 +417,243 @@ function Status() {
               Reintentar
             </button>
           </>
-        ) : (
+        ) : state.data ? (
           <dl>
             <div>
               <dt>Proveedor</dt>
-              <dd>{(state.data as MdmStatus).provider}</dd>
+              <dd>
+                {state.data.provider === 'manageengine' ? 'ManageEngine MSP Cloud' : 'Simulado'}
+              </dd>
             </div>
             <div>
-              <dt>Fuente</dt>
-              <dd>Simulada</dd>
+              <dt>Conexión</dt>
+              <dd>
+                {state.data.connected ? 'Consulta real confirmada' : 'Sin consulta real confirmada'}
+              </dd>
             </div>
             <div>
-              <dt>Edición Free</dt>
-              <dd>Sin validar</dd>
+              <dt>Edición configurada</dt>
+              <dd>{state.data.configured_edition ?? 'Sin configurar'}</dd>
             </div>
             <div>
-              <dt>Acceso real</dt>
-              <dd>Deshabilitado en Wave 0A</dd>
+              <dt>Evidencia de edición</dt>
+              <dd>
+                {state.data.edition_evidence === 'UNVERIFIED'
+                  ? 'Pendiente de verificar'
+                  : state.data.edition_evidence}
+              </dd>
+            </div>
+            <div>
+              <dt>Última consulta</dt>
+              <dd>
+                {state.data.last_checked_at
+                  ? new Date(state.data.last_checked_at).toLocaleString('es-GT')
+                  : 'Sin consulta'}
+              </dd>
             </div>
           </dl>
-        )}
+        ) : null}
       </section>
+      {state.data?.provider === 'manageengine' ? (
+        <MdmAdminWorkspace refreshStatus={state.refresh} />
+      ) : (
+        <p className="empty">
+          La integración real está desactivada. El inventario MDM sigue simulado.
+        </p>
+      )}
     </Shell>
+  );
+}
+
+function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
+  const { profile } = useAuth();
+  const inventory = useLoad(api.mdmInventory);
+  const geops = useLoad(api.enrollmentDevices);
+  const [mdmId, setMdmId] = useState('');
+  const [geopsId, setGeopsId] = useState('');
+  const [verified, setVerified] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const chosen = inventory.data?.items.find((item) => item.mdm_device_id === mdmId);
+  const eligible =
+    inventory.data?.items.filter(
+      (item) =>
+        item.geops_device_id ||
+        (item.platform === 'android' && item.status === 'managed' && !item.removed),
+    ) ?? [];
+  async function sync() {
+    if (!profile || busy) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api.mdmSync(profile.csrf_token);
+      setNotice(
+        `Sincronización terminada: ${result.device_count} Android observados. Las ausencias no se consideran bajas.`,
+      );
+      inventory.refresh();
+      refreshStatus();
+    } catch {
+      setError('No se pudo sincronizar. Revisa el estado de la conexión y vuelve a intentarlo.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function changeLink() {
+    if (!profile || !chosen || busy) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      if (chosen.geops_device_id) {
+        await api.mdmUnlink(chosen.geops_device_id, profile.csrf_token);
+        setNotice('Asociación MDM retirada. La identidad GEOPS permanece.');
+      } else {
+        if (!verified || !geopsId) return;
+        await api.mdmLink(geopsId, chosen.mdm_device_id, profile.csrf_token);
+        setNotice('Asociación de inventario guardada. La identidad GEOPS no se activó.');
+      }
+      inventory.refresh();
+      setVerified(false);
+    } catch {
+      setError(
+        'No se pudo cambiar la asociación. Actualiza el inventario y verifica que ambos registros sean únicos.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel mdm-admin" aria-labelledby="mdm-sync-title">
+      <div className="panel-head">
+        <h2 id="mdm-sync-title">Inventario sincronizado</h2>
+        <button type="button" onClick={() => void sync()} disabled={busy || !profile}>
+          {busy ? 'Procesando…' : 'Sincronizar ahora'}
+        </button>
+      </div>
+      <p>
+        La consulta lee el tenant MDM de prueba. No cambia políticas, ubicación ni credenciales
+        Android.
+      </p>
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {inventory.loading ? (
+        <p role="status">Cargando inventario sincronizado…</p>
+      ) : inventory.error ? (
+        <p role="alert">No se pudo cargar el inventario sincronizado.</p>
+      ) : inventory.data?.items.length ? (
+        <div className="mdm-table-wrap">
+          <table className="mdm-table">
+            <thead>
+              <tr>
+                <th>Equipo MDM</th>
+                <th>Modelo / SO</th>
+                <th>Estado</th>
+                <th>GEOPS</th>
+                <th>Visto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inventory.data.items.map((item) => (
+                <tr key={item.mdm_device_id}>
+                  <td data-label="Equipo MDM">
+                    <span>
+                      {item.display_name ?? item.mdm_device_id}
+                      <small>{item.mdm_device_id}</small>
+                    </span>
+                  </td>
+                  <td data-label="Modelo / SO">
+                    {item.model ?? 'Sin modelo'} · {item.os_version ?? 'SO sin dato'}
+                  </td>
+                  <td data-label="Estado">{item.status}</td>
+                  <td data-label="GEOPS">{item.geops_device_id ?? 'Sin asociar'}</td>
+                  <td data-label="Visto">{new Date(item.last_seen_at).toLocaleString('es-GT')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {inventory.data.next_cursor && (
+            <p>Hay más equipos. Consulta la página siguiente mediante el API.</p>
+          )}
+        </div>
+      ) : (
+        <p className="empty">
+          Todavía no hay Android sincronizados. Ejecuta la sincronización después de verificar el
+          tenant.
+        </p>
+      )}
+      {eligible.length > 0 && (
+        <div className="mdm-link-form">
+          <h3>Asociar con GEOPS</h3>
+          <p>Confirma físicamente qué teléfono corresponde al registro GEOPS antes de guardar.</p>
+          <label>
+            Equipo MDM
+            <select
+              value={mdmId}
+              onChange={(event) => {
+                setMdmId(event.target.value);
+                setVerified(false);
+              }}
+            >
+              <option value="">Seleccionar equipo</option>
+              {eligible.map((item) => (
+                <option key={item.mdm_device_id} value={item.mdm_device_id}>
+                  {item.display_name ?? item.model ?? 'Android'} · {item.mdm_device_id}
+                </option>
+              ))}
+            </select>
+          </label>
+          {chosen && !chosen.geops_device_id && (
+            <>
+              <label>
+                Registro GEOPS
+                <select
+                  value={geopsId}
+                  onChange={(event) => {
+                    setGeopsId(event.target.value);
+                    setVerified(false);
+                  }}
+                >
+                  <option value="">Seleccionar registro</option>
+                  {(geops.data?.items ?? [])
+                    .filter((item) => !['REVOKED', 'RETIRED'].includes(item.status))
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.display_label} · {item.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="mdm-confirm">
+                <input
+                  type="checkbox"
+                  checked={verified}
+                  onChange={(event) => setVerified(event.target.checked)}
+                />
+                Verifiqué el teléfono y el registro GEOPS por un canal independiente.
+              </label>
+            </>
+          )}
+          {Boolean(geops.error) && <p role="alert">No se pudieron cargar los registros GEOPS.</p>}
+          <button
+            type="button"
+            onClick={() => void changeLink()}
+            disabled={busy || !chosen || (!chosen.geops_device_id && (!geopsId || !verified))}
+          >
+            {chosen?.geops_device_id ? 'Desvincular inventario' : 'Guardar asociación'}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

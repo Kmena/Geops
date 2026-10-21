@@ -532,7 +532,98 @@ h2 {
   color: #526879;
   font-size: 0.9rem;
 }
+.mdm-admin {
+  margin-top: 20px;
+}
+.mdm-admin > p {
+  max-width: 72ch;
+}
+.mdm-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.mdm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.mdm-table th,
+.mdm-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #d1dfe5;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.mdm-table th {
+  color: #40586a;
+  background: #f4f8fa;
+}
+.mdm-table small {
+  display: block;
+  color: #526879;
+  font-variant-numeric: tabular-nums;
+}
+.mdm-link-form {
+  display: grid;
+  gap: 12px;
+  max-width: 680px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #d1dfe5;
+}
+.mdm-link-form h3,
+.mdm-link-form p {
+  margin: 0;
+}
+.mdm-link-form label:not(.mdm-confirm) {
+  display: grid;
+  gap: 6px;
+}
+.mdm-link-form select {
+  min-width: 0;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #afc2cd;
+  border-radius: 7px;
+  background: #fff;
+}
+.mdm-confirm {
+  display: flex;
+  align-items: start;
+  gap: 9px;
+}
+.mdm-confirm input {
+  margin-top: 4px;
+}
 @media (max-width: 760px) {
+  .mdm-table,
+  .mdm-table tbody,
+  .mdm-table tr,
+  .mdm-table td {
+    display: block;
+    width: 100%;
+  }
+  .mdm-table thead {
+    display: none;
+  }
+  .mdm-table tr {
+    margin-top: 12px;
+    padding: 6px 10px;
+    border: 1px solid #d1dfe5;
+    border-radius: 8px;
+  }
+  .mdm-table td {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px 0;
+  }
+  .mdm-table td::before {
+    content: attr(data-label);
+    color: #526879;
+    font-weight: 600;
+  }
   .topbar {
     padding: 12px 18px;
     flex-wrap: wrap;

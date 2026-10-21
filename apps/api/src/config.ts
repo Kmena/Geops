@@ -13,6 +13,14 @@ export interface AppConfig {
   secureCookie: boolean;
   adminCookieName: 'geops_admin' | '__Host-geops_stage_admin';
   adminCookiePath: '/';
+  mdm: {
+    region: string;
+    customerId: string;
+    clientId: string;
+    clientSecret: string;
+    refreshToken: string;
+    configuredEdition: 'TRIAL' | 'FREE' | 'LICENSED';
+  } | null;
 }
 
 const oauthVariables = [
@@ -90,6 +98,41 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   ) {
     throw new Error('Insecure cookie only allowed on synthetic localhost');
   }
+  let mdm: AppConfig['mdm'] = null;
+  if (env.GEOPS_MDM_ENABLED === '1') {
+    const region = env.GEOPS_MDM_REGION ?? '';
+    const customerId = env.GEOPS_MDM_CUSTOMER_ID ?? '';
+    const edition = env.GEOPS_MDM_EDITION ?? '';
+    if (
+      !['com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'].includes(region) ||
+      !/^[0-9]{1,30}$/.test(customerId) ||
+      !['TRIAL', 'FREE', 'LICENSED'].includes(edition) ||
+      !env.GEOPS_MDM_CLIENT_ID ||
+      !env.GEOPS_MDM_CLIENT_SECRET ||
+      !env.GEOPS_MDM_REFRESH_TOKEN ||
+      env.GEOPS_MDM_TEST_TENANT !== '1' ||
+      !usesStageOrigin ||
+      !secureCookie
+    )
+      throw new Error('Real MDM requires explicit staging test-tenant configuration');
+    mdm = {
+      region,
+      customerId,
+      configuredEdition: edition as 'TRIAL' | 'FREE' | 'LICENSED',
+      clientId: env.GEOPS_MDM_CLIENT_ID,
+      clientSecret: env.GEOPS_MDM_CLIENT_SECRET,
+      refreshToken: env.GEOPS_MDM_REFRESH_TOKEN,
+    };
+  } else {
+    if (env.GEOPS_MDM_ENABLED && env.GEOPS_MDM_ENABLED !== '0')
+      throw new Error('GEOPS_MDM_ENABLED is invalid');
+    if (
+      ['GEOPS_MDM_CLIENT_ID', 'GEOPS_MDM_CLIENT_SECRET', 'GEOPS_MDM_REFRESH_TOKEN'].some(
+        (name) => env[name],
+      )
+    )
+      throw new Error('Real MDM credentials require explicit enablement');
+  }
   return {
     host,
     port,
@@ -105,5 +148,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     secureCookie,
     adminCookieName: cookieName,
     adminCookiePath: cookiePath,
+    mdm,
   };
 }

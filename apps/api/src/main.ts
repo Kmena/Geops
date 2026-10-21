@@ -9,7 +9,9 @@ import { DeviceRepository } from './device-identity/repository.js';
 import { EnrollmentService } from './device-identity/enrollment.js';
 import { DeviceSessionService } from './device-identity/session.js';
 import { DeviceLifecycleService } from './device-identity/lifecycle.js';
-import { FakeMdmProvider } from './mdm/provider.js';
+import { FakeMdmProvider, ManageEngineReadOnly } from './mdm/provider.js';
+import { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
+import { MdmInventoryService } from './mdm/inventory.js';
 import { GpsPolicyService } from './gps-policy-service.js';
 import { GpsHealthService } from './gps-health-service.js';
 import { GpsDeviceConfigService } from './gps-device-config.js';
@@ -31,6 +33,27 @@ async function main(): Promise<void> {
     cookieName: config.adminCookieName,
   });
   const devices = new DeviceRepository(pool);
+  const mdmOAuth = config.mdm ? new MdmOAuthRuntime(config.mdm) : undefined;
+  const mdmOrigin = config.mdm ? `https://mdm.manageengine.${config.mdm.region}` : null;
+  const mdm =
+    config.mdm && mdmOAuth && mdmOrigin
+      ? new ManageEngineReadOnly({
+          enabled: true,
+          origin: `${mdmOrigin}/`,
+          expectedOrigin: mdmOrigin,
+          region: config.mdm.region,
+          editionEvidence: 'UNVERIFIED',
+          configuredEdition: config.mdm.configuredEdition,
+          token: () => mdmOAuth.token(),
+          refresh: () => mdmOAuth.refresh(),
+        })
+      : new FakeMdmProvider();
+  const mdmInventory = config.mdm
+    ? new MdmInventoryService(pool, mdm, {
+        region: config.mdm.region,
+        customerId: config.mdm.customerId,
+      })
+    : undefined;
   const gpsPolicies = new GpsPolicyService(pool);
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);
@@ -51,7 +74,9 @@ async function main(): Promise<void> {
     enrollment: new EnrollmentService(pool, devices, config.invitationHmacKey),
     deviceSessions: new DeviceSessionService(pool),
     deviceLifecycle: new DeviceLifecycleService(pool, devices),
-    mdm: new FakeMdmProvider(),
+    mdm,
+    ...(mdmInventory ? { mdmInventory } : {}),
+    ...(mdmOAuth ? { mdmOAuth } : {}),
     secureCookie: config.secureCookie,
     adminCookiePath: config.adminCookiePath,
   });
@@ -73,6 +98,19 @@ async function main(): Promise<void> {
   const gpsTimer = setInterval(() => void runGpsMaintenance(), 60_000);
   gpsTimer.unref();
   app.addHook('onClose', async () => clearInterval(gpsTimer));
+  const mdmTimer = mdmInventory
+    ? setInterval(() => {
+        void restoreGate()
+          .then(async (open) => {
+            if (open) await mdmInventory.sync(null);
+          })
+          .catch(() =>
+            process.stderr.write('GEOPS MDM synchronization failed; details withheld\n'),
+          );
+      }, 15 * 60_000)
+    : null;
+  mdmTimer?.unref();
+  if (mdmTimer) app.addHook('onClose', async () => clearInterval(mdmTimer));
   await app.listen({ host: config.host, port: config.port });
   void runGpsMaintenance();
   let closing = false;

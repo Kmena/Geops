@@ -6,6 +6,8 @@ import { appendAudit } from '../audit/index.js';
 import type { DeviceRepository } from '../device-identity/repository.js';
 import { requireInstallationAccess } from '../device-identity/admin-scope.js';
 import type { MdmProvider } from './provider.js';
+import type { MdmInventoryService } from './inventory.js';
+import type { MdmOAuthRuntime } from './oauth-runtime.js';
 
 interface PageQuery {
   cursor?: string;
@@ -48,6 +50,8 @@ export function registerInventoryRoutes(
   auth: AdminAuthService,
   devices: DeviceRepository,
   mdm: MdmProvider,
+  inventory?: MdmInventoryService,
+  oauth?: MdmOAuthRuntime,
 ): void {
   app.get<{ Querystring: PageQuery }>('/v1/admin/devices', async (request) => {
     const admin = await requireAdmin(request, auth);
@@ -137,7 +141,11 @@ export function registerInventoryRoutes(
     const admin = await requireAdmin(request, auth);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.read');
     const args = page(request.query);
-    const result = await mdm.listDevices('synthetic', args.cursor, args.limit);
+    const result = await mdm.listDevices(
+      inventory?.config.customerId ?? 'synthetic',
+      args.cursor,
+      args.limit,
+    );
     await appendAudit(devices.pool, {
       actorType: 'ADMIN',
       actorId: admin.id,
@@ -148,4 +156,80 @@ export function registerInventoryRoutes(
     });
     return result;
   });
+
+  if (inventory) {
+    app.get<{ Querystring: { limit?: string; after?: string } }>(
+      '/v1/admin/mdm/inventory',
+      async (request) => {
+        const admin = await requireAdmin(request, auth);
+        await requireInstallationCapability(
+          devices,
+          admin.id,
+          request.id,
+          'mdm.inventory.cache.read',
+        );
+        return inventory.list(
+          request.query.limit === undefined ? 25 : Number(request.query.limit),
+          request.query.after,
+        );
+      },
+    );
+
+    app.post('/v1/admin/mdm/sync', async (request) => {
+      const admin = await requireAdmin(request, auth, true);
+      await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.sync');
+      return inventory.sync(admin.id, request.id);
+    });
+
+    app.put<{ Params: { device_id: string }; Body: { mdm_device_id: string } }>(
+      '/v1/admin/devices/:device_id/mdm-link',
+      {
+        schema: {
+          body: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['mdm_device_id'],
+            properties: {
+              mdm_device_id: { type: 'string', pattern: '^[0-9]{1,30}$' },
+            },
+          },
+        },
+      },
+      async (request) => {
+        const admin = await requireAdmin(request, auth, true);
+        await inventory.link(
+          request.params.device_id,
+          request.body.mdm_device_id,
+          admin.id,
+          request.id,
+        );
+        return { linked: true };
+      },
+    );
+
+    app.delete<{ Params: { device_id: string } }>(
+      '/v1/admin/devices/:device_id/mdm-link',
+      async (request) => {
+        const admin = await requireAdmin(request, auth, true);
+        await inventory.unlink(request.params.device_id, admin.id, request.id);
+        return { linked: false };
+      },
+    );
+
+    if (oauth)
+      app.post('/v1/admin/mdm/disconnect', async (request) => {
+        const admin = await requireAdmin(request, auth, true);
+        await requireInstallationCapability(devices, admin.id, request.id, 'mdm.disconnect');
+        const revoked = await oauth.revoke();
+        await appendAudit(devices.pool, {
+          actorType: 'ADMIN',
+          actorId: admin.id,
+          action: 'mdm.disconnect',
+          outcome: revoked ? 'success' : 'failure',
+          correlationId: request.id,
+          metadata: { remote_revoked: revoked },
+        });
+        return { local_disconnected: true, remote_revoked: revoked };
+      });
+  }
 }

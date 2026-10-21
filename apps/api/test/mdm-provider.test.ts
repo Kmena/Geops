@@ -42,7 +42,7 @@ test('real read-only mock uses GET, string X-CUSTOMER, Zoho auth and manual redi
   });
   const page = await client.listDevices('900000000000000001', undefined, 25);
   assert.deepEqual(page.items, []);
-  assert.equal(page.source, 'manageengine_trial');
+  assert.equal(page.source, 'manageengine');
   assert.equal(calls, 1);
 });
 

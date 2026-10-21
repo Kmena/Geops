@@ -1,0 +1,24 @@
+# Opt-in only for an isolated MSP Cloud test tenant. Never mount production grants.
+services:
+  geops-api:
+    environment:
+      GEOPS_MDM_ENABLED: "1"
+      GEOPS_MDM_REGION: ${GEOPS_MDM_REGION:?Confirm actual MSP Cloud region}
+      GEOPS_MDM_EDITION: ${GEOPS_MDM_EDITION:?Confirm actual tenant edition}
+      GEOPS_MDM_CUSTOMER_ID: ${GEOPS_MDM_CUSTOMER_ID:?Confirm test customer ID}
+      GEOPS_MDM_TEST_TENANT: ${GEOPS_MDM_TEST_TENANT:?Confirm isolated test tenant}
+    secrets: [mdm_client_id, mdm_client_secret, mdm_refresh_token]
+    networks:
+      stage_app: {}
+      stage_db: {}
+      stage_egress: {}
+secrets:
+  mdm_client_id:
+    file: ./.local/staging/mdm/mdm_client_id
+  mdm_client_secret:
+    file: ./.local/staging/mdm/mdm_client_secret
+  mdm_refresh_token:
+    file: ./.local/staging/mdm/mdm_refresh_token
+networks:
+  stage_egress:
+    name: geops_spec02_mdm_stage_egress

@@ -1,0 +1,167 @@
+openapi: 3.1.0
+info:
+  title: GEOPS ManageEngine MSP inventory integration
+  version: 0.1.0
+  description: Staging test tenant only. Inventory links never authenticate a GEOPS Android agent.
+paths:
+  /v1/admin/mdm/status:
+    get:
+      summary: Sanitized provider status
+      security: [{adminCookie: []}]
+      responses:
+        '200': {description: No tokens or customer ID, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/devices:
+    get:
+      summary: Live provider page
+      security: [{adminCookie: []}]
+      parameters:
+        - {name: cursor, in: query, schema: {type: string, maxLength: 2048}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses:
+        '200': {description: Provider inventory, content: {application/json: {schema: {$ref: '#/components/schemas/DevicePage'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/inventory:
+    get:
+      summary: Last synchronized Android inventory
+      security: [{adminCookie: []}]
+      parameters:
+        - {name: after, in: query, schema: {type: string, pattern: '^[0-9]{1,30}$'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses:
+        '200': {description: Cached inventory, content: {application/json: {schema: {$ref: '#/components/schemas/InventoryPage'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/sync:
+    post:
+      summary: Run a full read-only inventory synchronization
+      security: [{adminCookie: [], csrfHeader: []}]
+      responses:
+        '200':
+          description: Completed provider traversal; absent records are never deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run_id, device_count]
+                properties:
+                  run_id: {type: string, format: uuid}
+                  device_count: {type: integer, minimum: 0}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/disconnect:
+    post:
+      summary: Revoke the mounted OAuth refresh grant and disconnect this process
+      security: [{adminCookie: [], csrfHeader: []}]
+      responses:
+        '200':
+          description: Mounted secret must also be removed or rotated before restart
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [local_disconnected, remote_revoked]
+                properties:
+                  local_disconnected: {const: true}
+                  remote_revoked: {type: boolean}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /v1/admin/devices/{device_id}/mdm-link:
+    parameters:
+      - {name: device_id, in: path, required: true, schema: {type: string, format: uuid}}
+    put:
+      summary: Associate an enrolled MDM record to a GEOPS record
+      description: Does not alter Android keys, sessions or activation.
+      security: [{adminCookie: [], csrfHeader: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mdm_device_id]
+              properties:
+                mdm_device_id: {type: string, pattern: '^[0-9]{1,30}$'}
+      responses:
+        '200': {description: Linked, content: {application/json: {schema: {$ref: '#/components/schemas/Linked'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+    delete:
+      summary: Remove the administrative association
+      security: [{adminCookie: [], csrfHeader: []}]
+      responses:
+        '200': {description: Unlinked, content: {application/json: {schema: {$ref: '#/components/schemas/Linked'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    adminCookie: {type: apiKey, in: cookie, name: __Host-geops_stage_admin}
+    csrfHeader: {type: apiKey, in: header, name: x-csrf-token}
+  responses:
+    Error:
+      description: Sanitized error without credentials or upstream body
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: {type: string}
+                  message: {type: string}
+                  request_id: {type: string}
+  schemas:
+    Status:
+      type: object
+      required: [provider, connected, edition_evidence, last_checked_at, last_http_status, sanitized_error_code]
+      properties:
+        provider: {enum: [fake, manageengine]}
+        connected: {type: boolean}
+        edition_evidence: {enum: [UNVERIFIED, TRIAL, FREE, LICENSED]}
+        configured_edition: {enum: [TRIAL, FREE, LICENSED]}
+        region: {type: string}
+        last_checked_at: {type: [string, 'null']}
+        last_http_status: {type: [integer, 'null']}
+        sanitized_error_code: {type: [string, 'null']}
+    Device:
+      type: object
+      required: [mdm_device_id, status]
+      properties:
+        mdm_device_id: {type: string}
+        status: {enum: [managed, unmanaged, removed, unknown]}
+        platform: {enum: [android, other, unknown]}
+        removed: {type: boolean}
+        display_name: {type: string}
+        model: {type: string}
+        os_version: {type: string}
+        serial_number: {type: string}
+        udid: {type: string}
+    InventoryPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Device'}}
+        next_cursor: {type: [string, 'null']}
+    DevicePage:
+      type: object
+      required: [items, next_cursor, source]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Device'}}
+        next_cursor: {type: [string, 'null']}
+        source: {enum: [fake, manageengine]}
+    Linked:
+      type: object
+      required: [linked]
+      properties:
+        linked: {type: boolean}
