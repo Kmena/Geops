@@ -154,16 +154,24 @@ while IFS= read -r service; do
   [[ $allowed == yes ]] || { echo 'Servicio inesperado en proyecto Staging' >&2; exit 1; }
 done <<< "$project_services"
 
-# Do not accept an old container configured for live MDM during this synthetic reset.
+# An earlier GEOPS API image may predate MDM_ENABLED. It is removed by reset;
+# only the new Compose API/Web config above must declare false explicitly.
 api_ids=$(docker ps -a --filter label=com.docker.compose.project=geops-spec02-staging --filter label=com.docker.compose.service=geops-api --format '{{.ID}}')
 while IFS= read -r api_id; do
   [[ -z $api_id ]] && continue
   docker inspect "$api_id" | python3 -I -c '
-import json,sys
-env=json.load(sys.stdin)[0]["Config"]["Env"]
-assert "MDM_ENABLED=false" in env
-assert not any(item.startswith(("GEOPS_MDM_CLIENT_","GEOPS_MDM_REFRESH_","MDM_CLIENT_")) for item in env)
-' || { echo 'Configuración MDM activa en API existente' >&2; exit 1; }
+import json,re,sys
+container=json.load(sys.stdin)[0]
+assert container["Id"].startswith(sys.argv[1])
+labels=container["Config"].get("Labels") or {}
+assert labels.get("com.docker.compose.project") == "geops-spec02-staging"
+assert labels.get("com.docker.compose.service") == "geops-api"
+assert re.fullmatch(r"geops-spec02-api:[0-9a-f]{7,40}",container["Config"]["Image"])
+env=[item.split("=",1) for item in container["Config"]["Env"]]
+mdm=[value for key,value in env if key == "MDM_ENABLED"]
+assert len(mdm) <= 1 and (not mdm or mdm == ["false"])
+assert not any(key.startswith(("GEOPS_MDM_","MDM_CLIENT_","MDM_REFRESH_","MDM_ACCESS_","MANAGEENGINE_","ZOHO_")) for key,_ in env)
+' "$api_id" || { echo 'Configuración MDM activa en API existente' >&2; exit 1; }
 done <<< "$api_ids"
 
 volumes=(geops_spec02_stage_pgdata geops_spec02_stage_security)

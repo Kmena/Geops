@@ -37,9 +37,12 @@ created_networks=()
 created_volumes=()
 seed_container=
 foreign_container=
+old_api_container=
+old_api_image=
 cleanup() {
   if [[ -n $seed_container ]]; then docker rm -f "$seed_container" >/dev/null 2>&1 || true; fi
   if [[ -n $foreign_container ]]; then docker rm -f "$foreign_container" >/dev/null 2>&1 || true; fi
+  if [[ -n $old_api_container ]]; then docker rm -f "$old_api_container" >/dev/null 2>&1 || true; fi
   docker ps -a --filter label=com.docker.compose.project=geops-spec02-staging --format '{{.ID}}' |
     while IFS= read -r id; do [[ -z $id ]] || docker rm -f "$id" >/dev/null 2>&1 || true; done
   rm -f -- "$dirty_file" "$env_file" "$env_file.safe"
@@ -49,6 +52,7 @@ cleanup() {
   rmdir -- "$secret_dir" "$root/infrastructure/compose/.local/staging" "$root/infrastructure/compose/.local" 2>/dev/null || true
   for volume in "${created_volumes[@]}"; do docker volume rm "$volume" >/dev/null 2>&1 || true; done
   for network in "${created_networks[@]}"; do docker network rm "$network" >/dev/null 2>&1 || true; done
+  if [[ -n $old_api_image ]]; then docker image rm "$old_api_image" >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
 
@@ -136,6 +140,41 @@ if "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha"
   echo 'Insecure origin was accepted' >&2; exit 1
 fi
 mv "$env_file.safe" "$env_file"
+
+# Inspect a stopped, disposable predecessor API before the actual reset.
+old_api_image="geops-spec02-api:$sha"
+if docker image inspect "$old_api_image" >/dev/null 2>&1; then
+  echo 'Predecessor test image tag already exists' >&2; exit 1
+fi
+docker image tag postgis/postgis:18-3.6 "$old_api_image"
+old_api_name=geops-spec02-staging-geops-api-1
+old_api_labels=(--label com.docker.compose.project=geops-spec02-staging --label com.docker.compose.service=geops-api)
+for case_name in absent false true credentials; do
+  case "$case_name" in
+    absent) old_api_env=() ;;
+    false) old_api_env=(-e MDM_ENABLED=false) ;;
+    true) old_api_env=(-e MDM_ENABLED=true) ;;
+    credentials) old_api_env=(-e MDM_ENABLED=false -e GEOPS_MDM_CLIENT_SECRET=synthetic-ci-only) ;;
+  esac
+  old_api_container=$(docker create --name "$old_api_name" "${old_api_labels[@]}" \
+    "${old_api_env[@]}" --entrypoint /bin/sh "$old_api_image" -c true)
+  if "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file" >/dev/null 2>&1; then
+    [[ $case_name == absent || $case_name == false ]] || { echo "Old API $case_name was accepted" >&2; exit 1; }
+  else
+    [[ $case_name == true || $case_name == credentials ]] || { echo "Old API $case_name was rejected" >&2; exit 1; }
+  fi
+  docker rm "$old_api_container" >/dev/null
+  old_api_container=
+done
+old_api_container=$(docker create --name "$old_api_name" "${old_api_labels[@]}" \
+  --entrypoint /bin/sh postgis/postgis:18-3.6 -c true)
+if "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file" >/dev/null 2>&1; then
+  echo 'Foreign predecessor API image was accepted' >&2; exit 1
+fi
+docker rm "$old_api_container" >/dev/null
+old_api_container=
+docker image rm "$old_api_image" >/dev/null
+old_api_image=
 
 "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file"
 "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file" >/dev/null
