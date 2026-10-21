@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { AdminAuthService } from '../src/admin-auth/service.ts';
+import { createApp } from '../src/app.ts';
 import { GpsContinuityMonitor } from '../src/gps-continuity-monitor.ts';
 import { GpsPolicyService } from '../src/gps-policy-service.ts';
 import { GpsHealthService } from '../src/gps-health-service.ts';
@@ -33,6 +34,27 @@ const start = Date.UTC(2026, 9, 20, 12, 0);
 const at = (minutes) => new Date(start + minutes * 60_000);
 let now = at(4);
 const monitor = new GpsContinuityMonitor(pool, () => now);
+const app = createApp({
+  readinessProbe: async () => true,
+  logLevel: 'silent',
+  adminAuth: auth,
+  gpsContinuity: monitor,
+  secureCookie: false,
+});
+const login = await app.inject({
+  method: 'POST',
+  url: '/v1/admin/auth/sessions',
+  headers: { origin: 'https://geops.example.invalid' },
+  payload: { email: 'r4a@example.invalid', password: 'synthetic-password-12345678' },
+});
+assert.equal(login.statusCode, 200);
+const cookie = login.headers['set-cookie'].split(';')[0];
+const read = (query = '', headers = {}) =>
+  app.inject({
+    method: 'GET',
+    url: `/v1/admin/gps-continuity/alerts${query}`,
+    headers: { cookie, 'x-geops-access-reason': 'Synthetic continuity audit', ...headers },
+  });
 const records = [];
 let checks = 0;
 const check = (condition, label) => {
@@ -241,6 +263,7 @@ try {
     VALUES($1,'gps.session.read',$1,'Synthetic R4-A read')`,
     [admin],
   );
+  check((await read()).statusCode === 403, 'HTTP denies missing location capability');
   await assert.rejects(
     monitor.listForAdmin(admin, randomUUID(), 'Synthetic R4-A audit'),
     (error) => error.statusCode === 403 || error.status === 403,
@@ -255,6 +278,7 @@ try {
     (await monitor.listForAdmin(admin, randomUUID(), 'Synthetic R4-A audit')).length === 0,
     'capabilities without tenant grants reveal nothing',
   );
+  check((await read()).statusCode === 403, 'HTTP denies missing tenant grants');
   for (const table of ['gps_data_tenant_access', 'gps_health_tenant_access'])
     await pool.query(
       `INSERT INTO ${table}(admin_id,tenant_id,granted_by,reason)
@@ -263,6 +287,72 @@ try {
     );
   const scoped = await monitor.listForAdmin(admin, randomUUID(), 'Synthetic R4-A audit');
   check(scoped.length === 1 && scoped[0].tenant_id === 'tenant-a', 'tenant isolation holds');
+  check(
+    (await app.inject({ method: 'GET', url: '/v1/admin/gps-continuity/alerts' })).statusCode ===
+      401,
+    'anonymous continuity read rejected',
+  );
+  check(
+    (await read('', { 'x-geops-access-reason': '' })).statusCode === 422,
+    'access reason is required',
+  );
+  const openHttp = await read('?status=OPEN');
+  const openBody = openHttp.json();
+  check(
+    openHttp.statusCode === 200 &&
+      openBody.schema_version === 1 &&
+      openBody.items.length === 1 &&
+      openBody.items[0].device_id === a.device &&
+      openBody.items[0].inference.evaluated_at === now.toISOString() &&
+      openHttp.headers['cache-control'] === 'no-store' &&
+      !JSON.stringify(openBody).includes('tenant-a') &&
+      !JSON.stringify(openBody).includes('latitude'),
+    'versioned authorized HTTP returns scoped inference without coordinates',
+  );
+  check(
+    (await read(`?device_id=${b.device}`)).statusCode === 404,
+    'other tenant device is not visible',
+  );
+  const historyQuery =
+    `?status=ALL&opened_from=${encodeURIComponent(at(0).toISOString())}` +
+    `&opened_before=${encodeURIComponent(at(60).toISOString())}&limit=1`;
+  const first = (await read(historyQuery)).json();
+  const second = (
+    await read(`${historyQuery}&cursor=${encodeURIComponent(first.next_cursor)}`)
+  ).json();
+  check(
+    first.items.length === 1 &&
+      second.items.length === 1 &&
+      first.items[0].alert_id !== second.items[0].alert_id,
+    'keyset pagination yields unique episodes',
+  );
+  check((await read(`${historyQuery}&cursor=bad`)).statusCode === 422, 'tampered cursor rejected');
+  const resolvedHttp = await read(
+    `?status=RESOLVED&opened_from=${encodeURIComponent(at(0).toISOString())}` +
+      `&opened_before=${encodeURIComponent(at(60).toISOString())}`,
+  );
+  check(
+    resolvedHttp.statusCode === 200 &&
+      resolvedHttp
+        .json()
+        .items.every(
+          (item) => item.status === 'RESOLVED' && item.resolved_at && item.resolution_reason,
+        ),
+    'resolved episodes retain resolution time and reason',
+  );
+  check((await read('?status=RESOLVED')).statusCode === 422, 'unbounded history rejected');
+  await pool.query(
+    `INSERT INTO gps_continuity_read_quota(admin_id,minute_bucket,request_count)
+    VALUES($1,date_trunc('minute',now()),60)
+    ON CONFLICT (admin_id,minute_bucket) DO UPDATE SET request_count=60`,
+    [admin],
+  );
+  const limited = await read();
+  check(
+    limited.statusCode === 429 && limited.headers['retry-after'] === '60',
+    'read quota rejects excess requests with Retry-After',
+  );
+  await pool.query('DELETE FROM gps_continuity_read_quota WHERE admin_id=$1', [admin]);
   await pool.query(
     "UPDATE gps_health_tenant_access SET revoked_at=now() WHERE admin_id=$1 AND tenant_id='tenant-a' AND revoked_at IS NULL",
     [admin],
@@ -271,6 +361,7 @@ try {
     (await monitor.listForAdmin(admin, randomUUID(), 'Synthetic R4-A audit')).length === 0,
     'revoked tenant grant removes visibility',
   );
+  check((await read()).statusCode === 403, 'revoked tenant grant blocks HTTP read');
   check(
     (
       await pool.query(
@@ -432,6 +523,28 @@ try {
     'scheduler restart during shift materializes its active window',
   );
 
+  const fleet = [];
+  for (let index = 0; index < 22; index++) fleet.push(await fixture('tenant-a'));
+  await monitor.tick();
+  const fleetIds = new Set(fleet.map((item) => item.device));
+  const fleetPages = [];
+  let next = '?status=OPEN&limit=10';
+  while (next) {
+    const response = await read(next);
+    check(response.statusCode === 200, '25-device synthetic fleet page authorized');
+    const page = response.json();
+    fleetPages.push(...page.items);
+    next = page.next_cursor
+      ? `?status=OPEN&limit=10&cursor=${encodeURIComponent(page.next_cursor)}`
+      : '';
+  }
+  check(
+    fleetPages.length === 22 &&
+      fleetPages.every((item) => fleetIds.has(item.device_id)) &&
+      new Set(fleetPages.map((item) => item.alert_id)).size === fleetPages.length,
+    '25-device fleet pages remain tenant isolated and do not duplicate alerts',
+  );
+
   now = at(60);
   const end = await monitor.tick();
   check(
@@ -447,5 +560,6 @@ try {
   check((await monitor.tick()).opened === 0, 'outside shift remains silent');
   console.log(`gps-continuity integration PASS: ${checks} assertions`);
 } finally {
+  await app.close();
   await pool.end();
 }

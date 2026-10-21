@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);
   const gpsScheduler = new GpsScheduler(pool, gpsPolicies, gpsEvents, gpsHealth);
-  const gpsContinuity = new GpsContinuityMonitor(pool);
+  const gpsContinuity = new GpsContinuityMonitor(pool, undefined, config.adminSessionKey);
   const app = createApp({
     readinessProbe: async () => (await restoreGate()) && (await checkReadiness(pool)),
     restoreGate,
@@ -47,6 +47,7 @@ async function main(): Promise<void> {
     gpsDeviceConfig: new GpsDeviceConfigService(pool),
     gpsEvents,
     gpsAdministration: new GpsAdministrationService(pool, gpsPolicies),
+    gpsContinuity,
     devices,
     enrollment: new EnrollmentService(pool, devices, config.invitationHmacKey),
     deviceSessions: new DeviceSessionService(pool),

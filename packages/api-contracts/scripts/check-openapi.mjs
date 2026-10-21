@@ -38,6 +38,26 @@ const gpsPackaged = YAML.parse(await readFile(gpsPackageFile, 'utf8'));
 const gpsDesign = YAML.parse(await readFile(gpsSpecFile, 'utf8'));
 assert.deepEqual(gpsPackaged, gpsDesign, 'GPS design copy must match SPEC-02');
 await SwaggerParser.validate(gpsPackageFile);
+const continuityRoute = gpsPackaged.paths['/v1/admin/gps-continuity/alerts']?.get;
+assert.equal(continuityRoute?.operationId, 'listGpsContinuityAlertsV1');
+assert.deepEqual(continuityRoute?.security, [{ adminCookie: [] }]);
+assert.equal(
+  continuityRoute?.responses['200']?.content['application/json'].schema.$ref,
+  '#/components/schemas/GpsContinuityAlertListV1',
+);
+for (const status of ['401', '403', '404', '422', '429', '503'])
+  assert.ok(continuityRoute?.responses[status], `continuity route missing ${status}`);
+const continuitySchema = gpsPackaged.components.schemas.GpsContinuityAlertListV1;
+assert.equal(continuitySchema.properties.schema_version.const, 1);
+assert.deepEqual(continuitySchema.properties.items.items.properties.reason_code.enum, [
+  'CAPTURE_STALE',
+  'COMMUNICATION_MISSING',
+]);
+assert.deepEqual(
+  gpsPackaged.components.schemas.AlertList.properties.items.items.properties.reason_code.enum,
+  ['COMMUNICATION_MISSING', 'UNKNOWN'],
+  'legacy AlertList remains unchanged',
+);
 for (const path of [
   '/v1/admin/gps-policies',
   '/v1/admin/gps-groups',

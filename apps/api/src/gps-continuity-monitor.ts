@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { appendAudit } from './audit/index.js';
 import { ApiError } from './errors.js';
@@ -47,6 +47,28 @@ interface OpenAlert {
   binding_state: string;
 }
 
+interface AlertPageRow {
+  id: string;
+  device_id: string;
+  scheduled_session_id: string;
+  reason_code: ContinuityReason;
+  severity: ContinuitySeverity;
+  source: 'SERVER_INFERENCE';
+  opened_at: Date;
+  updated_at: Date;
+  evaluated_at: Date | null;
+  resolved_at: Date | null;
+  resolution_reason: string | null;
+  evidence_at: Date | null;
+  age_s: number;
+  threshold_s: number;
+  last_position_captured_at: Date | null;
+  last_position_received_at: Date | null;
+  last_health_observed_at: Date | null;
+  last_health_received_at: Date | null;
+  observed_tracking_state: 'RUNNING' | 'STOPPED' | null;
+}
+
 export interface ContinuityDecision {
   reason_code: ContinuityReason;
   severity: ContinuitySeverity;
@@ -69,6 +91,21 @@ export interface ContinuityThresholds {
   start_grace_s: number;
   policy_grace_s: number;
 }
+
+export interface ContinuityAlertFilters {
+  device_id?: string;
+  status?: 'OPEN' | 'RESOLVED' | 'ALL';
+  severity?: ContinuitySeverity;
+  reason_code?: ContinuityReason;
+  opened_from?: string;
+  opened_before?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const utc = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
+const stamp = (value: Date | null) => value?.toISOString() ?? null;
 
 const seconds = (later: Date, earlier: Date) =>
   Math.max(0, Math.floor((later.getTime() - earlier.getTime()) / 1000));
@@ -137,7 +174,19 @@ export class GpsContinuityMonitor {
   constructor(
     private readonly pool: Pool,
     private readonly now: () => Date = () => new Date(),
+    private readonly cursorKey: Buffer = randomBytes(32),
   ) {}
+
+  async auditRejectedRead(adminId: string, requestId: string, code: string): Promise<void> {
+    await appendAudit(this.pool, {
+      actorType: 'ADMIN',
+      actorId: adminId,
+      action: 'gps.continuity.alert.read',
+      outcome: 'rejected',
+      correlationId: requestId,
+      metadata: { code },
+    });
+  }
 
   async tick(): Promise<ContinuityRun> {
     const db = await this.pool.connect();
@@ -158,6 +207,10 @@ export class GpsContinuityMonitor {
         return { ...result, skipped: true };
       }
       const at = this.now();
+      await db.query(
+        "DELETE FROM gps_continuity_read_quota WHERE minute_bucket < $1::timestamptz - INTERVAL '24 hours'",
+        [at],
+      );
       const windows = await db.query<WindowRow>(
         `SELECT s.id,s.device_id,b.customer_id AS tenant_id,b.id AS mdm_binding_id,
            i.installation_id,
@@ -239,7 +292,7 @@ export class GpsContinuityMonitor {
         const same = prior?.reason_code === decision.reason_code ? prior : null;
         if (same) {
           await db.query(
-            `UPDATE gps_continuity_alert SET severity=$2,updated_at=$3,evidence_at=$4,
+            `UPDATE gps_continuity_alert SET severity=$2,updated_at=$3,evaluated_at=$3,evidence_at=$4,
                age_s=$5,threshold_s=$6,last_position_captured_at=$7,
                last_position_received_at=$8,last_health_observed_at=$9,
                last_health_received_at=$10,last_batch_persisted_at=$11,
@@ -276,11 +329,11 @@ export class GpsContinuityMonitor {
         }
         await db.query(
           `INSERT INTO gps_continuity_alert(id,tenant_id,device_id,mdm_binding_id,installation_id,
-             scheduled_session_id,assignment_version,reason_code,severity,opened_at,updated_at,
+             scheduled_session_id,assignment_version,reason_code,severity,opened_at,updated_at,evaluated_at,
              evidence_at,age_s,threshold_s,last_position_captured_at,last_position_received_at,
              last_health_observed_at,last_health_received_at,last_batch_persisted_at,
              observed_tracking_state)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
           [
             randomUUID(),
             window.tenant_id,
@@ -411,7 +464,255 @@ export class GpsContinuityMonitor {
     return row;
   }
 
-  /** Internal authorized read; HTTP/OpenAPI binding waits for GPS-CONTINUITY-001 review. */
+  /** Versioned read. The cursor is an expiring, filter-bound position, never an authorization. */
+  async listPageForAdmin(
+    adminId: string,
+    requestId: string,
+    accessReason: string,
+    filters: ContinuityAlertFilters,
+  ) {
+    const reason = accessReason.trim();
+    const status = filters.status ?? 'OPEN';
+    const limit = filters.limit ?? 25;
+    const from = filters.opened_from;
+    const before = filters.opened_before;
+    if (
+      reason.length < 8 ||
+      reason.length > 240 ||
+      (filters.device_id !== undefined && !uuid.test(filters.device_id)) ||
+      !['OPEN', 'RESOLVED', 'ALL'].includes(status) ||
+      (filters.severity !== undefined && !['WARNING', 'CRITICAL'].includes(filters.severity)) ||
+      (filters.reason_code !== undefined &&
+        !['CAPTURE_STALE', 'COMMUNICATION_MISSING'].includes(filters.reason_code)) ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      (from === undefined) !== (before === undefined) ||
+      (status !== 'OPEN' && (from === undefined || before === undefined)) ||
+      (from !== undefined &&
+        (!utc.test(from) ||
+          !utc.test(before ?? '') ||
+          !Number.isFinite(Date.parse(from)) ||
+          !Number.isFinite(Date.parse(before ?? '')) ||
+          Date.parse(from) >= Date.parse(before ?? '') ||
+          Date.parse(before ?? '') - Date.parse(from) > 90 * 86_400_000))
+    ) {
+      await this.auditRejectedRead(adminId, requestId, 'invalid_request');
+      throw new ApiError(422, 'invalid_request', 'Invalid request');
+    }
+
+    const scope = JSON.stringify({
+      adminId,
+      device_id: filters.device_id ?? null,
+      status,
+      severity: filters.severity ?? null,
+      reason_code: filters.reason_code ?? null,
+      opened_from: from ?? null,
+      opened_before: before ?? null,
+      limit,
+    });
+    let cursorAt: string | null = null;
+    let cursorId: string | null = null;
+    if (filters.cursor !== undefined) {
+      try {
+        if (
+          filters.cursor.length > 1024 ||
+          !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(filters.cursor)
+        )
+          throw new Error();
+        const [payload, signature] = filters.cursor.split('.');
+        if (!payload || !signature) throw new Error();
+        const expected = createHmac('sha256', this.cursorKey).update(payload).digest();
+        const given = Buffer.from(signature, 'base64url');
+        if (given.length !== expected.length || !timingSafeEqual(given, expected))
+          throw new Error();
+        const decoded: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+        if (!decoded || typeof decoded !== 'object') throw new Error();
+        const value = decoded as Record<string, unknown>;
+        if (
+          value.scope !== scope ||
+          typeof value.expires !== 'number' ||
+          value.expires < this.now().getTime() ||
+          typeof value.at !== 'string' ||
+          !utc.test(value.at) ||
+          typeof value.id !== 'string' ||
+          !uuid.test(value.id)
+        )
+          throw new Error();
+        cursorAt = value.at;
+        cursorId = value.id;
+      } catch {
+        await this.auditRejectedRead(adminId, requestId, 'invalid_cursor');
+        throw new ApiError(422, 'invalid_cursor', 'Invalid request');
+      }
+    }
+    const allowed = await this.pool.query<{ has_capabilities: boolean; has_tenant: boolean }>(
+      `SELECT
+         (SELECT count(DISTINCT p.permission)=2 FROM admin_permission p
+          JOIN admin_user u ON u.id=p.admin_id AND u.state='ACTIVE'
+          WHERE p.admin_id=$1 AND p.revoked_at IS NULL AND
+            p.permission IN ('gps.session.read','gps.location.read')) AS has_capabilities,
+         EXISTS(SELECT 1 FROM gps_data_tenant_access d
+           JOIN gps_health_tenant_access h ON h.admin_id=d.admin_id
+             AND h.tenant_id=d.tenant_id AND h.revoked_at IS NULL
+           WHERE d.admin_id=$1 AND d.revoked_at IS NULL) AS has_tenant`,
+      [adminId],
+    );
+    if (!allowed.rows[0]?.has_capabilities || !allowed.rows[0]?.has_tenant) {
+      await appendAudit(this.pool, {
+        actorType: 'ADMIN',
+        actorId: adminId,
+        action: 'gps.continuity.alert.read',
+        outcome: 'rejected',
+        correlationId: requestId,
+        metadata: { code: 'forbidden', access_reason: reason },
+      });
+      throw new ApiError(403, 'gps_forbidden', 'Forbidden');
+    }
+    const quota = await this.pool.query(
+      `INSERT INTO gps_continuity_read_quota(admin_id,minute_bucket,request_count)
+       VALUES($1,date_trunc('minute',now()),1)
+       ON CONFLICT (admin_id,minute_bucket) DO UPDATE
+       SET request_count=gps_continuity_read_quota.request_count+1
+       WHERE gps_continuity_read_quota.request_count<60 RETURNING request_count`,
+      [adminId],
+    );
+    if (!quota.rowCount) {
+      await appendAudit(this.pool, {
+        actorType: 'ADMIN',
+        actorId: adminId,
+        action: 'gps.continuity.alert.read',
+        outcome: 'rejected',
+        correlationId: requestId,
+        metadata: { code: 'rate_limited', access_reason: reason },
+      });
+      throw new ApiError(429, 'rate_limited', 'Try again later');
+    }
+    if (filters.device_id) {
+      const visible = await this.pool.query(
+        `SELECT 1 FROM mdm_binding b
+         JOIN gps_data_tenant_access d ON d.admin_id=$2 AND d.tenant_id=b.customer_id AND d.revoked_at IS NULL
+         JOIN gps_health_tenant_access h ON h.admin_id=$2 AND h.tenant_id=b.customer_id AND h.revoked_at IS NULL
+         WHERE b.geops_device_id=$1 LIMIT 1`,
+        [filters.device_id, adminId],
+      );
+      if (!visible.rowCount) {
+        await appendAudit(this.pool, {
+          actorType: 'ADMIN',
+          actorId: adminId,
+          action: 'gps.continuity.alert.read',
+          outcome: 'rejected',
+          correlationId: requestId,
+          metadata: { code: 'not_found', access_reason: reason },
+        });
+        throw new ApiError(404, 'not_found', 'Not found');
+      }
+    }
+    const result = await this.pool.query<AlertPageRow>(
+      `SELECT a.id,a.device_id,a.scheduled_session_id,a.reason_code,a.severity,a.source,
+         a.opened_at,a.updated_at,a.evaluated_at,a.resolved_at,a.resolution_reason,
+         a.evidence_at,a.age_s,a.threshold_s,a.last_position_captured_at,
+         a.last_position_received_at,a.last_health_observed_at,a.last_health_received_at,
+         a.observed_tracking_state
+       FROM gps_continuity_alert a
+       JOIN admin_user u ON u.id=$1 AND u.state='ACTIVE'
+       WHERE EXISTS (SELECT 1 FROM admin_permission p WHERE p.admin_id=u.id
+           AND p.permission='gps.session.read' AND p.revoked_at IS NULL)
+         AND EXISTS (SELECT 1 FROM admin_permission p WHERE p.admin_id=u.id
+           AND p.permission='gps.location.read' AND p.revoked_at IS NULL)
+         AND EXISTS (SELECT 1 FROM gps_data_tenant_access d WHERE d.admin_id=u.id
+           AND d.tenant_id=a.tenant_id AND d.revoked_at IS NULL)
+         AND EXISTS (SELECT 1 FROM gps_health_tenant_access h WHERE h.admin_id=u.id
+           AND h.tenant_id=a.tenant_id AND h.revoked_at IS NULL)
+         AND ($2::uuid IS NULL OR a.device_id=$2)
+         AND ($3::text='ALL' OR ($3='OPEN' AND a.resolved_at IS NULL)
+           OR ($3='RESOLVED' AND a.resolved_at IS NOT NULL))
+         AND ($4::text IS NULL OR a.severity=$4)
+         AND ($5::text IS NULL OR a.reason_code=$5)
+         AND ($6::timestamptz IS NULL OR a.opened_at >= $6)
+         AND ($7::timestamptz IS NULL OR a.opened_at < $7)
+         AND ($8::timestamptz IS NULL OR (a.opened_at,a.id) < ($8::timestamptz,$9::uuid))
+       ORDER BY a.opened_at DESC,a.id DESC LIMIT $10`,
+      [
+        adminId,
+        filters.device_id ?? null,
+        status,
+        filters.severity ?? null,
+        filters.reason_code ?? null,
+        from ?? null,
+        before ?? null,
+        cursorAt,
+        cursorId,
+        limit + 1,
+      ],
+    );
+    const hasMore = result.rows.length > limit;
+    const rows = result.rows.slice(0, limit);
+    const last = rows.at(-1);
+    const nextCursor =
+      hasMore && last
+        ? (() => {
+            const payload = Buffer.from(
+              JSON.stringify({
+                scope,
+                at: last.opened_at.toISOString(),
+                id: last.id,
+                expires: this.now().getTime() + 15 * 60_000,
+              }),
+            ).toString('base64url');
+            const signature = createHmac('sha256', this.cursorKey)
+              .update(payload)
+              .digest('base64url');
+            return `${payload}.${signature}`;
+          })()
+        : null;
+    await appendAudit(this.pool, {
+      actorType: 'ADMIN',
+      actorId: adminId,
+      action: 'gps.continuity.alert.read',
+      outcome: 'success',
+      correlationId: requestId,
+      metadata: {
+        count: rows.length,
+        status,
+        access_reason: reason,
+        device_filter: filters.device_id ?? 'all',
+        page: filters.cursor ? 'next' : 'first',
+      },
+    });
+    return {
+      schema_version: 1 as const,
+      items: rows.map((row) => ({
+        alert_id: row.id,
+        device_id: row.device_id,
+        scheduled_session_id: row.scheduled_session_id,
+        status: row.resolved_at ? ('RESOLVED' as const) : ('OPEN' as const),
+        reason_code: row.reason_code,
+        severity: row.severity,
+        source: row.source,
+        observed: {
+          tracking_state: row.observed_tracking_state,
+          last_position_captured_at: stamp(row.last_position_captured_at),
+          last_position_received_at: stamp(row.last_position_received_at),
+          last_health_observed_at: stamp(row.last_health_observed_at),
+          last_health_received_at: stamp(row.last_health_received_at),
+        },
+        inference: {
+          evidence_at: stamp(row.evidence_at),
+          age_s: row.age_s,
+          threshold_s: row.threshold_s,
+          evaluated_at: stamp(row.evaluated_at),
+        },
+        opened_at: stamp(row.opened_at),
+        updated_at: stamp(row.updated_at),
+        resolved_at: stamp(row.resolved_at),
+        resolution_reason: row.resolution_reason,
+      })),
+      next_cursor: nextCursor,
+    };
+  }
+
+  /** Legacy internal authorized read retained for R4-A callers. */
   async listForAdmin(adminId: string, requestId: string, accessReason: string, limit = 100) {
     if (
       accessReason.trim().length < 8 ||

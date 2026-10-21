@@ -27,6 +27,8 @@ import {
   registerGpsAdministrationRoutes,
   type GpsAdministrationService,
 } from './gps-administration.js';
+import { registerGpsContinuityRoutes } from './gps-continuity-routes.js';
+import type { GpsContinuityMonitor } from './gps-continuity-monitor.js';
 
 export interface AppOptions {
   readinessProbe: ReadinessProbe;
@@ -47,6 +49,7 @@ export interface AppOptions {
   gpsDeviceConfig?: GpsDeviceConfigService;
   gpsEvents?: GpsEventService;
   gpsAdministration?: GpsAdministrationService;
+  gpsContinuity?: GpsContinuityMonitor;
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
@@ -87,6 +90,8 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerGpsEventRoutes(app, options.adminAuth, options.deviceSessions, options.gpsEvents);
     if (options.gpsAdministration)
       registerGpsAdministrationRoutes(app, options.adminAuth, options.gpsAdministration);
+    if (options.gpsContinuity)
+      registerGpsContinuityRoutes(app, options.adminAuth, options.gpsContinuity);
     if (options.devices && options.mdm) {
       registerInventoryRoutes(app, options.adminAuth, options.devices, options.mdm);
       if (options.enrollment && options.deviceSessions && options.deviceLifecycle) {
