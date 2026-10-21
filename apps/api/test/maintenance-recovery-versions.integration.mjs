@@ -18,9 +18,9 @@ if (
   !url ||
   !['localhost', '127.0.0.1'].includes(new URL(url).hostname) ||
   !/^geops_verify_[0-9]+$/.test(new URL(url).pathname.slice(1)) ||
-  ![14, 15, 16, 17].includes(initialVersion)
+  ![14, 15, 16, 17, 18].includes(initialVersion)
 )
-  throw new Error('Prepared disposable schema 14-17 and explicit synthetic mode required');
+  throw new Error('Prepared disposable schema 14-18 and explicit synthetic mode required');
 
 const target = new URL(url).pathname.slice(1);
 const pool = new pg.Pool({ connectionString: url, max: 1 });
@@ -28,6 +28,7 @@ const root = await mkdtemp(join(tmpdir(), 'geops-recovery-versions-'));
 const path = join(root, 'security-gate.json');
 try {
   let alertId;
+  let mdmRunId;
   if (initialVersion >= 15) {
     const adminId = (
       await pool.query(
@@ -87,6 +88,22 @@ try {
       );
     }
   }
+  if (initialVersion >= 18) {
+    const deviceId = (await pool.query('SELECT geops_device_id FROM mdm_binding LIMIT 1')).rows[0]
+      .geops_device_id;
+    await pool.query(
+      `INSERT INTO mdm_inventory_device(provider,region,customer_id,mdm_device_id,platform,status,
+        geops_device_id,last_seen_at) VALUES('manageengine','com','synthetic','mdm-fixture','android',
+        'managed',$1,$2)`,
+      [deviceId, new Date('2026-10-20T12:00:00Z')],
+    );
+    mdmRunId = randomUUID();
+    await pool.query(
+      `INSERT INTO mdm_sync_run(id,region,customer_id,outcome,device_count)
+       VALUES($1,'com','synthetic','SUCCESS',1)`,
+      [mdmRunId],
+    );
+  }
   const before = (
     await pool.query(`SELECT
       (SELECT count(*)::int FROM geops_schema_migrations) AS migrations,
@@ -117,13 +134,34 @@ try {
     ],
     compatibleReleaseConfirmed: true,
   });
+  if (initialVersion === 18) {
+    const version = '0018_mdm_inventory.sql';
+    const checksum = (
+      await pool.query('SELECT checksum FROM geops_schema_migrations WHERE version=$1', [version])
+    ).rows[0].checksum;
+    await pool.query('UPDATE geops_schema_migrations SET checksum=$2 WHERE version=$1', [
+      version,
+      'invalid',
+    ]);
+    await assert.rejects(
+      recoverMaintenance(pool, path, request()),
+      '0018 checksum mismatch denied',
+    );
+    assert.equal(await gateAllowsTraffic(pool, path), false);
+    await pool.query('UPDATE geops_schema_migrations SET checksum=$2 WHERE version=$1', [
+      version,
+      checksum,
+    ]);
+  }
   if (initialVersion >= 15) {
     const indexName =
       initialVersion === 15
         ? 'admin_user_invitation_one_open'
         : initialVersion === 16
           ? 'gps_continuity_alert_one_open'
-          : 'gps_continuity_alert_page';
+          : initialVersion === 17
+            ? 'gps_continuity_alert_page'
+            : 'mdm_inventory_one_geops_device';
     const definition = (
       await pool.query('SELECT pg_get_indexdef($1::regclass) AS definition', [indexName])
     ).rows[0].definition;
@@ -147,7 +185,7 @@ try {
       (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS permissions,
       (SELECT epoch::text FROM security_epoch WHERE singleton=true) AS epoch`)
   ).rows[0];
-  assert.deepEqual(after, { ...before, migrations: 17 }, 'identity, grants and epoch retained');
+  assert.deepEqual(after, { ...before, migrations: 18 }, 'identity, grants and epoch retained');
   if (initialVersion >= 15)
     assert.equal(
       (await pool.query('SELECT tenant_id FROM geops_operating_tenant')).rows[0].tenant_id,
@@ -163,8 +201,21 @@ try {
     assert.equal(alert.rows[0].updated_at.toISOString(), '2026-10-20T13:00:00.000Z');
     assert.equal(alert.rows[0].evaluated_at, null);
   }
+  if (mdmRunId) {
+    const inventory = await pool.query(
+      "SELECT geops_device_id,status FROM mdm_inventory_device WHERE mdm_device_id='mdm-fixture'",
+    );
+    assert.equal(inventory.rowCount, 1);
+    assert.equal(inventory.rows[0].status, 'managed');
+    assert.ok(inventory.rows[0].geops_device_id);
+    assert.equal(
+      (await pool.query('SELECT device_count FROM mdm_sync_run WHERE id=$1', [mdmRunId])).rows[0]
+        .device_count,
+      1,
+    );
+  }
   await assert.rejects(recoverMaintenance(pool, path, request()), 'open gate rejects replay');
-  console.log(`Supervised schema ${initialVersion} -> 17 recovery: PASS`);
+  console.log(`Supervised schema ${initialVersion} -> 18 recovery: PASS`);
 } finally {
   await pool.end();
   await rm(root, { recursive: true, force: true });

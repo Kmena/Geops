@@ -25,8 +25,9 @@ const versions = [
   '0015_single_tenant_admin.sql',
   '0016_gps_continuity_alerts.sql',
   '0017_gps_continuity_evaluated_at.sql',
+  '0018_mdm_inventory.sql',
 ] as const;
-type SchemaVersion = 14 | 15 | 16 | 17;
+type SchemaVersion = 14 | 15 | 16 | 17 | 18;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -89,7 +90,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17].includes(actual.size) ||
+    ![14, 15, 16, 17, 18].includes(actual.size) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -113,6 +114,10 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['gps_continuity_alert_device_history', 16, 'i'],
     ['gps_continuity_alert_page', 17, 'i'],
     ['gps_continuity_read_quota', 17, 'r'],
+    ['mdm_inventory_device', 18, 'r'],
+    ['mdm_sync_run', 18, 'r'],
+    ['mdm_inventory_one_geops_device', 18, 'i'],
+    ['mdm_inventory_customer', 18, 'i'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -148,6 +153,11 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['gps_continuity_alert', 'evaluated_at', 17, false],
     ['gps_continuity_read_quota', 'admin_id', 17, true],
     ['gps_continuity_read_quota', 'request_count', 17, true],
+    ['mdm_inventory_device', 'provider', 18, true],
+    ['mdm_inventory_device', 'geops_device_id', 18, false],
+    ['mdm_inventory_device', 'last_seen_at', 18, true],
+    ['mdm_sync_run', 'id', 18, true],
+    ['mdm_sync_run', 'outcome', 18, true],
   ];
   for (const [table, column, introduced, notNull] of columns) {
     const found = await db.query<{ attnotnull: boolean; type: string }>(
@@ -208,6 +218,38 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     )
       throw new Error('Continuity read constraints mismatch');
   }
+  if (state >= 18) {
+    const constraints = await db.query<{
+      device_primary: number;
+      device_foreign: number;
+      device_checks: number;
+      run_primary: number;
+      run_checks: number;
+      unique_link: boolean;
+      unique_definition: string;
+      customer_definition: string;
+    }>(`SELECT
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_inventory_device'::regclass AND contype='p') AS device_primary,
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_inventory_device'::regclass AND contype='f') AS device_foreign,
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_inventory_device'::regclass AND contype='c') AS device_checks,
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_sync_run'::regclass AND contype='p') AS run_primary,
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_sync_run'::regclass AND contype='c') AS run_checks,
+      (SELECT indisunique FROM pg_index WHERE indexrelid='mdm_inventory_one_geops_device'::regclass) AS unique_link,
+      (SELECT pg_get_indexdef('mdm_inventory_one_geops_device'::regclass)) AS unique_definition,
+      (SELECT pg_get_indexdef('mdm_inventory_customer'::regclass)) AS customer_definition`);
+    const row = constraints.rows[0];
+    if (
+      row?.device_primary !== 1 ||
+      row.device_foreign !== 1 ||
+      row.device_checks !== 1 ||
+      row.run_primary !== 1 ||
+      row.run_checks !== 1 ||
+      row.unique_link !== true ||
+      !row.unique_definition.includes('geops_device_id IS NOT NULL') ||
+      !row.customer_definition.includes('region, customer_id, mdm_device_id')
+    )
+      throw new Error('MDM inventory constraints mismatch');
+  }
   return state;
 }
 
@@ -231,6 +273,7 @@ async function identityFingerprint(db: PoolClient, baseline: SchemaVersion): Pro
       : []),
     ...(baseline >= 16 ? ['gps_continuity_threshold', 'gps_continuity_alert'] : []),
     ...(baseline >= 17 ? ['gps_continuity_read_quota'] : []),
+    ...(baseline >= 18 ? ['mdm_inventory_device', 'mdm_sync_run'] : []),
   ];
   const digest = createHash('sha256');
   for (const table of tables) {
@@ -341,7 +384,7 @@ export async function recoverMaintenance(
       throw error;
     }
     await onStage?.('authorized');
-    for (let next = before + 1; next <= 17; next++) {
+    for (let next = before + 1; next <= 18; next++) {
       const migration = catalog[next - 1];
       if (!migration) throw new Error('Recovery migration missing');
       await db.query('BEGIN');
@@ -372,12 +415,12 @@ export async function recoverMaintenance(
         throw new Error('Identity or permission inventory changed during recovery');
     }
     await checkIdentity(db, path, auth);
-    if ((await schemaState(db, catalog)) !== 17) throw new Error('Schema 17 not committed');
+    if ((await schemaState(db, catalog)) !== 18) throw new Error('Schema 18 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
     try {
-      await audit(db, auth, 'maintenance.recovery.validated', 17);
+      await audit(db, auth, 'maintenance.recovery.validated', 18);
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
@@ -386,7 +429,7 @@ export async function recoverMaintenance(
     await onStage?.('audited');
     const gate = await checkIdentity(db, path, auth);
     if (
-      (await schemaState(db, catalog)) !== 17 ||
+      (await schemaState(db, catalog)) !== 18 ||
       identities !== (await identityFingerprint(db, before))
     )
       throw new Error('Final maintenance integrity check failed');

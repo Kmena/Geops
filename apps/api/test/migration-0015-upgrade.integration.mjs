@@ -1,4 +1,4 @@
-// Prepare 14-17 or verify 14 -> 17 only in a fresh disposable geops_verify_* database.
+// Prepare 14-18 or verify 14 -> 18 only in a fresh disposable geops_verify_* database.
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
@@ -18,7 +18,7 @@ if (
   !url ||
   !/^geops_verify_[0-9]+$/.test(new URL(url).pathname.slice(1)) ||
   process.env.GEOPS_DATA_MODE !== 'synthetic' ||
-  !['full', 'prepare-14', 'prepare-15', 'prepare-16', 'prepare-17'].includes(mode)
+  !['full', 'prepare-14', 'prepare-15', 'prepare-16', 'prepare-17', 'prepare-18'].includes(mode)
 )
   throw new Error('Fresh disposable synthetic DB required');
 const pool = new pg.Pool({ connectionString: url, max: 2 });
@@ -149,6 +149,7 @@ try {
       '0015_single_tenant_admin.sql',
       '0016_gps_continuity_alerts.sql',
       '0017_gps_continuity_evaluated_at.sql',
+      '0018_mdm_inventory.sql',
     ]);
     const rows = await pool.query(
       'SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL',
@@ -166,7 +167,7 @@ try {
     );
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
-      17,
+      18,
     );
     assert.equal((await pool.query('SELECT epoch FROM security_epoch')).rows[0].epoch, epoch);
     assert.equal(
@@ -229,7 +230,7 @@ try {
       ).rows[0].consumed_at,
       null,
     );
-    console.log('Migrations 0015-0017 upgrade from populated 14-migration database: PASS');
+    console.log('Migrations 0015-0018 upgrade from populated 14-migration database: PASS');
   }
 } finally {
   await pool.end();

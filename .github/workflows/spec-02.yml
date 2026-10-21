@@ -102,21 +102,21 @@ jobs:
           docker exec "$container" createdb -U postgres geops_verify_20261025
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
           npm run gps:continuity:integration --workspace @geops/api
-      - name: Populated schema upgrade 14 to 17
+      - name: Populated schema upgrade 14 to 18
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
-      - name: Supervised 14 to 17 forward recovery fault injection
+      - name: Supervised 14 to 18 forward recovery fault injection
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run migration:0015:integration --workspace @geops/api -- prepare-14
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run maintenance:recovery:integration --workspace @geops/api
-      - name: Supervised recovery from schemas 15, 16 and 17
+      - name: Supervised recovery from schemas 15, 16, 17 and 18
         run: |
           container='${{ job.services.postgis.id }}'
-          for version in 15 16 17; do
+          for version in 15 16 17 18; do
             database="geops_verify_2026102${version}"
             docker exec "$container" createdb -U postgres "$database"
             DATABASE_URL="postgres://postgres@127.0.0.1:5432/$database" npm run migration:0015:integration --workspace @geops/api -- "prepare-$version"
@@ -144,6 +144,11 @@ jobs:
           npm run admin:users:integration --workspace @geops/api
           npm run maintenance:integration --workspace @geops/api
           npm run gps:scheduler:load --workspace @geops/api
+      - name: MDM inventory migration and authorized synchronization on fresh schema
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261026
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261026 npm run mdm:integration --workspace @geops/api
       - name: Detached staging preflight and private secret mounts
         run: |
           git -c advice.detachedHead=false switch --detach HEAD

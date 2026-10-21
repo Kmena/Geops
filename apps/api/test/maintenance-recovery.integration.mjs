@@ -236,6 +236,45 @@ try {
   await pool.query('DROP INDEX gps_continuity_alert_page');
   await denied(recoverMaintenance(pool, path, input()), '0017 ledger with missing index rejected');
   await pool.query(pageDefinition);
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'before_commit' && migration?.startsWith('0018_'))
+        throw new Error('Injected failure during 0018');
+    }),
+    '0018 rollback before commit',
+    'Injected failure during 0018',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    17,
+    '0018 rollback leaves 17 complete migrations',
+  );
+  same(
+    (await pool.query("SELECT to_regclass('mdm_inventory_device') AS relation")).rows[0].relation,
+    null,
+    '0018 rollback removes uncommitted inventory table',
+  );
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'migrated' && migration?.startsWith('0018_'))
+        throw new Error('Injected interruption after 0018 COMMIT');
+    }),
+    'interruption after 0018 commit',
+    'Injected interruption after 0018 COMMIT',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    18,
+    '0018 committed once',
+  );
+  const inventoryIndex = (
+    await pool.query(
+      "SELECT pg_get_indexdef('mdm_inventory_one_geops_device'::regclass) AS definition",
+    )
+  ).rows[0].definition;
+  await pool.query('DROP INDEX mdm_inventory_one_geops_device');
+  await denied(recoverMaintenance(pool, path, input()), '0018 ledger with missing index rejected');
+  await pool.query(inventoryIndex);
   const failBeforeGate = input();
   await denied(
     recoverMaintenance(pool, path, failBeforeGate, async (stage) => {
@@ -283,7 +322,7 @@ try {
         "SELECT count(*)::int AS n FROM audit_event WHERE action LIKE 'maintenance.recovery.%'",
       )
     ).rows[0].n,
-    14,
+    17,
     'authorization and validation audits persist',
   );
   await denied(recoverMaintenance(pool, path, input()), 'open gate cannot be replayed');
@@ -300,7 +339,7 @@ try {
   same(await gateAllowsTraffic(pool, path), false, 'incident starts new closed maintenance');
   same(
     await recoverMaintenance(pool, path, input()),
-    17,
+    18,
     'compatible image recovers without repeating committed migrations',
   );
   same(await gateAllowsTraffic(pool, path), true, 'service can reopen after incident recovery');

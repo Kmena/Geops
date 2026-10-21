@@ -10,24 +10,24 @@ const digest = (value) => createHash('sha256').update(value).digest('hex');
 const expectedName = /^geops_verify_[0-9]+_restore$/;
 
 export function compareInventories(before, after) {
-  assert.ok([14, 15, 16, 17].includes(before.version), 'source must be schema 14-17');
-  assert.equal(after.version, 17, 'copy must reach schema 17');
+  assert.ok([14, 15, 16, 17, 18].includes(before.version), 'source must be schema 14-18');
+  assert.equal(after.version, 18, 'copy must reach schema 18');
   assert.equal(after.epoch_digest, before.epoch_digest, 'epoch changed during migration');
   for (const [key, value] of Object.entries(before.identity))
     assert.equal(after.identity[key], value, `identity ${key} changed during migration`);
   for (const [key, value] of Object.entries(before.data))
     assert.equal(after.data[key], value, `data ${key} changed during migration`);
-  return { result: 'PASS', transition: `${before.version}_to_17`, integrity: 'preserved' };
+  return { result: 'PASS', transition: `${before.version}_to_18`, integrity: 'preserved' };
 }
 
 async function inventory(pool, expectedVersion) {
   const { loadMigrations } = await import('../../apps/api/dist/db/migration-manager.js');
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 17);
+  assert.equal(migrations.length, 18);
   const versions = await pool.query('SELECT version,checksum FROM geops_schema_migrations');
   const actual = new Map(versions.rows.map((row) => [row.version, row.checksum]));
   const version = expectedVersion ?? actual.size;
-  assert.ok([14, 15, 16, 17].includes(version), 'unsupported replica schema');
+  assert.ok([14, 15, 16, 17, 18].includes(version), 'unsupported replica schema');
   assert.equal(actual.size, version);
   for (const item of migrations.slice(0, version))
     assert.equal(actual.get(item.version), item.checksum, `checksum ${item.version}`);
@@ -46,13 +46,17 @@ async function inventory(pool, expectedVersion) {
       to_regclass('admin_user_invitation')::text AS invitation,
       to_regclass('admin_access_change')::text AS change,
       to_regclass('gps_continuity_alert')::text AS alert,
-      to_regclass('gps_continuity_read_quota')::text AS quota`,
+      to_regclass('gps_continuity_read_quota')::text AS quota,
+      to_regclass('mdm_inventory_device')::text AS mdm_inventory,
+      to_regclass('mdm_sync_run')::text AS mdm_sync`,
   );
   assert.equal(Boolean(objects.rows[0].tenant), version >= 15);
   assert.equal(Boolean(objects.rows[0].invitation), version >= 15);
   assert.equal(Boolean(objects.rows[0].change), version >= 15);
   assert.equal(Boolean(objects.rows[0].alert), version >= 16);
   assert.equal(Boolean(objects.rows[0].quota), version >= 17);
+  assert.equal(Boolean(objects.rows[0].mdm_inventory), version >= 18);
+  assert.equal(Boolean(objects.rows[0].mdm_sync), version >= 18);
   const counts = await pool.query(`SELECT
     (SELECT count(*)::int FROM admin_user) AS admins_total,
     (SELECT count(*)::int FROM admin_user WHERE state='ACTIVE') AS active_admins,
@@ -89,6 +93,12 @@ async function inventory(pool, expectedVersion) {
     const extra = await pool.query(`SELECT
       (SELECT count(*)::int FROM gps_continuity_threshold) AS continuity_thresholds,
       (SELECT count(*)::int FROM gps_continuity_alert) AS continuity_alerts`);
+    Object.assign(data, extra.rows[0]);
+  }
+  if (version >= 18) {
+    const extra = await pool.query(`SELECT
+      (SELECT count(*)::int FROM mdm_inventory_device) AS mdm_inventory_devices,
+      (SELECT count(*)::int FROM mdm_sync_run) AS mdm_sync_runs`);
     Object.assign(data, extra.rows[0]);
   }
   return {
@@ -161,7 +171,7 @@ async function main() {
       stage === 'pre'
         ? await inventory(pool)
         : stage === 'post'
-          ? await inventory(pool, 17)
+          ? await inventory(pool, 18)
           : stage === 'gate-before-quarantine'
             ? await gateStatus(pool, process.env.GEOPS_SECURITY_GATE_PATH, false)
             : stage === 'gate-after-quarantine'
