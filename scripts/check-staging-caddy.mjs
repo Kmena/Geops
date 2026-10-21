@@ -52,7 +52,7 @@ assert.ok(!JSON.stringify(stage).includes('poc-api'));
 assert.ok(!JSON.stringify(poc).includes('geops-spec02-stage-web'));
 
 // Probe the candidate host matchers with loopback-only synthetic upstreams.
-let probe = readFileSync(file, 'utf8');
+let probe = readFileSync(file, 'utf8').replaceAll('\r\n', '\n');
 const changes = [
   [/^\{\s*default_sni \{\$POC_PUBLIC_HOST\}\s*\}\s*/m, ''],
   [/\{\$POC_PUBLIC_HOST\} \{/, 'http://18.209.159.208:8080 {'],
