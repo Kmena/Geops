@@ -102,21 +102,27 @@ jobs:
           docker exec "$container" createdb -U postgres geops_verify_20261025
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
           npm run gps:continuity:integration --workspace @geops/api
-      - name: Populated schema upgrade 14 to 15
-        if: github.ref_name == 'codex/spec-02-wave-1'
+      - name: Populated schema upgrade 14 to 17
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
-      - name: Supervised 0015 forward recovery fault injection
-        if: github.ref_name == 'codex/spec-02-wave-1'
+      - name: Supervised 14 to 17 forward recovery fault injection
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run migration:0015:integration --workspace @geops/api -- prepare-14
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run maintenance:recovery:integration --workspace @geops/api
+      - name: Supervised recovery from schemas 15, 16 and 17
+        run: |
+          container='${{ job.services.postgis.id }}'
+          for version in 15 16 17; do
+            database="geops_verify_2026102${version}"
+            docker exec "$container" createdb -U postgres "$database"
+            DATABASE_URL="postgres://postgres@127.0.0.1:5432/$database" npm run migration:0015:integration --workspace @geops/api -- "prepare-$version"
+            DATABASE_URL="postgres://postgres@127.0.0.1:5432/$database" npm run maintenance:recovery:versions --workspace @geops/api -- "$version"
+          done
       - name: Isolated persistent-name maintenance rehearsal
-        if: github.ref_name == 'codex/spec-02-wave-1'
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261022

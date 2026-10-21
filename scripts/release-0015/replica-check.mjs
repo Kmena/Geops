@@ -10,34 +10,49 @@ const digest = (value) => createHash('sha256').update(value).digest('hex');
 const expectedName = /^geops_verify_[0-9]+_restore$/;
 
 export function compareInventories(before, after) {
-  assert.equal(before.version, 14, 'source must be 0014');
-  assert.equal(after.version, 15, 'copy must reach 0015');
+  assert.ok([14, 15, 16, 17].includes(before.version), 'source must be schema 14-17');
+  assert.equal(after.version, 17, 'copy must reach schema 17');
   assert.equal(after.epoch_digest, before.epoch_digest, 'epoch changed during migration');
-  assert.deepEqual(after.identity, before.identity, 'identities changed during migration');
-  assert.deepEqual(after.data, before.data, 'GPS or audit data changed during migration');
-  return { result: 'PASS', transition: '0014_to_0015', integrity: 'preserved' };
+  for (const [key, value] of Object.entries(before.identity))
+    assert.equal(after.identity[key], value, `identity ${key} changed during migration`);
+  for (const [key, value] of Object.entries(before.data))
+    assert.equal(after.data[key], value, `data ${key} changed during migration`);
+  return { result: 'PASS', transition: `${before.version}_to_17`, integrity: 'preserved' };
 }
 
 async function inventory(pool, expectedVersion) {
   const { loadMigrations } = await import('../../apps/api/dist/db/migration-manager.js');
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 15);
+  assert.equal(migrations.length, 17);
   const versions = await pool.query('SELECT version,checksum FROM geops_schema_migrations');
   const actual = new Map(versions.rows.map((row) => [row.version, row.checksum]));
-  assert.equal(actual.size, expectedVersion);
-  for (const item of migrations.slice(0, expectedVersion))
+  const version = expectedVersion ?? actual.size;
+  assert.ok([14, 15, 16, 17].includes(version), 'unsupported replica schema');
+  assert.equal(actual.size, version);
+  for (const item of migrations.slice(0, version))
     assert.equal(actual.get(item.version), item.checksum, `checksum ${item.version}`);
+  assert.ok(
+    [...actual.keys()].every((name) =>
+      migrations.slice(0, version).some((item) => item.version === name),
+    ),
+  );
   const epoch = await pool.query(
     'SELECT epoch::text,quarantine_id::text FROM security_epoch WHERE singleton=true',
   );
   assert.equal(epoch.rowCount, 1);
   assert.equal(epoch.rows[0].quarantine_id, null, 'source must not already be quarantined');
   const objects = await pool.query(
-    "SELECT to_regclass('geops_operating_tenant')::text AS tenant,to_regclass('admin_user_invitation')::text AS invitation,to_regclass('admin_access_change')::text AS change",
+    `SELECT to_regclass('geops_operating_tenant')::text AS tenant,
+      to_regclass('admin_user_invitation')::text AS invitation,
+      to_regclass('admin_access_change')::text AS change,
+      to_regclass('gps_continuity_alert')::text AS alert,
+      to_regclass('gps_continuity_read_quota')::text AS quota`,
   );
-  assert.equal(Boolean(objects.rows[0].tenant), expectedVersion === 15);
-  assert.equal(Boolean(objects.rows[0].invitation), expectedVersion === 15);
-  assert.equal(Boolean(objects.rows[0].change), expectedVersion === 15);
+  assert.equal(Boolean(objects.rows[0].tenant), version >= 15);
+  assert.equal(Boolean(objects.rows[0].invitation), version >= 15);
+  assert.equal(Boolean(objects.rows[0].change), version >= 15);
+  assert.equal(Boolean(objects.rows[0].alert), version >= 16);
+  assert.equal(Boolean(objects.rows[0].quota), version >= 17);
   const counts = await pool.query(`SELECT
     (SELECT count(*)::int FROM admin_user) AS admins_total,
     (SELECT count(*)::int FROM admin_user WHERE state='ACTIVE') AS active_admins,
@@ -62,11 +77,25 @@ async function inventory(pool, expectedVersion) {
     (SELECT count(*)::int FROM audit_event) AS audit_events`);
   const { policies, gps_sessions, positions, health_events, audit_events, ...identity } =
     counts.rows[0];
+  if (version >= 15) {
+    const extra = await pool.query(`SELECT
+      (SELECT count(*)::int FROM geops_operating_tenant) AS operating_tenants,
+      (SELECT count(*)::int FROM admin_user_invitation) AS user_invitations,
+      (SELECT count(*)::int FROM admin_access_change) AS access_changes`);
+    Object.assign(identity, extra.rows[0]);
+  }
+  const data = { policies, gps_sessions, positions, health_events, audit_events };
+  if (version >= 16) {
+    const extra = await pool.query(`SELECT
+      (SELECT count(*)::int FROM gps_continuity_threshold) AS continuity_thresholds,
+      (SELECT count(*)::int FROM gps_continuity_alert) AS continuity_alerts`);
+    Object.assign(data, extra.rows[0]);
+  }
   return {
-    version: expectedVersion,
+    version,
     epoch_digest: digest(epoch.rows[0].epoch),
     identity,
-    data: { policies, gps_sessions, positions, health_events, audit_events },
+    data,
   };
 }
 
@@ -130,9 +159,9 @@ async function main() {
     assert.equal(observed.rows[0].others, 0, 'replica must have no other connections');
     const result =
       stage === 'pre'
-        ? await inventory(pool, 14)
+        ? await inventory(pool)
         : stage === 'post'
-          ? await inventory(pool, 15)
+          ? await inventory(pool, 17)
           : stage === 'gate-before-quarantine'
             ? await gateStatus(pool, process.env.GEOPS_SECURITY_GATE_PATH, false)
             : stage === 'gate-after-quarantine'

@@ -13,7 +13,9 @@ async function identity(
   if (!TARGET.test(expectedTarget)) throw new Error('Maintenance target invalid');
   const result = await db.query<{ name: string; epoch: string; others: number }>(
     `SELECT current_database() AS name,e.epoch::text,
-      (SELECT count(*)::int FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()) AS others
+      (SELECT count(*)::int FROM pg_stat_activity
+       WHERE datname=current_database() AND pid<>pg_backend_pid()
+         AND backend_type <> 'autovacuum worker') AS others
      FROM security_epoch e WHERE e.singleton=true`,
   );
   const row = result.rows[0];

@@ -1,6 +1,28 @@
-# SPEC-02 — recuperación segura de 0015
+# SPEC-02 — recuperación supervisada de esquemas 14–17
 
-**Estado:** implementación local y ensayo sintético; pendiente revisión independiente de Seguridad, CI y ensayo sobre una réplica fiel de Staging. Este documento no autoriza despliegue, restauración de la base activa ni uso de GPS real.
+**Estado (21/10/2026):** implementación y ensayos sintéticos locales de recuperación 14→17, 15→17, 16→17 y verificación 17→17. Pendientes revisión independiente de Seguridad, ejecución remota de CI, réplica fiel de Staging y autorización de despliegue. Este documento no autoriza operar sobre Staging, restaurar la base activa ni usar GPS real.
+
+## Ampliación a 0017
+
+El binario de recuperación exige exactamente el catálogo de 17 migraciones de esta versión. Antes de la ceremonia comprueba que el ledger es un prefijo ordenado de longitud 14, 15, 16 o 17, con checksums idénticos. Verifica además la estructura correspondiente: tablas, índices, columnas, nulabilidad, constraints y objetos ausentes antes de su migración. Un ledger de 17 filas no basta para abrir el gate. `resolved_at` nace en 0016; 0017 añade `evaluated_at`, el índice de paginación y la cuota de lectura.
+
+Con el gate en `maintenance` y el marcador/epoch/nonce/OID idénticos, el principal activo y dos custodios distintos autorizan un `requestId` nuevo. La recuperación toma advisory locks, exige cero conexiones ajenas, conserva una huella SHA-256 de identidades, permisos y datos de continuidad ya existentes y ejecuta únicamente las migraciones pendientes en orden. Cada migración usa su propia transacción; SQL y fila del ledger se confirman juntos. Tras cada COMMIT vuelve a comprobar identidad, estructura y huella. El error deja el gate cerrado; un reintento exige otra ceremonia y `requestId` nuevo. La validación final del esquema 17 y la auditoría preceden la escritura del gate `open`.
+
+| Estado inicial verificado | Acción supervisada | Estado de salida permitido |
+| --- | --- | --- |
+| 14 | 0015, 0016, 0017 en orden | 17 íntegro y gate abierto |
+| 15 | 0016, 0017 | 17 íntegro y gate abierto |
+| 16 | 0017 | 17 íntegro y gate abierto |
+| 17 | No reaplica SQL; valida y audita | 17 íntegro y gate abierto |
+| Incompleto, alterado, desconocido o restaurado sin cuarentena | Ninguna migración ni apertura | Gate cerrado; investigar o restaurar de forma aislada |
+
+La prueba de inyección cubre fallos antes de 0015, durante 0015/0016/0017 (rollback), después de cada COMMIT y después de auditar pero antes de abrir. También cubre checksums, objetos parciales o faltantes, identidad de base, nonce, epoch, cuarentena, credenciales, replay, conexiones ajenas y concurrencia. Los ensayos de estado 15–17 conservan tenant sintético, permisos, sesiones y epoch. El CLI compilado migró una copia sintética con nombre `geops_dev` dentro de un contenedor descartable; el `maintenance-finish` legado fue rechazado. La evidencia local no sustituye la revisión independiente ni confirma la topología real de Staging.
+
+Para Staging: detener solo API/Web GEOPS, realizar backup verificable, comprobar imagen aprobada y versión actual, cerrar el gate mediante `maintenance-start` una sola vez, verificar cero conexiones ajenas y ejecutar interactivamente `maintenance-recover` desde la imagen compatible. No ejecutar `maintenance-finish` ni abrir manualmente el gate. Si falla, conservar gate, volumen y base; diagnosticar y repetir la ceremonia con UUID nuevo únicamente tras verificar ledger, estructura y marcador. Antes de servicio, comprobar auditoría, epoch/nonce/OID, 17 checksums, datos existentes, autenticación y autorización. No copiar sesiones o credenciales de una restauración a un entorno abierto: la restauración sigue el procedimiento aislado de cuarentena y rotación.
+
+`scripts/release-0015/ubuntu-rehearsal.sh` conserva el nombre histórico, pero su verificador acepta ahora copias aisladas en 14–17 y exige salida 17. `scripts/staging/clean-reinstall-0015.sh` sigue siendo un procedimiento destructivo antiguo de 15 migraciones: **no utilizarlo para la actualización persistente 15→17**. En el ensayo local se validó también una réplica sintética 16→17 con el verificador pre/post. La ejecución completa del ensayo Ubuntu sobre una réplica fiel de Staging continúa pendiente.
+
+## Historia de 0015 (evidencia anterior a la ampliación)
 
 ## Estrategia
 

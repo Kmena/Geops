@@ -27,8 +27,8 @@ const same = (actual, expected, label) => {
   assert.deepEqual(actual, expected, label);
   checks++;
 };
-const denied = async (promise, label) => {
-  await assert.rejects(promise, undefined, label);
+const denied = async (promise, label, expectedMessage) => {
+  await assert.rejects(promise, expectedMessage ? { message: expectedMessage } : undefined, label);
   checks++;
 };
 try {
@@ -63,6 +63,10 @@ try {
   });
   const badEpoch = { ...input(), epoch: randomUUID() };
   await denied(recoverMaintenance(pool, path, badEpoch), 'wrong epoch');
+  await denied(
+    recoverMaintenance(pool, path, { ...input(), target: 'geops_verify_99999999' }),
+    'wrong database target',
+  );
   const badCustody = { ...input(), custodians: [input().custodians[0], input().custodians[0]] };
   await denied(recoverMaintenance(pool, path, badCustody), 'same custodian twice');
   const badPassword = { ...input(), adminPassword: 'wrong password' };
@@ -70,12 +74,53 @@ try {
   await rm(path);
   await denied(recoverMaintenance(pool, path, input()), 'lost security volume fails closed');
   await writeGate(path, maintenanceGate);
+  await writeGate(path, { ...maintenanceGate, nonce: randomUUID() });
+  await denied(recoverMaintenance(pool, path, input()), 'wrong nonce');
+  await writeGate(path, maintenanceGate);
+  await pool.query('UPDATE security_epoch SET quarantine_id=$1 WHERE singleton=true', [
+    randomUUID(),
+  ]);
+  await denied(recoverMaintenance(pool, path, input()), 'quarantined database');
+  await pool.query('UPDATE security_epoch SET quarantine_id=NULL WHERE singleton=true');
+  const checksum = (
+    await pool.query(
+      "SELECT checksum FROM geops_schema_migrations WHERE version='0014_gps_installation_binding.sql'",
+    )
+  ).rows[0].checksum;
+  await pool.query(
+    "UPDATE geops_schema_migrations SET checksum='invalid' WHERE version='0014_gps_installation_binding.sql'",
+  );
+  await denied(recoverMaintenance(pool, path, input()), 'checksum mismatch');
+  await pool.query(
+    "UPDATE geops_schema_migrations SET checksum=$1 WHERE version='0014_gps_installation_binding.sql'",
+    [checksum],
+  );
+  await pool.query(
+    "INSERT INTO geops_schema_migrations(version,checksum) VALUES('9999_unknown.sql','invalid')",
+  );
+  await denied(recoverMaintenance(pool, path, input()), 'unknown migration');
+  await pool.query("DELETE FROM geops_schema_migrations WHERE version='9999_unknown.sql'");
+  await pool.query('CREATE TABLE gps_continuity_alert (collision boolean)');
+  await denied(recoverMaintenance(pool, path, input()), 'future 0016 object without ledger');
+  await pool.query('DROP TABLE gps_continuity_alert');
+  const other = new pg.Pool({ connectionString: url, max: 1 });
+  const incompatibleSession = await other.connect();
+  try {
+    await denied(
+      recoverMaintenance(pool, path, input()),
+      'other database session blocks maintenance',
+    );
+  } finally {
+    incompatibleSession.release();
+    await other.end();
+  }
   const failBefore = input();
   await denied(
     recoverMaintenance(pool, path, failBefore, async (stage) => {
       if (stage === 'authorized') throw new Error('Injected interruption before 0015');
     }),
     'interruption before migration',
+    'Injected interruption before 0015',
   );
   same(
     (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
@@ -83,6 +128,20 @@ try {
     'still 0014',
   );
   await denied(recoverMaintenance(pool, path, failBefore), 'request replay rejected');
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'before_commit' && migration?.startsWith('0015_'))
+        throw new Error('Injected failure during 0015');
+    }),
+    '0015 rollback before commit',
+    'Injected failure during 0015',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    14,
+    '0015 rollback leaves 14 complete migrations',
+  );
+  same(await gateAllowsTraffic(pool, path), false, '0015 failure leaves gate closed');
   const originalOid = (await pool.query('SELECT database_oid FROM geops_maintenance_marker'))
     .rows[0].database_oid;
   await pool.query('UPDATE geops_maintenance_marker SET database_oid=0 WHERE singleton=true');
@@ -95,10 +154,12 @@ try {
   await pool.query('DROP TABLE geops_operating_tenant');
   const failAfterCommit = input();
   await denied(
-    recoverMaintenance(pool, path, failAfterCommit, async (stage) => {
-      if (stage === 'migrated') throw new Error('Injected interruption after 0015 COMMIT');
+    recoverMaintenance(pool, path, failAfterCommit, async (stage, migration) => {
+      if (stage === 'migrated' && migration?.startsWith('0015_'))
+        throw new Error('Injected interruption after 0015 COMMIT');
     }),
     'interruption after migration commit',
+    'Injected interruption after 0015 COMMIT',
   );
   same(
     (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
@@ -106,12 +167,82 @@ try {
     '0015 committed once',
   );
   same(await gateAllowsTraffic(pool, path), false, 'gate remains closed after commit');
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'before_commit' && migration?.startsWith('0016_'))
+        throw new Error('Injected failure during 0016');
+    }),
+    '0016 rollback before commit',
+    'Injected failure during 0016',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    15,
+    '0016 rollback leaves 15 complete migrations',
+  );
+  same(
+    (await pool.query("SELECT to_regclass('gps_continuity_alert') AS relation")).rows[0].relation,
+    null,
+    '0016 rollback removes uncommitted alert table',
+  );
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'migrated' && migration?.startsWith('0016_'))
+        throw new Error('Injected interruption after 0016 COMMIT');
+    }),
+    'interruption after 0016 commit',
+    'Injected interruption after 0016 COMMIT',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    16,
+    '0016 committed once',
+  );
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'before_commit' && migration?.startsWith('0017_'))
+        throw new Error('Injected failure during 0017');
+    }),
+    '0017 rollback before commit',
+    'Injected failure during 0017',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    16,
+    '0017 rollback leaves 16 complete migrations',
+  );
+  same(
+    (await pool.query("SELECT to_regclass('gps_continuity_read_quota') AS relation")).rows[0]
+      .relation,
+    null,
+    '0017 rollback removes uncommitted quota table',
+  );
+  await denied(
+    recoverMaintenance(pool, path, input(), async (stage, migration) => {
+      if (stage === 'migrated' && migration?.startsWith('0017_'))
+        throw new Error('Injected interruption after 0017 COMMIT');
+    }),
+    'interruption after 0017 commit',
+    'Injected interruption after 0017 COMMIT',
+  );
+  same(
+    (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+    17,
+    '0017 committed once',
+  );
+  const pageDefinition = (
+    await pool.query("SELECT pg_get_indexdef('gps_continuity_alert_page'::regclass) AS definition")
+  ).rows[0].definition;
+  await pool.query('DROP INDEX gps_continuity_alert_page');
+  await denied(recoverMaintenance(pool, path, input()), '0017 ledger with missing index rejected');
+  await pool.query(pageDefinition);
   const failBeforeGate = input();
   await denied(
     recoverMaintenance(pool, path, failBeforeGate, async (stage) => {
       if (stage === 'audited') throw new Error('Injected interruption before gate reopen');
     }),
     'interruption before gate write',
+    'Injected interruption before gate reopen',
   );
   same((await readGate(path)).phase, 'maintenance', 'still in maintenance');
   const concurrent = await Promise.allSettled([
@@ -152,7 +283,7 @@ try {
         "SELECT count(*)::int AS n FROM audit_event WHERE action LIKE 'maintenance.recovery.%'",
       )
     ).rows[0].n,
-    6,
+    14,
     'authorization and validation audits persist',
   );
   await denied(recoverMaintenance(pool, path, input()), 'open gate cannot be replayed');
@@ -169,8 +300,8 @@ try {
   same(await gateAllowsTraffic(pool, path), false, 'incident starts new closed maintenance');
   same(
     await recoverMaintenance(pool, path, input()),
-    15,
-    'compatible image recovers without repeating 0015',
+    17,
+    'compatible image recovers without repeating committed migrations',
   );
   same(await gateAllowsTraffic(pool, path), true, 'service can reopen after incident recovery');
   console.log(`Supervised forward recovery: ${checks} checks PASS`);

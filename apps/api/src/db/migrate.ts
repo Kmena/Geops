@@ -9,7 +9,9 @@ async function main(): Promise<void> {
   const pool = createPool(target.url);
   try {
     const observed = await pool.query<{ name: string; others: number }>(
-      'SELECT current_database() AS name,(SELECT count(*)::int FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()) AS others',
+      `SELECT current_database() AS name,
+        (SELECT count(*)::int FROM pg_stat_activity WHERE datname=current_database()
+          AND pid<>pg_backend_pid() AND backend_type <> 'autovacuum worker') AS others`,
     );
     if (observed.rows[0]?.name !== target.name || observed.rows[0]?.others !== 0)
       throw new Error('Migration destination is not isolated');

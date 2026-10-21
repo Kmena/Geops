@@ -160,10 +160,10 @@ run_app "$fixture_admin" node --import tsx apps/api/test/single-tenant-users.int
 for name in pre post integrity gate-before gate-after; do
   cp -- "$scratch/$name.json" "$evidence/$name.json"
 done
-grep -E '^(Migration 0015 upgrade|Supervised forward recovery|GPS capability bootstrap|Administrative tenant bootstrap|Single-tenant user administration).*PASS$' \
+grep -E '^(Migrations 0015-0017 upgrade|Supervised forward recovery|GPS capability bootstrap|Administrative tenant bootstrap|Single-tenant user administration).*PASS$' \
   "$scratch/migration-test.log" "$scratch/recovery-test.log" "$scratch/capability-test.log" \
   "$scratch/tenant-test.log" "$scratch/users-test.log" | sed 's@.*/@@' > "$evidence/synthetic-results.txt"
 [[ $(wc -l < "$evidence/synthetic-results.txt") -eq 5 ]] || { echo 'Resumen de pruebas incompleto' >&2; exit 1; }
 printf '{"result":"PASS","scope":"isolated_replica_and_synthetic_faults","gate":"closed","public_ports":0,"source_dirty":"%s"}\n' "$dirty" > "$evidence/result.json"
 completed=yes
-printf '%s\n' 'GEOPS 0015 rehearsal PASS. Replica gate remained closed; evidence contains aggregates only.'
+printf '%s\n' 'GEOPS schema 14-17 rehearsal PASS. Replica gate remained closed; evidence contains aggregates only.'

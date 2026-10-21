@@ -9,16 +9,19 @@ const before = {
   data: { policies: 3, gps_sessions: 4, positions: 12, health_events: 5, audit_events: 7 },
 };
 
-test('0014 to 0015 preserves epoch, identities, grants, GPS and audit counts', () => {
-  assert.equal(compareInventories(before, { ...before, version: 15 }).result, 'PASS');
+test('schema 14-17 to 17 preserves epoch, identities, grants, GPS and audit counts', () => {
+  for (const version of [14, 15, 16, 17]) {
+    const source = { ...before, version };
+    assert.equal(compareInventories(source, { ...source, version: 17 }).result, 'PASS');
+  }
 });
 
 test('missing migration, changed epoch, lost permission or changed GPS data blocks release evidence', () => {
   for (const changed of [
     { ...before, version: 14 },
-    { ...before, version: 15, epoch_digest: 'different' },
-    { ...before, version: 15, identity: { ...before.identity, permissions: 7 } },
-    { ...before, version: 15, data: { ...before.data, positions: 11 } },
+    { ...before, version: 17, epoch_digest: 'different' },
+    { ...before, version: 17, identity: { ...before.identity, permissions: 7 } },
+    { ...before, version: 17, data: { ...before.data, positions: 11 } },
   ])
     assert.throws(() => compareInventories(before, changed));
 });

@@ -1,9 +1,9 @@
-// Upgrade 14 -> 15 only in a fresh disposable geops_verify_* database.
+// Prepare 14-17 or verify 14 -> 17 only in a fresh disposable geops_verify_* database.
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import pg from 'pg';
-import { applyMigrations } from '../src/db/migration-manager.ts';
+import { applyMigrations, loadMigrations } from '../src/db/migration-manager.ts';
 import { AdminAuthService } from '../src/admin-auth/service.ts';
 import { SupervisedRecoveryService } from '../src/admin-auth/supervised-recovery.ts';
 import {
@@ -18,7 +18,7 @@ if (
   !url ||
   !/^geops_verify_[0-9]+$/.test(new URL(url).pathname.slice(1)) ||
   process.env.GEOPS_DATA_MODE !== 'synthetic' ||
-  !['full', 'prepare-14'].includes(mode)
+  !['full', 'prepare-14', 'prepare-15', 'prepare-16', 'prepare-17'].includes(mode)
 )
   throw new Error('Fresh disposable synthetic DB required');
 const pool = new pg.Pool({ connectionString: url, max: 2 });
@@ -98,8 +98,35 @@ try {
     "INSERT INTO device_session(id,geops_device_id,key_id,token_hash,issued_at,expires_at) VALUES($1,$2,$3,$4,now(),now()+interval '15 minutes')",
     [deviceSessionId, device.id, keyId, randomBytes(32)],
   );
-  if (mode === 'prepare-14') {
-    console.log('Representative synthetic 0014 snapshot prepared');
+  if (mode.startsWith('prepare-')) {
+    const target = Number(mode.slice(-2));
+    if (target > 14) {
+      const migrations = (await loadMigrations()).slice(14, target);
+      const connection = await pool.connect();
+      try {
+        for (const migration of migrations) {
+          await connection.query('BEGIN');
+          try {
+            await connection.query(migration.sql);
+            await connection.query(
+              'INSERT INTO geops_schema_migrations(version,checksum) VALUES($1,$2)',
+              [migration.version, migration.checksum],
+            );
+            await connection.query('COMMIT');
+          } catch (error) {
+            await connection.query('ROLLBACK');
+            throw error;
+          }
+        }
+      } finally {
+        connection.release();
+      }
+    }
+    assert.equal(
+      (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
+      target,
+    );
+    console.log(`Representative synthetic schema ${target} snapshot prepared`);
   } else {
     // A deterministic schema collision forces 0015 to fail inside the migration transaction.
     await pool.query('CREATE TABLE geops_operating_tenant (collision boolean)');
@@ -118,7 +145,11 @@ try {
     );
     await pool.query('DROP TABLE geops_operating_tenant');
     const applied = await applyMigrations(pool);
-    assert.deepEqual(applied, ['0015_single_tenant_admin.sql']);
+    assert.deepEqual(applied, [
+      '0015_single_tenant_admin.sql',
+      '0016_gps_continuity_alerts.sql',
+      '0017_gps_continuity_evaluated_at.sql',
+    ]);
     const rows = await pool.query(
       'SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL',
       [adminId],
@@ -135,7 +166,7 @@ try {
     );
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
-      15,
+      17,
     );
     assert.equal((await pool.query('SELECT epoch FROM security_epoch')).rows[0].epoch, epoch);
     assert.equal(
@@ -198,7 +229,7 @@ try {
       ).rows[0].consumed_at,
       null,
     );
-    console.log('Migration 0015 upgrade from populated 14-migration database: PASS');
+    console.log('Migrations 0015-0017 upgrade from populated 14-migration database: PASS');
   }
 } finally {
   await pool.end();

@@ -94,7 +94,7 @@ try {
       (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS permissions,
       (SELECT epoch::text FROM security_epoch WHERE singleton=true) AS epoch`,
   );
-  assert.deepEqual(after.rows[0], { ...before.rows[0], migrations: 15 });
+  assert.deepEqual(after.rows[0], { ...before.rows[0], migrations: 17 });
   assert.equal(await checkReadiness(db), true);
   await db.end();
   const legacyFinish = spawnSync(process.execPath, [gateCliPath, 'maintenance-finish'], {
@@ -109,7 +109,7 @@ try {
     encoding: 'utf8',
     timeout: 30_000,
   });
-  assert.equal(legacyFinish.status, 1, 'old finish CLI cannot reopen persistent 0015');
+  assert.equal(legacyFinish.status, 1, 'old finish CLI cannot reopen persistent schema');
   db = pool();
   const custody = new SupervisedRecoveryService(db, Buffer.alloc(32, 86));
   for (const email of ['first-custodian@example.invalid', 'second-custodian@example.invalid'])
@@ -128,7 +128,7 @@ try {
       ],
       compatibleReleaseConfirmed: true,
     }),
-    15,
+    17,
   );
   const opened = await readGate(gatePath);
   assert.equal(opened.phase, 'open');

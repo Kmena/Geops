@@ -22,6 +22,7 @@
     "admin:users:integration": "node --import tsx test/single-tenant-users.integration.mjs",
     "maintenance:integration": "node --import tsx test/maintenance-upgrade.integration.mjs",
     "maintenance:recovery:integration": "node --import tsx test/maintenance-recovery.integration.mjs",
+    "maintenance:recovery:versions": "node --import tsx test/maintenance-recovery-versions.integration.mjs",
     "migration:0015:integration": "node --import tsx test/migration-0015-upgrade.integration.mjs",
     "release:restore:integration": "node --import tsx test/single-tenant-release-restore.integration.mjs",
     "maintenance:cli:rehearsal": "node --import tsx test/maintenance-cli-rehearsal.integration.mjs",
