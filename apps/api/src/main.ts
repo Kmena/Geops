@@ -16,6 +16,7 @@ import { GpsDeviceConfigService } from './gps-device-config.js';
 import { GpsEventService } from './gps-event-service.js';
 import { GpsAdministrationService } from './gps-administration.js';
 import { GpsScheduler } from './gps-scheduler.js';
+import { GpsContinuityMonitor } from './gps-continuity-monitor.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);
   const gpsScheduler = new GpsScheduler(pool, gpsPolicies, gpsEvents, gpsHealth);
+  const gpsContinuity = new GpsContinuityMonitor(pool);
   const app = createApp({
     readinessProbe: async () => (await restoreGate()) && (await checkReadiness(pool)),
     restoreGate,
@@ -61,6 +63,7 @@ async function main(): Promise<void> {
     try {
       if (!(await restoreGate())) return;
       await gpsScheduler.tick();
+      await gpsContinuity.tick();
     } catch {
       process.stderr.write('GEOPS GPS maintenance failed; details withheld\n');
     } finally {

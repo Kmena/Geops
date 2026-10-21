@@ -209,7 +209,9 @@ export class GpsScheduler {
         })),
       };
       for (const window of windowsForRange(spec, from, until)) {
-        if (Date.parse(window.start_at) < at.getTime()) continue;
+        // An API restart during a shift must materialize the still-active window.
+        // Never recreate an already-ended historical window.
+        if (Date.parse(window.end_at) <= at.getTime()) continue;
         const existing = await db.query<{ id: string; end_at: Date }>(
           `SELECT id,end_at FROM gps_scheduled_session WHERE device_id=$1 AND policy_id=$2
            AND revision=$3 AND assignment_version=$4 AND local_date=$5 AND start_at=$6
