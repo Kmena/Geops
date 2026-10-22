@@ -30,7 +30,7 @@ case "${1:-}" in
   migrate) exec node apps/api/dist/db/migrate.js ;;
   gate)
     case "${2:-}" in
-      init|maintenance-start|maintenance-verify|maintenance-finish)
+      init|close|maintenance-start|maintenance-verify|maintenance-finish)
         exec node apps/api/dist/db/security-gate-cli.js "$2" ;;
       *) exit 1 ;;
     esac
