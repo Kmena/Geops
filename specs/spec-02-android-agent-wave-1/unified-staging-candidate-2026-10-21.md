@@ -63,3 +63,28 @@ Este certificado de depuración difiere del APK anterior registrado en SPEC-02. 
 - `STAGING_READY`: **NO**; `STAGING_BLOCKED` y `PRODUCTION_BLOCKED`: **SÍ**.
 
 Para reabrir publicación: resolver explícitamente la deuda Biome de 31 archivos (o aprobar una política de lint versionada que preserve evidencia del fallo), repetir los gates en el SHA resultante y obtener revisión independiente. Para operación: validar POCO/Huawei, firma de actualización, tiempo civil tras reboot offline, tzdb, captura con pantalla apagada y retención/ACK sin pérdida. Ningún resultado sintético sustituye estas pruebas.
+
+## UNIFIED-CI-01 — saneamiento de lint (continuación)
+
+El estado anterior corresponde al corte `00649ae6`. La corrección nueva añade `*.mjs text eol=lf` y `*.css text eol=lf` a `.gitattributes`: el checkout Windows usaba CRLF en esas extensiones aunque los blobs Git ya eran LF. El formateador Biome se ejecutó solo sobre los 31 archivos reportados por `npm run lint` y los dos `.mjs` del segundo gate Biome del workflow. Tras normalización Git, el diff de contenido consta únicamente de `.gitattributes`, `packages/api-contracts/scripts/check-openapi.mjs` y `apps/api/test/mdm-inventory.integration.mjs`; las dos ediciones de código son disposición de arrays en aserciones, con los mismos elementos y orden. No cambian fuentes de ejecución, contratos YAML, migraciones, secretos, permisos o reglas de CI. `npm run lint` y el segundo `npx biome check` terminan con exit 0; quedan 14 advertencias no bloqueantes.
+
+Advertencias revisadas individualmente (`lint/style/noNonNullAssertion`):
+
+| Archivo:línea | Uso de `!` | Decisión |
+| --- | --- | --- |
+| `gps-event-service.ts:276` | Primera fila tras comprobar cardinalidad de asignación | Mantener; su sustitución tocaría validación temporal de ingesta. |
+| `gps-event-service.ts:313` | Ventana tras comprobar cardinalidad | Mantener; su sustitución tocaría reconciliación de sesión. |
+| `gps-policy-routes.ts:37` | Primera parte de `request.url.split('?')` | Mantener; está en ruta administrativa de políticas. |
+| `gps-policy-service.ts:303` | Fila `INSERT ... RETURNING` de política | Mantener; requeriría cambiar el manejo del resultado. |
+| `gps-policy-service.ts:326` | Fila `UPDATE ... RETURNING` de borrador | Mantener; requeriría cambiar el manejo del resultado. |
+| `gps-policy-service.ts:363` | Fila `UPDATE ... RETURNING` de versión | Mantener; requeriría cambiar el manejo del resultado. |
+| `gps-policy-service.ts:443` | Fila `UPDATE ... RETURNING` de grupo | Mantener; requeriría cambiar el manejo del resultado. |
+| `gps-policy-service.ts:627` | Primera fila de lectura de política | Mantener; requeriría cambiar el manejo del resultado. |
+| `gps-policy-service.ts:656` | Fila `INSERT ... ON CONFLICT ... RETURNING` de asignación | Mantener; requeriría cambiar el manejo del resultado. |
+| `gps-policy-windows.ts:149` | Grupo numérico de regex validada | Mantener; cambios de parseo afectarían el cálculo de huso horario. |
+| `gps-policy-windows.ts:177` (inicio) | Primera coincidencia DST si la lista no está vacía | Mantener; afecta el límite de ventana. |
+| `gps-policy-windows.ts:177` (fin) | Última coincidencia DST si la lista no está vacía | Mantener; afecta el límite de ventana. |
+| `gps-policy-windows.ts:203` | Hora inicial de excepción `REPLACE` | Mantener; afecta autorización laboral. |
+| `gps-policy-windows.ts:204` | Hora final de excepción `REPLACE` | Mantener; afecta autorización laboral. |
+
+Estas advertencias no bloquean Biome ni el pipeline. Su resolución requiere una revisión separada de invariantes y pruebas de las rutas protegidas; esta corrección de formato no cambia su comportamiento. `npm run typecheck`, `npm test`, `npm run contracts:check`, `npm run build`, `npm run security:scan` y `git diff --check` pasaron tras el ajuste. Los árboles Android, Kotlin, runtime API, Web y migraciones son idénticos a los ya validados; las pruebas físicas y MDM real siguen pendientes. La publicación y la ejecución de GitHub Actions se registrarán a continuación.

@@ -7,6 +7,8 @@
 *.ts text eol=lf
 *.tsx text eol=lf
 *.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
 *.jsx text eol=lf
 *.kt text eol=lf
 *.kts text eol=lf
