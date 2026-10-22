@@ -1,0 +1,6 @@
+# Preparation only. Use with an approved private release plan and explicit authorization.
+services:
+  geops-api:
+    image: ${GEOPS_STAGE_API_IMAGE_REF:?Set approved registry digest reference}
+  geops-web:
+    image: ${GEOPS_STAGE_WEB_IMAGE_REF:?Set approved registry digest reference}

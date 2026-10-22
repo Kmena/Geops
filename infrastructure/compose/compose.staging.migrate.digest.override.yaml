@@ -1,0 +1,5 @@
+# Only for a separately authorized maintenance migration. Never used by normal deploy/rollback.
+services:
+  geops-migrate:
+    image: ${GEOPS_STAGE_API_IMAGE_REF:?Set approved API registry digest}
+    build: !reset null
