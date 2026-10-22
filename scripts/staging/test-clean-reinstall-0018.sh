@@ -202,7 +202,7 @@ echo 'Detached HEAD, exact SHA, clean tree and private secret access: PASS'
 docker volume inspect geops_spec02_stage_backups >/dev/null
 docker run --rm --pull never --network none --mount type=volume,src=geops_spec02_stage_backups,dst=/geops-backups,readonly \
   --entrypoint /bin/sh postgis/postgis:18-3.6 -ec 'test -s /geops-backups/geops-stage-ci.dump'
-echo 'Fresh 0001–0018 install, new gate and preserved backup: PASS'
+echo 'Fresh 0001–0021 install, new gate and preserved backup: PASS'
 
 # Exercise the actual TTY-only commands with generated, synthetic credentials.
 python3 -I - "$operator" "$group" "$env_file" "$root" <<'PY'
