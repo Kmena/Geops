@@ -19,5 +19,8 @@ class GeopsApplication : Application() {
             recovery.execute { AgentRuntime.recover(service) }
         }
         GeopsLocationService.onDestroyed = AgentRuntime::onServiceDestroyed
+        // A persisted upload job or a visible launch can revive this process after an OEM kill.
+        // Recreate the next window alarm without requesting a location here.
+        runCatching { WindowWakeScheduler.reconcile(this) }
     }
 }

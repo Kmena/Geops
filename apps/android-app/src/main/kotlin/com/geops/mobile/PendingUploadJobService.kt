@@ -11,20 +11,26 @@ import com.geops.agent.AndroidKeys
 import com.geops.agent.AgentStateFiles
 import com.geops.agent.BatchSync
 import com.geops.agent.DiagnosticFiles
+import com.geops.agent.DiagnosticEvent
+import com.geops.agent.DiagnosticKind
+import com.geops.agent.DiagnosticReason
 import com.geops.agent.EncryptedDiagnosticJournal
 import com.geops.agent.EncryptedFileAgentStore
 import com.geops.agent.HttpsEnrollmentTransport
 import com.geops.agent.Identity
 import com.geops.agent.PendingUpload
 import com.geops.agent.PopBatchTransport
+import com.geops.agent.PopConfigTransport
 import com.geops.agent.PopHttpClient
+import com.geops.agent.PolicyEngine
 import com.geops.agent.RefreshingSessionProvider
 import com.geops.agent.SYNTHETIC_STAGING_BASE_URL
 import com.geops.agent.UploadStatus
+import com.geops.agent.recordSafely
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Platform JobScheduler uploads only encrypted, already queued records. It never obtains a location. */
+/** Platform JobScheduler drains the encrypted queue and refreshes a dormant policy. No GPS access. */
 class PendingUploadJobService : JobService() {
     companion object {
         private val running = AtomicBoolean(false)
@@ -66,12 +72,14 @@ class PendingUploadJobService : JobService() {
                             UploadStatus.PENDING -> nextDelayMs = result.nextDelayMs
                             UploadStatus.AUTH_REQUIRED -> {
                                 SyncJobs.cancelUploads(context)
-                                AgentRuntime.onUploadAuthorizationRejected()
+                                AgentRuntime.onUploadAuthorizationRejected(context)
                             }
                             UploadStatus.IDENTITY_MISMATCH -> SyncJobs.cancelUploads(context)
                             UploadStatus.EMPTY -> Unit
                         }
                     }
+                    if (!stopped.get() && !AgentRuntime.isRunning())
+                        refreshDormantPolicy(context, identity, keyId, store, key)
                 }
             } catch (_: Exception) {
                 // The encrypted queue is left intact. Never log exception text or request payloads.
@@ -98,6 +106,43 @@ class PendingUploadJobService : JobService() {
         stopped.set(true)
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun refreshDormantPolicy(context: Context, identity: Identity, keyId: String,
+                                     store: EncryptedFileAgentStore, key: javax.crypto.SecretKey) {
+        val state = store.read()
+        // A user stop or authentication rejection must never be undone by a background poll.
+        if (state.uploadAuthBlocked || state.snapshot == null ||
+            (!state.autonomousEnabled && state.snapshot?.active != false)) return
+        val clock = AndroidAgentClock(context) { AgentRuntime.currentBootId(context) }
+        val diagnostics = EncryptedDiagnosticJournal(
+            DiagnosticFiles.scoped(context.noBackupFilesDir.toPath(), identity), key)
+        try {
+            val signer = AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS)
+            val session = RefreshingSessionProvider(identity.deviceId, keyId, signer,
+                HttpsEnrollmentTransport(SYNTHETIC_STAGING_BASE_URL))
+            val http = PopHttpClient(SYNTHETIC_STAGING_BASE_URL, session,
+                AndroidKeys.existingSigningKey(AgentRuntime.SIGNING_ALIAS, keyId), clock)
+            val policy = PolicyEngine(identity, clock, store) {
+                android.icu.util.TimeZone.getTZDataVersion()
+            }
+            val before = clock.read()
+            val incoming = PopConfigTransport(http).fetch(identity)
+            if (stopped.get() || AgentRuntime.isRunning()) return
+            val latest = store.read()
+            if (latest.uploadAuthBlocked ||
+                (!latest.autonomousEnabled && latest.snapshot?.active != false)) return
+            val snapshot = policy.acceptFetched(incoming, before, clock.read())
+            diagnostics.recordSafely(DiagnosticEvent(DiagnosticKind.POLICY_RECEIVED,
+                System.currentTimeMillis(), assignmentVersion = snapshot.assignmentVersion,
+                policyRevision = snapshot.policy?.revision))
+            WindowWakeScheduler.reconcile(context)
+        } catch (failure: Exception) {
+            diagnostics.recordSafely(DiagnosticEvent(DiagnosticKind.POLICY_REFRESH_FAILED,
+                System.currentTimeMillis(), DiagnosticReason.CONFIG_REQUEST_FAILED))
+            if (failure.message == "config_http_401" || failure.message == "config_http_403")
+                WindowWakeScheduler.blockForAuthorization(context)
+        }
     }
 }
 

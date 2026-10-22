@@ -54,8 +54,9 @@ class GeopsLocationService : Service() {
         earlyTransitions.forEach(recorder::recordSafely)
         earlyTransitions.clear()
     }
-    @Synchronized private fun observe(kind: DiagnosticKind) {
-        val event = DiagnosticEvent(kind, System.currentTimeMillis())
+    @Synchronized private fun observe(kind: DiagnosticKind,
+                                      reason: DiagnosticReason = DiagnosticReason.NONE) {
+        val event = DiagnosticEvent(kind, System.currentTimeMillis(), reason)
         val sink = diagnostics
         if (sink == null) {
             if (earlyTransitions.size == 16) earlyTransitions.removeFirst()
@@ -79,9 +80,13 @@ class GeopsLocationService : Service() {
             else startForeground(701, notification)
             promoted = true
             observe(DiagnosticKind.FGS_PROMOTED)
+        } catch (_: SecurityException) {
+            promoted = false
+            observe(DiagnosticKind.FGS_PROMOTION_FAILED, DiagnosticReason.FGS_PERMISSION_DENIED)
+            stopSelf()
         } catch (_: RuntimeException) {
             promoted = false
-            observe(DiagnosticKind.FGS_PROMOTION_FAILED)
+            observe(DiagnosticKind.FGS_PROMOTION_FAILED, DiagnosticReason.FGS_START_RESTRICTED)
             stopSelf()
         }
         if (!promoted) return START_NOT_STICKY

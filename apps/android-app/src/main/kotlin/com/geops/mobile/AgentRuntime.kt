@@ -18,6 +18,8 @@ import com.geops.agent.AgentStateFiles
 import com.geops.agent.LocationDecision
 import com.geops.agent.EncryptedDiagnosticJournal
 import com.geops.agent.DiagnosticFiles
+import com.geops.agent.DiagnosticKind
+import com.geops.agent.DiagnosticReason
 import com.geops.agent.GeopsLocationService
 import com.geops.agent.Identity
 import com.geops.agent.LocationFix
@@ -58,7 +60,8 @@ object AgentRuntime {
     @Volatile private var lastGpsCallbackMs: Long = -1
     @Volatile private var lastGpsDecision: LocationDecision? = null
 
-    @Synchronized fun isRunning(): Boolean = scheduler != null
+    @Synchronized fun isRunning(): Boolean = starting || scheduler != null
+    @Synchronized fun isGpsActive(): Boolean = scheduler != null && service?.isGpsRegistered() == true
     private var activeStore: AgentStore? = null
     private var activeController: TrackingController? = null
     private var starting = false
@@ -68,11 +71,21 @@ object AgentRuntime {
 
     /** Invoked for system redelivery or an explicitly eligible autonomous start. */
     fun recover(locationService: GeopsLocationService) {
-        try { startInternal(locationService, recovery = true) }
+        try {
+            startInternal(locationService, recovery = true)
+            WindowWakeScheduler.onRecoveryResult(locationService,
+                isRunning() && locationService.isGpsRegistered(),
+                DiagnosticReason.RECOVERY_FAILED)
+        }
         catch (failure: Exception) {
             if (failure.message == "already_running") return
             locationService.stopSelf()
-            synchronized(this) { if (service === locationService) stop() }
+            synchronized(this) { if (service === locationService) stop(preserveRecoveryIntent = true) }
+            WindowWakeScheduler.onRecoveryResult(locationService, false, when (failure.message) {
+                "recovery_not_authorized" -> DiagnosticReason.RECOVERY_NOT_AUTHORIZED
+                "config_http_401", "config_http_403" -> DiagnosticReason.AUTH_REJECTED
+                else -> DiagnosticReason.RECOVERY_FAILED
+            })
         }
     }
 
@@ -187,12 +200,18 @@ object AgentRuntime {
                 try {
                     if (synchronized(this) { runGeneration != stopGeneration }) return@scheduleAtFixedRate
                     if (System.currentTimeMillis() - lastConfigAt >= 300_000L) {
-                        try { controller.refreshConfig(config); lastConfigAt = System.currentTimeMillis(); lastConfigIssue = null }
+                        try {
+                            controller.refreshConfig(config)
+                            lastConfigAt = System.currentTimeMillis()
+                            lastConfigIssue = null
+                            WindowWakeScheduler.reconcile(context, includeCurrentWindow = false)
+                        }
                         catch (failure: Exception) {
                             lastConfigIssue = if (failure.message == "config_http_401" || failure.message == "config_http_403")
                                 "El servidor rechazó la configuración: sesión o dispositivo revocado."
                             else "No se pudo actualizar la política; se usa la última copia válida mientras siga autorizada."
                             if (!transientConfigFailure(failure)) {
+                                WindowWakeScheduler.blockForAuthorization(context)
                                 controller.stop("AUTH_REVOKED")
                                 locationService.stopSelf()
                                 stop()
@@ -223,6 +242,7 @@ object AgentRuntime {
                     stop()
                 }
             }, 0, 30, TimeUnit.SECONDS)
+            WindowWakeScheduler.reconcile(context, includeCurrentWindow = false)
             return "Seguimiento autorizado iniciado con notificación visible."
         } catch (failure: Exception) {
             lastRuntimeIssue = when (failure.message) {
@@ -233,7 +253,7 @@ object AgentRuntime {
                 else -> "No se pudo iniciar o descargar la política. Revisa conexión, permisos y horario."
             }
             locationService.stopSelf()
-            stop()
+            stop(preserveRecoveryIntent = recovery)
             throw failure
         } finally {
             synchronized(this) { starting = false }
@@ -296,16 +316,24 @@ object AgentRuntime {
         val policy = snapshot?.policy
         val display = snapshot?.display
         val evaluation = try {
-            PolicyEngine(Identity(device, installation), AndroidAgentClock(context) { bootId(context) },
+            PolicyEngine(Identity(device, installation), AndroidAgentClock(context) { observedBootId(context) },
                 object : com.geops.agent.AgentStore {
                     override fun read() = state
                     override fun update(block: (AgentState) -> Unit) = error("read_only")
-                }, { android.icu.util.TimeZone.getTZDataVersion() }).evaluate()
+                }, { android.icu.util.TimeZone.getTZDataVersion() }).evaluateReadOnly()
         } catch (_: Exception) { null }
         val pending = state.pending.count { it.kind == RecordKind.LOCATION && !it.quarantined }
         val quarantined = state.pending.count { it.kind == RecordKind.LOCATION && it.quarantined }
         val summary = summarizeDiagnostics(events, state.pending)
         val lastSync = events.lastOrNull { it.kind.name.startsWith("SYNC_") }
+        val lastWakeAttempt = events.lastOrNull { it.kind == DiagnosticKind.WINDOW_WAKE_ATTEMPT }
+        val lastWakeOutcome = events.lastOrNull {
+            it.kind == DiagnosticKind.WINDOW_WAKE_ACTIVE ||
+                it.kind == DiagnosticKind.WINDOW_WAKE_BLOCKED ||
+                it.kind == DiagnosticKind.WINDOW_WAKE_DISPATCHED
+        }
+        val lastWakeSchedule = events.lastOrNull { it.kind == DiagnosticKind.WINDOW_WAKE_SCHEDULED }
+        val lastFgsFailure = events.lastOrNull { it.kind == DiagnosticKind.FGS_PROMOTION_FAILED }
         val lastSyncAttemptMs = events.lastOrNull { it.kind == com.geops.agent.DiagnosticKind.SYNC_ATTEMPT }?.atMs ?: -1L
         val activeService = synchronized(this) { scheduler != null && service?.isGpsRegistered() == true }
         val gpsGap = policy?.captureIntervalS?.times(3_000L) ?: 180_000L
@@ -329,7 +357,7 @@ object AgentRuntime {
             !((context.getSystemService(Context.LOCATION_SERVICE) as LocationManager)
                 .isProviderEnabled(LocationManager.GPS_PROVIDER)) -> "GPS del teléfono desactivado."
             lastRuntimeIssue != null -> lastRuntimeIssue!!
-            !activeService -> "Servicio de seguimiento detenido. Pulsa Iniciar seguimiento."
+            !activeService -> "Servicio de seguimiento detenido; se comprobará el arranque automático dentro de la ventana autorizada."
             quarantined > 0 -> "Hay $quarantined posiciones retenidas por rechazo del servidor; requieren revisión."
             state.uploadAuthBlocked -> "El servidor rechazó el envío por autorización."
             lastSync?.reason == com.geops.agent.DiagnosticReason.RATE_LIMIT && pending > 0 ->
@@ -386,6 +414,22 @@ object AgentRuntime {
             append("\nEstado de envío: ").append(reason)
             if (lastRuntimeIssue != null) append("\nÚltimo bloqueo: ").append(lastRuntimeIssue)
             if (lastConfigIssue != null) append("\nActualización de política: ").append(lastConfigIssue)
+            if (lastWakeAttempt != null)
+                append("\nÚltimo intento automático: ").append(time(lastWakeAttempt.atMs))
+            if (lastWakeOutcome != null &&
+                (lastWakeAttempt == null || lastWakeOutcome.atMs >= lastWakeAttempt.atMs))
+                append("\nResultado automático: ").append(lastWakeOutcome.kind.name)
+                    .append(" · ").append(lastWakeOutcome.reason.name)
+                    .append(" · ").append(time(lastWakeOutcome.atMs))
+            if (lastFgsFailure != null &&
+                (lastWakeAttempt == null || lastFgsFailure.atMs >= lastWakeAttempt.atMs) &&
+                (lastWakeOutcome?.kind != DiagnosticKind.WINDOW_WAKE_ACTIVE ||
+                    lastWakeOutcome.atMs < lastFgsFailure.atMs))
+                append("\nServicio de ubicación bloqueado: ").append(lastFgsFailure.reason.name)
+            if (state.autonomousEnabled && !state.uploadAuthBlocked && snapshot?.active == true &&
+                lastWakeSchedule?.windowStartMs != null &&
+                lastWakeSchedule.windowStartMs > System.currentTimeMillis())
+                append("\nPróximo intento programado: ").append(time(lastWakeSchedule.windowStartMs))
             append("\nLa frecuencia GPS es solicitada a Android; cada lectura no está garantizada.")
         }
     }
@@ -423,10 +467,11 @@ object AgentRuntime {
                 .update { it.trackingIntent = null; it.autonomousEnabled = false }
         }
         runningService?.stopSelf()
+        WindowWakeScheduler.cancelForUser(context)
     }
 
     /** Called by upload-only JobService after a definitive 401/403. Never starts capture. */
-    fun onUploadAuthorizationRejected() {
+    fun onUploadAuthorizationRejected(context: Context) {
         val runningService: GeopsLocationService?
         synchronized(this) {
             try { activeController?.stop("AUTH_REVOKED") } catch (_: Exception) { }
@@ -434,12 +479,14 @@ object AgentRuntime {
             stop()
         }
         runningService?.stopSelf()
+        WindowWakeScheduler.blockForAuthorization(context)
     }
 
     fun onServiceDestroyed(destroyed: GeopsLocationService) {
         // Android destruction alone is not an explicit user stop. The bounded intent
         // remains subject to the same instance, boot, policy and offline expiry checks.
         synchronized(this) { if (service === destroyed) stop(preserveRecoveryIntent = true) }
+        WindowWakeScheduler.onServiceDestroyed(destroyed)
     }
 
     private fun userRequestedExit(context: Context, sinceMs: Long): Boolean {
@@ -484,6 +531,16 @@ object AgentRuntime {
             "Último rechazo: ${summary.lastRejectReason ?: "ninguno"}\n" +
             "Último estado del servicio: ${summary.lastServiceEvent ?: "desconocido"}\n" +
             "Último resultado de sincronización: ${summary.lastSyncReason ?: "desconocido"}"
+    }
+
+    internal fun currentBootId(context: Context): String = bootId(context)
+
+    private fun observedBootId(context: Context): String {
+        val preferences = context.getSharedPreferences("geops_agent_boot", Context.MODE_PRIVATE)
+        val count = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val saved = preferences.getString("id", null)
+        return if (saved != null && (count < 0 || count == preferences.getInt("count", -2))) saved
+        else "diagnostic-boot-changed"
     }
 
     private fun bootId(context: Context): String {

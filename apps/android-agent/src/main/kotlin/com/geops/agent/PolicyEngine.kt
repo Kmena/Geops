@@ -103,9 +103,15 @@ class PolicyEngine(
 
     fun current(): AuthorizedWindow? = assess().window
 
+    /** Diagnostic evaluation must never advance the monotonic clock watermark. */
+    fun assessReadOnly(): PolicyAssessment = assess(persistClock = false)
+
     /** Compatibility view for local UI diagnostics; authorization is exclusively assess(). */
-    fun evaluate(): PolicyEvaluation {
-        val assessment = assess()
+    fun evaluate(): PolicyEvaluation = evaluation(assess())
+
+    fun evaluateReadOnly(): PolicyEvaluation = evaluation(assessReadOnly())
+
+    private fun evaluation(assessment: PolicyAssessment): PolicyEvaluation {
         val reason = when (assessment.reason) {
             DiagnosticReason.NONE -> null
             DiagnosticReason.NO_SNAPSHOT -> "NO_CONFIG"
@@ -134,7 +140,9 @@ class PolicyEngine(
     }
 
     /** Reports why authorization failed without changing the existing authorization predicate. */
-    fun assess(): PolicyAssessment {
+    fun assess(): PolicyAssessment = assess(persistClock = true)
+
+    private fun assess(persistClock: Boolean): PolicyAssessment {
         fun denied(reason: DiagnosticReason) = PolicyAssessment(null, reason)
         val state = store.read()
         val s = state.snapshot ?: return denied(DiagnosticReason.NO_SNAPSHOT)
@@ -143,7 +151,7 @@ class PolicyEngine(
         if (!s.active) return denied(DiagnosticReason.NO_ACTIVE_POLICY)
         if (s.identity != identity) return denied(DiagnosticReason.IDENTITY_MISMATCH)
         if (s.assignmentVersion < state.highestAssignmentVersion) return denied(DiagnosticReason.ASSIGNMENT_DOWNGRADE)
-        if (s.schemaVersion == 2) return assessLocal(state, s, p, reading)
+        if (s.schemaVersion == 2) return assessLocal(state, s, p, reading, persistClock)
         if (state.anchorBootId != reading.bootId) return denied(DiagnosticReason.BOOT_CHANGED)
         if (reading.elapsedMs < state.anchorElapsedMs) return denied(DiagnosticReason.MONOTONIC_ROLLBACK)
         val delta = reading.elapsedMs - state.anchorElapsedMs
@@ -194,6 +202,44 @@ class PolicyEngine(
             (sameTzdb(s) || s.windows.any { it.endMs > now && it.startMs < s.authorizedUntilMs })
     }
 
+    /** Earliest future boundary supported by the authenticated offline authorization. */
+    fun nextWindowStartReadOnly(): Long? {
+        val state = store.read()
+        val s = state.snapshot ?: return null
+        val p = s.policy ?: return null
+        if (!state.autonomousEnabled || state.uploadAuthBlocked || s.schemaVersion != 2 || !s.active ||
+            s.identity != identity || s.assignmentVersion < state.highestAssignmentVersion) return null
+        val now = localTime(state, clock.read(), persistClock = false) ?: return null
+        val authorizedUntil = s.authorizedUntilMs ?: return null
+        if (now < s.serverTimeMs - 30_000L || now >= authorizedUntil || now >= p.validUntilMs)
+            return null
+        val assignmentStart = s.assignmentStartMs ?: return null
+        val starts = if (sameTzdb(s)) {
+            val rule = s.display ?: return null
+            val zone = ZoneId.of(rule.timeZone)
+            val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+            (0L..7L).mapNotNull { offset ->
+                val day = today.plusDays(offset)
+                val exception = rule.exceptions.firstOrNull { it.localDate == day.toString() }
+                if (exception?.mode == "OFF" ||
+                    (exception == null && day.dayOfWeek.value !in rule.daysIso)) return@mapNotNull null
+                val startLocal = LocalTime.parse(exception?.startLocal ?: rule.startLocal)
+                val endLocal = LocalTime.parse(exception?.endLocal ?: rule.endLocal)
+                val start = resolveBoundary(day, startLocal, zone, false)
+                val endDay = if (endLocal < startLocal) day.plusDays(1) else day
+                val end = resolveBoundary(endDay, endLocal, zone, true)
+                val lower = maxOf(start, p.validFromMs, assignmentStart)
+                val upper = minOf(end, p.validUntilMs, authorizedUntil)
+                lower.takeIf { it > now && it < upper }
+            }
+        } else s.windows.mapNotNull { window ->
+            val lower = maxOf(window.startMs, p.validFromMs, assignmentStart)
+            val upper = minOf(window.endMs, p.validUntilMs, authorizedUntil)
+            lower.takeIf { it > now && it < upper }
+        }
+        return starts.minOrNull()
+    }
+
     private fun validate(s: Snapshot) {
         require(s.identity == identity && uuid(s.identity.deviceId) && uuid(s.identity.installationId)) { "identity_mismatch" }
         require(s.assignmentVersion >= 0 && uuid(s.anchorId)) { "invalid_assignment" }
@@ -222,9 +268,9 @@ class PolicyEngine(
     }
 
     private fun assessLocal(state: AgentState, s: Snapshot, p: Policy,
-                            reading: ClockReading): PolicyAssessment {
+                            reading: ClockReading, persistClock: Boolean): PolicyAssessment {
         fun denied(reason: DiagnosticReason) = PolicyAssessment(null, reason)
-        val now = localTime(state, reading) ?: return denied(DiagnosticReason.CLOCK_INVALID)
+        val now = localTime(state, reading, persistClock) ?: return denied(DiagnosticReason.CLOCK_INVALID)
         if (now < s.serverTimeMs - 30_000) return denied(DiagnosticReason.CLOCK_INVALID)
         if (now < p.validFromMs || now < (s.assignmentStartMs ?: Long.MAX_VALUE))
             return denied(DiagnosticReason.POLICY_NOT_YET_VALID)
@@ -237,7 +283,7 @@ class PolicyEngine(
             s.windows.firstOrNull { it.startMs <= now && now < it.endMs })
             ?: return denied(if (matchingTzdb) DiagnosticReason.OUTSIDE_WINDOW else
                 DiagnosticReason.TZDB_MISMATCH)
-        if (now >= state.lastEvaluatedMs + 60_000L)
+        if (persistClock && now >= state.lastEvaluatedMs + 60_000L)
             store.update { if (now > it.lastEvaluatedMs) it.lastEvaluatedMs = now }
         return PolicyAssessment(AuthorizedWindow(s, window, now), DiagnosticReason.NONE)
     }
@@ -248,12 +294,13 @@ class PolicyEngine(
         return localVersion != null && localVersion == s.tzdbVersion
     }
 
-    private fun localTime(state: AgentState, reading: ClockReading): Long? {
+    private fun localTime(state: AgentState, reading: ClockReading,
+                          persistClock: Boolean = true): Long? {
         if (!reading.automaticTimeEnabled) return null
         if (reading.bootId != state.timeBootId) {
             if (reading.wallMs < state.lastEvaluatedMs - 30_000L ||
                 reading.wallMs < state.snapshot!!.serverTimeMs - 30_000L) return null
-            store.update {
+            if (persistClock) store.update {
                 it.timeBootId = reading.bootId
                 it.timeWallBaseMs = reading.wallMs
                 it.timeElapsedBaseMs = reading.elapsedMs

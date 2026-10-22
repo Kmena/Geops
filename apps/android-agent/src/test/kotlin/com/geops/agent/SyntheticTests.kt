@@ -327,6 +327,83 @@ fun main() {
         clock.wall = start + 4 * 86_400_000L
         check(restarted.current() == null)
     }
+    test("P0 diagnostic evaluates a live v2 window without writing the encrypted state") {
+        val beforeWindow = ms("2026-10-22T13:59:00Z")
+        val firstStart = ms("2026-10-22T14:00:00Z")
+        val firstEnd = ms("2026-10-22T23:00:00Z")
+        val secondStart = ms("2026-10-23T14:00:00Z")
+        val secondEnd = ms("2026-10-23T23:00:00Z")
+        val validUntil = ms("2026-10-24T00:00:00Z")
+        val clock = FakeClock(wall = beforeWindow)
+        val (policy, store) = engine(clock)
+        val snapshot = snap(from = beforeWindow - 3_600_000L, until = validUntil,
+            windows = listOf(Window(scheduled, firstStart, firstEnd),
+                Window(anchor, secondStart, secondEnd))).copy(
+            serverTimeMs = beforeWindow, verifiedAtMs = beforeWindow,
+            offlineNotAfterMs = validUntil, schemaVersion = 2,
+            assignmentStartMs = beforeWindow - 3_600_000L,
+            authorizedUntilMs = validUntil, tzdbVersion = tzdb("America/Guatemala"),
+            display = PolicyDisplay("Day", listOf(1, 2, 3, 4, 5), "08:00", "17:00",
+                "America/Guatemala"))
+        policy.load(snapshot)
+        store.update { it.autonomousEnabled = true }
+        val readOnlyStore = object : AgentStore {
+            override fun read() = store.read()
+            override fun update(block: (AgentState) -> Unit): Unit = error("read_only")
+        }
+        val diagnostic = PolicyEngine(Identity(device, installation), clock, readOnlyStore, ::tzdb)
+        check(diagnostic.assessReadOnly().reason == DiagnosticReason.OUTSIDE_WINDOW)
+        check(diagnostic.nextWindowStartReadOnly() == firstStart)
+        clock.advance(2 * 60_000L)
+        val watermark = store.read().lastEvaluatedMs
+        check(diagnostic.evaluateReadOnly().window != null)
+        check(diagnostic.assessReadOnly().reason == DiagnosticReason.NONE)
+        check(store.read().lastEvaluatedMs == watermark)
+        check(diagnostic.nextWindowStartReadOnly() == secondStart)
+        val reboot = UUID.randomUUID().toString()
+        clock.bootId = reboot
+        clock.elapsed = 1_000L
+        check(diagnostic.assessReadOnly().reason == DiagnosticReason.NONE)
+        check(store.read().timeBootId != reboot)
+        clock.bootId = boot
+        clock.elapsed = 121_000L
+        val runtime = FakeRuntime()
+        val controller = TrackingController(Identity(device, installation), clock, policy, store,
+            runtime, FakeHealth())
+        controller.tick()
+        check(runtime.running && runtime.registrations == 1)
+        controller.tick()
+        check(runtime.registrations == 1)
+        clock.advance(firstEnd - clock.wall)
+        controller.tick()
+        check(!runtime.running && runtime.pauses == 1)
+        check(controller.onLocationDecision(LocationFix(14.6, -90.5, 10.0, clock.read(),
+            clock.wall)) == DiagnosticReason.OUTSIDE_WINDOW)
+        clock.advance(secondStart - clock.wall)
+        controller.tick()
+        controller.tick()
+        check(runtime.running && runtime.registrations == 2)
+    }
+    test("P0 policy replacement moves the next wake and user stop cancels eligibility") {
+        val now = ms("2026-10-22T13:30:00Z")
+        val limit = ms("2026-10-24T00:00:00Z")
+        val clock = FakeClock(wall = now)
+        val (policy, store) = engine(clock)
+        val initial = snap(version = 8, from = now - 3_600_000L, until = limit).copy(
+            serverTimeMs = now, verifiedAtMs = now, offlineNotAfterMs = limit,
+            schemaVersion = 2, assignmentStartMs = now - 3_600_000L,
+            authorizedUntilMs = limit, tzdbVersion = tzdb("America/Guatemala"),
+            display = PolicyDisplay("Day", (1..7).toList(), "08:00", "17:00", "America/Guatemala"))
+        policy.load(initial)
+        check(policy.nextWindowStartReadOnly() == ms("2026-10-22T14:00:00Z"))
+        val changed = initial.copy(assignmentVersion = 9,
+            policy = initial.policy!!.copy(revision = 4),
+            display = initial.display!!.copy(startLocal = "09:00"))
+        policy.load(changed)
+        check(policy.nextWindowStartReadOnly() == ms("2026-10-22T15:00:00Z"))
+        store.update { it.autonomousEnabled = false }
+        check(policy.nextWindowStartReadOnly() == null)
+    }
     test("Wave B STARTED cooldown does not survive a physical reboot") {
         val clock = FakeClock(elapsed = 10 * 3_600_000L)
         val (policy, store) = engine(clock)
