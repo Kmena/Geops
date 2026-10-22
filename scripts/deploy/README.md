@@ -6,6 +6,8 @@ This directory contains a manual, digest-pinned release path. No workflow or scr
 
 The `gps-base` Web digest is built with MDM_ENABLED=false; `mdm-qa` uses MDM_ENABLED=true and the opt-in Compose MDM overlay. Both use GEOPS_WEB_BASE=/, VITE_GPS_TIME_ZONE=America/Costa_Rica, and no custom VITE_GPS_TILE_URL. These are build inputs, and each digest carries a variant label. `create-plan.mjs` requires an explicit `gps-base` or `mdm-qa` selection; preflight checks Compose against that selection, and release verifies the downloaded Web image label. A different setting requires another identified digest. Never place secrets in Web configuration.
 
+For the first supervised Staging release, select `gps-base`: the running Web container identifies only `compose.staging.yaml`, whose Web build input and API setting both disable MDM. The older running Web image has no variant label, so its build variant is not established by that evidence. Do not select `mdm-qa` for this release or change the isolated MDM test setup without a separate reviewed plan. The release plan and local image checks must confirm `gps-base` explicitly.
+
 ## SQL and deployment boundary
 
 create-manifest.mjs inventories all 21 SQL files and SHA-256 checksums. create-plan.mjs accepts identical SQL for automatic image switching. It also recognizes additive SQL prefixes, but crossing 0019_mdm_security.sql or 0021_gps_offline_policy_contract.sql is blocked for the generic expand migrator: those migrations change constraints and require a supervised compatibility and recovery procedure. The normal release.mjs path accepts only identical candidate/previous SQL. Image rollback does not reverse the database.
