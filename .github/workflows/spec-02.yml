@@ -2,7 +2,7 @@ name: SPEC-02 synthetic validation
 
 on:
   push:
-    branches: [codex/spec-02-wave-1, codex/geops-integration, codex/geops-mdm-security, codex/geops-spec02-mdm-integration]
+    branches: [codex/spec-02-wave-1, codex/geops-integration, codex/geops-mdm-security, codex/geops-spec02-mdm-integration, codex/geops-unified-staging-candidate]
 
 permissions:
   contents: read
