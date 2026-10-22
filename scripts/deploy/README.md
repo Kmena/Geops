@@ -12,6 +12,18 @@ create-manifest.mjs inventories all 21 SQL files and SHA-256 checksums. create-p
 
 A Staging host must first be inspected read-only. Do not infer deployed code from its checkout, a mutable tag, or a branch pointer. For an approved release, preserve private manifests for both stable and candidate versions, exact digests, backup/restore evidence, gate and epoch evidence, and a maintenance decision. Never remove stable images before the rollback window closes.
 
+## First 18-to-21 Staging upgrade
+
+This is a supervised schema transition, not a normal digest switch. Confirm the live SQL version and running image digests on the host before using this sequence; a checkout SHA alone is insufficient. Migration 0019 changes the MDM outcome constraint, 0020 adds mixed GPS batch receipts, and 0021 adds offline-policy constraints, indexes and time-evidence fields. The generic plan and release scripts deliberately reject an 18-to-21 automatic rollout.
+
+1. Record the active digests, SQL versions, gate state and epoch, container health, GPS position and receipt counts, and current backup inventory. Keep the existing volumes and images.
+2. Create a new PostgreSQL custom-format backup with a SHA-256 checksum. Restore it to an isolated database and verify the checksum, migration history, GPS counts and gate recovery procedure before scheduling a maintenance window.
+3. Pull and verify the 21-SQL API/Web digests and compare the SQL checksums embedded in the API image with its release manifest. Rehearse 0019–0021 and GPS retry/idempotency checks against the isolated restore. Record each duration.
+4. Only with separate Staging deployment authorization, close the gate and drain API/Web through the approved maintenance procedure. Keep PostgreSQL running. Apply 0019–0021 under explicit epoch and target confirmation, then verify schema, data counts, readiness and smoke tests before reopening the gate.
+5. If migration or validation fails, keep the gate closed. Recover forward or restore the verified database backup under the security-epoch recovery procedure. Switching containers back to an 18-SQL image is not a database rollback and is not an automatic recovery path.
+
+After a healthy 21-SQL baseline exists, retain its digest as the stable version. Normal `release.mjs` deploy/rollback requires both manifests to contain identical 21 SQL checksums; only then can a later candidate use image-only rollback. Measure this bootstrap separately from the normal deployment and rollback targets.
+
 ## Command sequence after separate approvals
 
 All commands run from a clean checkout of the candidate SHA, with private files outside Git:
