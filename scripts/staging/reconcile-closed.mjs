@@ -16,6 +16,7 @@ const reason = reasonWords.join(' ');
 const expectedOld = process.env.GEOPS_EXPECT_DB_EPOCH;
 const expectedClosed = process.env.GEOPS_EXPECT_CLOSED_EPOCH;
 const url = process.env.DATABASE_URL;
+let failureCode = 'CONFIG_INVALID';
 
 function fail(message) { throw new Error(message); }
 function email(value) { return value.trim().toLowerCase(); }
@@ -129,14 +130,18 @@ async function main() {
       process.env.GEOPS_SECURITY_GATE_PATH !== gatePath || !url ||
       new URL(url).pathname !== `/${EXPECTED_DB}`)
     fail('Explicit closed-gate recovery configuration required');
+  failureCode = 'GATE_INVALID';
   const gate = await readGate(gatePath);
   if (mode === 'apply' && (gate.epoch !== expectedClosed || gate.phase !== 'closed'))
     fail('Expected CLOSED gate and exact external epoch');
   if (mode === 'retry' && gate.phase !== 'closed' && gate.phase !== 'maintenance')
     fail('Expected CLOSED or interrupted maintenance gate');
+  failureCode = 'PROVENANCE_INVALID';
   await provenance();
+  failureCode = 'TTY_INVALID';
   const passwords = [await hidden('Administrator password: '),
     await hidden('First custodian password: '), await hidden('Second custodian password: ')];
+  failureCode = 'RECOVERY_INVALID';
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   const db = await pool.connect();
   try {
@@ -215,7 +220,7 @@ async function main() {
              finalGate.epoch !== newEpoch || finalGate.nonce !== nonce)
       fail('External gate changed before finalization');
     await recordGateEvent(gatePath, 'maintenance.reconcile', newEpoch);
-    stdout.write(`Supervised gate reconciliation completed; phase=maintenance; schema=18; epoch=${newEpoch}\n`);
+    stdout.write('Supervised gate reconciliation completed; phase=maintenance; schema=18.\n');
   } finally {
     await db.query('SELECT pg_advisory_unlock(350021)').catch(() => {});
     await db.query('SELECT pg_advisory_unlock(350020)').catch(() => {});
@@ -225,6 +230,6 @@ async function main() {
 }
 
 main().catch(() => {
-  stderr.write('Closed-gate reconciliation stopped; preserve database and gate volume. Details withheld.\n');
+  stderr.write(`Closed-gate reconciliation stopped; code=${failureCode}; preserve database and gate volume. Details withheld.\n`);
   process.exitCode = 1;
 });
