@@ -88,3 +88,20 @@ Advertencias revisadas individualmente (`lint/style/noNonNullAssertion`):
 | `gps-policy-windows.ts:204` | Hora final de excepción `REPLACE` | Mantener; afecta autorización laboral. |
 
 Estas advertencias no bloquean Biome ni el pipeline. Su resolución requiere una revisión separada de invariantes y pruebas de las rutas protegidas; esta corrección de formato no cambia su comportamiento. `npm run typecheck`, `npm test`, `npm run contracts:check`, `npm run build`, `npm run security:scan` y `git diff --check` pasaron tras el ajuste. Los árboles Android, Kotlin, runtime API, Web y migraciones son idénticos a los ya validados; las pruebas físicas y MDM real siguen pendientes. La publicación y la ejecución de GitHub Actions se registrarán a continuación.
+
+### Publicación y primera ejecución CI
+
+Commit de corrección: `b58932f33d38d8667993b165f6f7e9279d487126`; publicado en `origin/codex/geops-unified-staging-candidate` y confirmado con `git ls-remote`, sin force push. Workflow oficial [SPEC-02 synthetic validation, ejecución 30](https://github.com/Kmena/Geops/actions/runs/39703992584), evento `push`, rama y `head_sha` exactos. Resultado global **FAIL**:
+
+| Job | Resultado | Cobertura observada |
+| --- | --- | --- |
+| `node-web-contracts` | PASS | Instalación, secretos, typecheck, lint, OpenAPI, Node/Web y builds. |
+| `kotlin-jvm` | PASS | `syntheticTest`. |
+| `android-debug` | PASS | `assembleDebug`, `lintDebug` y existencia del APK. |
+| `postgres-postgis` | FAIL | Migraciones limpias, upgrades 0014–0018→0021, recuperación, GPS, MDM y seguridad pasaron. El ensayo `Disposable clean Staging 0018 reinstall and interactive bootstrap` falló; `Backup, isolated restore and rollback probe` quedó omitido. |
+
+El primer bloqueo determinista del ensayo es el preflight de `scripts/staging/clean-reinstall-0018.sh`: exige exactamente 18 archivos de migración; el catálogo integrado tiene 21. Por eso el caso positivo de API predecesora sin `MDM_ENABLED` es rechazado con `Old API absent was rejected`. Aumentar ese límite permite que un script de reset acepte el esquema 0021 y altera su comportamiento. La restricción de UNIFIED-CI-01 impide hacerlo como corrección de formato; requiere decisión específica y luego regresión CI completa. No se omitió el gate ni se declaró PASS. El fallo ocurre en recursos desechables del runner; no hubo despliegue ni reset de Staging real.
+
+El APK local conserva los árboles Git Android de la base y del commit publicado (`apps/android-app=ac988f8956f6fc0f2b38ee2d030a3fe7c3337aa8`, `apps/android-agent=6411fd82a44c3fd51dc4035ca3062e9e3bdccdca`). SHA-256 del APK local `5f4be2876d0a0bea6154dcd48a5eddfbdcc8ea54a9f5a6028ae02a476850754`; versión y certificado constan arriba. El escaneo de secretos pasó y la fuente Android no contiene credenciales OAuth/MDM. No se instaló en dispositivos. La compatibilidad con backend v1/v2/v3 deriva de los mismos árboles fuente ya validados; prueba física pendiente.
+
+Estados de este intento: `UNIFIED_LINT_PASS=PASS`; `UNIFIED_LOCAL_TESTS_PASS=PASS` con evidencia Kotlin/Android/PostGIS del mismo árbol fuente y nuevas pruebas Node/Web; `UNIFIED_REMOTE_PUBLISHED=PASS` para `b58932f`; `UNIFIED_CI_PASS=FAIL`; `APK_DIAGNOSTIC_READY=PASS` solo para diagnóstico; `STAGING_READY=NO`; `PRODUCTION_READY=NO`. La auditoría de seguridad previa sigue aplicando al código de ejecución, que no cambió; el gate operativo y la instalación física permanecen pendientes.
