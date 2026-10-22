@@ -44,6 +44,7 @@ La corrección nueva de pruebas sustituye solo dos expectativas obsoletas de 20 
 | MDM | PASS en bases independientes `geops_verify_20261031` y `geops_verify_20261032`: desconexión persistente, replay, rotación, límites de login, inventario transaccional |
 | PostGIS | PASS: 21 migraciones en base limpia; 0016→0021 y 0014→0021 pobladas; recuperación supervisada 0014–0018→0021; ensayo CLI `geops_dev`; copia `pg_dump`/`pg_restore` con cuarentena |
 | Biome global | **FAIL heredado**: 31 errores de formato y 14 advertencias `noNonNullAssertion`. El mismo 31/14 se reprodujo en una exportación limpia del commit `6d2453e`; no proviene del merge ni de los dos cambios de expectativa. Dos archivos de prueba corregidos pertenecen a esos 31, por formato de línea ya presente. No se aplicó refactor general ajeno a SPEC-02. |
+| Auditoría independiente dirigida | PASS estático del SHA `7755537544e054d127ca6f6f121ac18a96495ef0`: ascendencia, diff, controles OAuth/MDM/PoP/tenant/offline, APK y árbol limpio. Sin hallazgos nuevos de seguridad. El auditor repitió lint (31 errores/14 advertencias), pero no las demás pruebas funcionales. |
 | GitHub Actions | NOT_VERIFIED: la rama no se publicó porque el job obligatorio `npm run lint` fallaría. |
 | POCO, Huawei P40 y MDM real | NOT_VERIFIED: no se instalaron APK ni se modificaron dispositivos. |
 
@@ -57,7 +58,7 @@ Este certificado de depuración difiere del APK anterior registrado en SPEC-02. 
 
 - `UNIFIED_CODE_PASS`: **FAIL como gate integral** por el lint obligatorio, aunque compilación y pruebas funcionales disponibles pasaron.
 - `UNIFIED_CI_PASS`: **NOT_VERIFIED**, sin push ni ejecución en GitHub Actions.
-- `UNIFIED_SECURITY_PASS`: **NOT_VERIFIED** hasta revisión independiente del SHA final de la candidata.
+- `UNIFIED_SECURITY_PASS`: **PASS estático dirigido** del commit `7755537`; la revisión final de este documento se comprobará en el SHA definitivo, y el piloto físico sigue pendiente.
 - `APK_DIAGNOSTIC_READY`: **PASS para artefacto verificable**, no para instalación o piloto.
 - `STAGING_READY`: **NO**; `STAGING_BLOCKED` y `PRODUCTION_BLOCKED`: **SÍ**.
 
