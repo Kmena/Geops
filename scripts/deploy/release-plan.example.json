@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "commit": "0000000000000000000000000000000000000000",
+  "qaVariant": "gps-base",
+  "migration": "none",
+  "candidate": {
+    "api": "registry.example.invalid/geops-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "web": "registry.example.invalid/geops-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "previous": {
+    "api": "registry.example.invalid/geops-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "web": "registry.example.invalid/geops-web@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+}

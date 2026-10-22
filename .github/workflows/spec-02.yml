@@ -2,7 +2,9 @@ name: SPEC-02 synthetic validation
 
 on:
   push:
-    branches: [codex/spec-02-wave-1, codex/geops-integration, codex/geops-mdm-security, codex/geops-spec02-mdm-integration, codex/geops-unified-staging-candidate]
+    branches: [main, staging, codex/spec-02-wave-1, codex/geops-integration, codex/geops-mdm-security, codex/geops-spec02-mdm-integration, codex/geops-unified-staging-candidate]
+  pull_request:
+    branches: [main, staging]
 
 permissions:
   contents: read
@@ -27,6 +29,9 @@ jobs:
         run: |
           npm run typecheck && npm run lint && npm run contracts:check
           npx biome check apps/api/test/mdm-real.test.ts apps/api/test/mdm-inventory.integration.mjs apps/api/test/mdm-security.integration.mjs
+      - name: Deploy P0 scripts and safety tests
+        if: hashFiles('scripts/deploy/release.test.mjs') != ''
+        run: npx biome check scripts/deploy && node --test scripts/deploy/*.test.mjs
       - name: Node and Web tests
         run: npm test && node --test specs/spec-02-android-agent-wave-1/contract-vectors.test.mjs
       - name: API and Web builds
