@@ -7,11 +7,10 @@ import { validatePlan } from './preflight.mjs';
 import { assertAutomaticExpandCompatible } from './create-plan.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-const files = [
-  'infrastructure/compose/compose.staging.yaml',
-  'infrastructure/compose/compose.staging.digest.override.yaml',
-  'infrastructure/compose/compose.staging.migrate.digest.override.yaml',
-];
+const base = 'infrastructure/compose/compose.staging.yaml';
+const mdmOverlay = 'infrastructure/compose/compose.staging.mdm.override.yaml';
+const digestOverlay = 'infrastructure/compose/compose.staging.digest.override.yaml';
+const migrateOverlay = 'infrastructure/compose/compose.staging.migrate.digest.override.yaml';
 
 function run(program, args, env, timeout = 120_000) {
   try {
@@ -73,6 +72,12 @@ function main() {
     GEOPS_STAGE_WEB_IMAGE_REF: plan.candidate.web,
   };
   const args = ['compose', '--env-file', resolve(envFile)];
+  const files = [
+    base,
+    ...(plan.qaVariant === 'mdm-qa' ? [mdmOverlay] : []),
+    digestOverlay,
+    migrateOverlay,
+  ];
   for (const file of files) args.push('-f', file);
   args.push('--profile', 'maintenance');
   const config = JSON.parse(run('docker', [...args, 'config', '--format', 'json'], env));

@@ -15,13 +15,29 @@ export function assertAutomaticExpandCompatible(candidateMigrations, previousMig
   );
 }
 
-export function createPlan(candidate, previous) {
+const variantKeys = { 'gps-base': 'gpsBase', 'mdm-qa': 'mdmQa' };
+
+export function createPlan(candidate, previous, qaVariant) {
+  const variantKey = variantKeys[qaVariant];
+  assert.ok(variantKey, 'Explicit QA Web variant required: gps-base or mdm-qa');
   for (const item of [candidate, previous]) {
-    assert.equal(item.schemaVersion, 2, 'Release manifest schema 2 required');
+    assert.equal(item.schemaVersion, 3, 'Release manifest schema 3 required');
     assert.equal(item.ci?.result, 'success', 'Successful CI required');
     assert.ok(
       Array.isArray(item.migrations) && item.migrations.length > 0,
       'Migration checksums required',
+    );
+    assert.equal(item.webBuild?.[variantKey]?.variant, qaVariant, 'Web variant metadata mismatch');
+    assert.equal(
+      item.webBuild[variantKey].mdmEnabled,
+      qaVariant === 'mdm-qa',
+      'Web MDM setting mismatch',
+    );
+    assert.ok(item.images?.web?.gpsBase && item.images?.web?.mdmQa, 'Both Web digests required');
+    assert.notEqual(
+      item.images.web.gpsBase.split('@')[1],
+      item.images.web.mdmQa.split('@')[1],
+      'Web variant digests must differ',
     );
   }
   assert.notEqual(candidate.commit, previous.commit, 'Distinct commits required');
@@ -40,9 +56,10 @@ export function createPlan(candidate, previous) {
   const plan = {
     schemaVersion: 1,
     commit: candidate.commit,
+    qaVariant,
     migration: candidate.migration,
-    candidate: candidate.images,
-    previous: previous.images,
+    candidate: { api: candidate.images.api, web: candidate.images.web[variantKey] },
+    previous: { api: previous.images.api, web: previous.images.web[variantKey] },
     provenance: {
       previousCommit: previous.commit,
       candidateCiRun: candidate.ci.run,
@@ -58,17 +75,25 @@ export function createPlan(candidate, previous) {
 
 if (process.argv[1]?.endsWith('create-plan.mjs')) {
   try {
-    const [candidatePath, previousPath, output] = process.argv.slice(2);
+    const [candidatePath, previousPath, output, qaVariant] = process.argv.slice(2);
     assert.ok(
       candidatePath && previousPath && output,
-      'Usage: create-plan.mjs CANDIDATE PREVIOUS OUTPUT',
+      'Usage: create-plan.mjs CANDIDATE PREVIOUS OUTPUT QA_VARIANT',
     );
     const plan = createPlan(
       JSON.parse(readFileSync(candidatePath, 'utf8')),
       JSON.parse(readFileSync(previousPath, 'utf8')),
+      qaVariant,
     );
     writeFileSync(output, `${JSON.stringify(plan, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-    console.log(JSON.stringify({ result: 'PLAN_CREATED', path: output, commit: plan.commit }));
+    console.log(
+      JSON.stringify({
+        result: 'PLAN_CREATED',
+        path: output,
+        commit: plan.commit,
+        qaVariant: plan.qaVariant,
+      }),
+    );
   } catch (error) {
     console.error(`Plan BLOCKED: ${error.message}`);
     process.exitCode = 1;

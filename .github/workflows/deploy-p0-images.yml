@@ -55,7 +55,7 @@ jobs:
       - run: npx biome check scripts/deploy && node --test scripts/deploy/*.test.mjs
 
   api:
-    if: inputs.publish
+    if: inputs.publish && github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -91,8 +91,8 @@ jobs:
           cache-from: type=gha,scope=geops-api
           cache-to: type=gha,scope=geops-api,mode=max
 
-  web:
-    if: inputs.publish
+  web_gps:
+    if: inputs.publish && github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -121,7 +121,7 @@ jobs:
           context: .
           file: infrastructure/docker/web.Dockerfile
           push: true
-          tags: ${{ steps.repository.outputs.name }}:${{ github.sha }}
+          tags: ${{ steps.repository.outputs.name }}:${{ github.sha }}-gps-base
           build-args: |
             GEOPS_WEB_BASE=/
             MDM_ENABLED=false
@@ -131,14 +131,61 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.geops.web.base=/
+            org.geops.web.variant=gps-base
             org.geops.web.mdm_enabled=false
             org.geops.web.gps_time_zone=America/Costa_Rica
-          cache-from: type=gha,scope=geops-web
-          cache-to: type=gha,scope=geops-web,mode=max
+          cache-from: type=gha,scope=geops-web-gps
+          cache-to: type=gha,scope=geops-web-gps,mode=max
+
+  web_mdm:
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      repository: ${{ steps.repository.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - id: repository
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-web" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infrastructure/docker/web.Dockerfile
+          push: true
+          tags: ${{ steps.repository.outputs.name }}:${{ github.sha }}-mdm-qa
+          build-args: |
+            GEOPS_WEB_BASE=/
+            MDM_ENABLED=true
+            VITE_GPS_TIME_ZONE=America/Costa_Rica
+            VITE_GPS_TILE_URL=
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.geops.web.base=/
+            org.geops.web.variant=mdm-qa
+            org.geops.web.mdm_enabled=true
+            org.geops.web.gps_time_zone=America/Costa_Rica
+          cache-from: type=gha,scope=geops-web-mdm
+          cache-to: type=gha,scope=geops-web-mdm,mode=max
 
   manifest:
-    if: inputs.publish
-    needs: [validate, api, web]
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    needs: [validate, api, web_gps, web_mdm]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -149,11 +196,12 @@ jobs:
       - name: Record immutable references and CI result
         env:
           API_REF: ${{ needs.api.outputs.repository }}@${{ needs.api.outputs.digest }}
-          WEB_REF: ${{ needs.web.outputs.repository }}@${{ needs.web.outputs.digest }}
+          WEB_GPS_REF: ${{ needs.web_gps.outputs.repository }}@${{ needs.web_gps.outputs.digest }}
+          WEB_MDM_REF: ${{ needs.web_mdm.outputs.repository }}@${{ needs.web_mdm.outputs.digest }}
           CI_RUN: ${{ needs.validate.outputs.source_ci_run }}
           PUBLICATION_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           MIGRATION_CLASS: ${{ inputs.migration_class }}
-        run: node scripts/deploy/create-manifest.mjs release-manifest.json "${GITHUB_SHA}" "${API_REF}" "${WEB_REF}" "${CI_RUN}" "${MIGRATION_CLASS}" "${PUBLICATION_RUN}"
+        run: node scripts/deploy/create-manifest.mjs release-manifest.json "${GITHUB_SHA}" "${API_REF}" "${WEB_GPS_REF}" "${WEB_MDM_REF}" "${CI_RUN}" "${MIGRATION_CLASS}" "${PUBLICATION_RUN}"
       - uses: actions/upload-artifact@v4
         with:
           name: geops-release-${{ github.sha }}

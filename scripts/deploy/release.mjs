@@ -7,6 +7,7 @@ import { validatePlan } from './preflight.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const base = 'infrastructure/compose/compose.staging.yaml';
+const mdmOverlay = 'infrastructure/compose/compose.staging.mdm.override.yaml';
 const override = 'infrastructure/compose/compose.staging.digest.override.yaml';
 
 export function parseReleaseArgs(argv) {
@@ -66,7 +67,7 @@ function stage(log, name, fn) {
   }
 }
 
-function imageId(ref, commit) {
+function imageId(ref, commit, qaVariant) {
   const digests = JSON.parse(
     run('docker', ['image', 'inspect', ref, '--format', '{{json .RepoDigests}}']),
   );
@@ -82,6 +83,30 @@ function imageId(ref, commit) {
     commit,
     'Image revision label mismatches release manifest',
   );
+  if (qaVariant) {
+    assert.equal(
+      run('docker', [
+        'image',
+        'inspect',
+        ref,
+        '--format',
+        '{{index .Config.Labels "org.geops.web.variant"}}',
+      ]),
+      qaVariant,
+      'Web image variant label mismatches deployment plan',
+    );
+    assert.equal(
+      run('docker', [
+        'image',
+        'inspect',
+        ref,
+        '--format',
+        '{{index .Config.Labels "org.geops.web.mdm_enabled"}}',
+      ]),
+      qaVariant === 'mdm-qa' ? 'true' : 'false',
+      'Web image MDM label mismatches deployment plan',
+    );
+  }
   return run('docker', ['image', 'inspect', ref, '--format', '{{.Id}}']);
 }
 
@@ -128,7 +153,16 @@ function composeArgs(envFile, service, target, plan) {
     GEOPS_STAGE_WEB_IMAGE_REF: plan[target].web,
   };
   return {
-    args: ['compose', '--env-file', resolve(envFile), '-f', base, '-f', override],
+    args: [
+      'compose',
+      '--env-file',
+      resolve(envFile),
+      '-f',
+      base,
+      ...(plan.qaVariant === 'mdm-qa' ? ['-f', mdmOverlay] : []),
+      '-f',
+      override,
+    ],
     env,
     service,
   };
@@ -168,6 +202,45 @@ function snapshot(settings) {
   return ids;
 }
 
+export function assertDatabaseMigrations(actual, expected) {
+  assert.deepEqual(actual, expected, 'Database SQL ledger differs from the approved release');
+}
+
+function verifyDatabaseMigrations(dbId, expected) {
+  const output = run(
+    'docker',
+    [
+      'exec',
+      dbId,
+      'psql',
+      '-X',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-U',
+      'geops_stage',
+      '-d',
+      'geops_dev',
+      '-At',
+      '-F',
+      '|',
+      '-c',
+      'SELECT version,checksum FROM geops_schema_migrations ORDER BY version',
+    ],
+    { timeout: 15_000 },
+  );
+  const actual = output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [version, sha256, extra] = line.split('|');
+      assert.equal(extra, undefined, 'Unexpected database migration ledger output');
+      assert.match(version ?? '', /^\d+_[a-z0-9_]+\.sql$/);
+      assert.match(sha256 ?? '', /^[a-f0-9]{64}$/);
+      return { version, sha256 };
+    });
+  assertDatabaseMigrations(actual, expected);
+}
+
 function verifyUnchanged(before, after) {
   assert.equal(after['geops-db'], before['geops-db'], 'Database container changed');
 }
@@ -182,7 +255,11 @@ function assertCurrent(settings, plan, target) {
     const runningImage = run('docker', ['inspect', '--format', '{{.Image}}', id]);
     assert.equal(
       runningImage,
-      imageId(plan[target][key], expectedCommit(plan, target)),
+      imageId(
+        plan[target][key],
+        expectedCommit(plan, target),
+        key === 'web' ? plan.qaVariant : undefined,
+      ),
       `${service} is not ${target}`,
     );
   }
@@ -269,7 +346,11 @@ function main() {
       for (const service of ['api', 'web']) {
         stage(log, `pull_${version}_${service}`, () => {
           run('docker', ['pull', plan[version][service]], { timeout: 180_000 });
-          imageId(plan[version][service], expectedCommit(plan, version));
+          imageId(
+            plan[version][service],
+            expectedCommit(plan, version),
+            service === 'web' ? plan.qaVariant : undefined,
+          );
           if (service === 'api')
             verifyImageMigrations(plan[version][service], plan.provenance[`${version}Migrations`]);
         });
@@ -281,13 +362,20 @@ function main() {
   stage(log, 'verify_images', () => {
     for (const version of ['candidate', 'previous'])
       for (const service of ['api', 'web']) {
-        imageId(plan[version][service], expectedCommit(plan, version));
+        imageId(
+          plan[version][service],
+          expectedCommit(plan, version),
+          service === 'web' ? plan.qaVariant : undefined,
+        );
         if (service === 'api')
           verifyImageMigrations(plan[version][service], plan.provenance[`${version}Migrations`]);
       }
   });
   const settings = composeArgs(options['env-file'], null, target, plan);
   const before = stage(log, 'snapshot', () => snapshot(settings));
+  stage(log, 'verify_database_migrations', () =>
+    verifyDatabaseMigrations(before['geops-db'], plan.provenance.candidateMigrations),
+  );
   const source = options.command === 'deploy' ? 'previous' : 'candidate';
   let alreadyActive = false;
   try {
@@ -311,6 +399,7 @@ function main() {
       `${JSON.stringify({
         committedAt: new Date().toISOString(),
         commit: plan.commit,
+        qaVariant: plan.qaVariant,
         active: target,
         images: plan[target],
         before,
@@ -324,6 +413,7 @@ function main() {
         result: alreadyActive ? 'ALREADY_ACTIVE' : 'ACTIVE',
         target,
         commit: plan.commit,
+        qaVariant: plan.qaVariant,
       }),
     );
   } catch (error) {

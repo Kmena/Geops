@@ -8,6 +8,7 @@ import { migrationChecksums } from './create-manifest.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const base = 'infrastructure/compose/compose.staging.yaml';
+const mdmOverlay = 'infrastructure/compose/compose.staging.mdm.override.yaml';
 const override = 'infrastructure/compose/compose.staging.digest.override.yaml';
 const digestRef = /^[a-z0-9][a-z0-9._:/-]+@sha256:[a-f0-9]{64}$/;
 
@@ -15,6 +16,7 @@ export function validatePlan(plan) {
   assert.equal(plan.schemaVersion, 1, 'Unsupported plan schema');
   assert.match(plan.commit ?? '', /^[a-f0-9]{40}$/, 'Commit must be a full SHA');
   assert.notEqual(plan.commit, '0'.repeat(40), 'Example commit is forbidden');
+  assert.ok(['gps-base', 'mdm-qa'].includes(plan.qaVariant), 'Explicit QA Web variant required');
   assert.ok(['none', 'expand', 'contract'].includes(plan.migration), 'Invalid migration class');
   assert.notEqual(plan.migration, 'contract', 'Contract migration has no image-only rollback');
   for (const version of ['candidate', 'previous']) {
@@ -36,6 +38,9 @@ export function validatePlan(plan) {
 export function compareCompose(before, after, plan, target = 'candidate') {
   assert.equal(before.name, 'geops-spec02-staging');
   assert.equal(after.name, before.name);
+  const mdmEnabled = plan.qaVariant === 'mdm-qa' ? 'true' : 'false';
+  assert.equal(before.services['geops-api'].environment.MDM_ENABLED, mdmEnabled);
+  assert.equal(before.services['geops-web'].build.args.MDM_ENABLED, mdmEnabled);
   assert.ok(
     isDeepStrictEqual(Object.keys(after.services).sort(), Object.keys(before.services).sort()),
     'Service set changed',
@@ -91,7 +96,12 @@ function main() {
   const plan = validatePlan(JSON.parse(readFileSync(resolve(options.plan), 'utf8')));
   if (options.planOnly) {
     console.log(
-      JSON.stringify({ result: 'PLAN_VALID', commit: plan.commit, migration: plan.migration }),
+      JSON.stringify({
+        result: 'PLAN_VALID',
+        commit: plan.commit,
+        qaVariant: plan.qaVariant,
+        migration: plan.migration,
+      }),
     );
     return;
   }
@@ -114,8 +124,9 @@ function main() {
     GEOPS_STAGE_API_IMAGE_REF: plan[options.target].api,
     GEOPS_STAGE_WEB_IMAGE_REF: plan[options.target].web,
   };
-  const before = compose(resolve(options.envFile), [base], env);
-  const after = compose(resolve(options.envFile), [base, override], env);
+  const files = plan.qaVariant === 'mdm-qa' ? [base, mdmOverlay] : [base];
+  const before = compose(resolve(options.envFile), files, env);
+  const after = compose(resolve(options.envFile), [...files, override], env);
   compareCompose(before, after, plan, options.target);
   if (options.verifyLocalImages) {
     for (const version of ['candidate', 'previous']) {
@@ -125,6 +136,28 @@ function main() {
           command('docker', ['image', 'inspect', ref, '--format', '{{json .RepoDigests}}']),
         );
         assert.ok(digests?.includes(ref), `${version}.${service} digest unavailable locally`);
+        if (service === 'web') {
+          const label = command('docker', [
+            'image',
+            'inspect',
+            ref,
+            '--format',
+            '{{index .Config.Labels "org.geops.web.variant"}}',
+          ]);
+          assert.equal(label, plan.qaVariant, `${version}.web variant mismatch`);
+          const mdmLabel = command('docker', [
+            'image',
+            'inspect',
+            ref,
+            '--format',
+            '{{index .Config.Labels "org.geops.web.mdm_enabled"}}',
+          ]);
+          assert.equal(
+            mdmLabel,
+            plan.qaVariant === 'mdm-qa' ? 'true' : 'false',
+            `${version}.web MDM label mismatch`,
+          );
+        }
       }
     }
   }
@@ -133,6 +166,7 @@ function main() {
       result: options.verifyLocalImages ? 'LOCAL_IMAGES_VALID' : 'COMPOSE_VALID',
       target: options.target,
       commit: plan.commit,
+      qaVariant: plan.qaVariant,
       migration: plan.migration,
       candidate: plan.candidate,
       previous: plan.previous,

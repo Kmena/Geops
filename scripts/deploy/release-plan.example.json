@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "commit": "0000000000000000000000000000000000000000",
+  "qaVariant": "gps-base",
   "migration": "none",
   "candidate": {
     "api": "registry.example.invalid/geops-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

@@ -1,10 +1,10 @@
 # GEOPS Deploy P0 on the 21-migration code line
 
-This directory contains a manual, digest-pinned release path. No workflow or script deploys automatically. The GitHub workflow runs only through workflow_dispatch; publishing defaults to false and requires the full approved SHA of main, successful SPEC-02 CI for that exact SHA, and a separate publication decision. API and Web build once on independent runners. The manifest records both GHCR digests, source CI run, publication run, SQL checksums, and the fixed Web build variant.
+This directory contains a manual, digest-pinned release path. No workflow or script deploys automatically. The GitHub workflow runs only through workflow_dispatch; publishing defaults to false and requires the full approved SHA of main, successful SPEC-02 CI for that exact SHA, and a separate publication decision. API builds once; both Web variants build on independent runners. The manifest records the API digest, two distinct Web digests, source CI run, publication run, SQL checksums, and both Web build variants.
 
 ## Web artifact variant
 
-The current Web bundle is built with GEOPS_WEB_BASE=/, MDM_ENABLED=false, VITE_GPS_TIME_ZONE=America/Costa_Rica, and no custom VITE_GPS_TILE_URL. These are build inputs. A different environment setting requires a separately identified Web digest until public runtime configuration is implemented and tested. Never place secrets in Web configuration.
+The `gps-base` Web digest is built with MDM_ENABLED=false; `mdm-qa` uses MDM_ENABLED=true and the opt-in Compose MDM overlay. Both use GEOPS_WEB_BASE=/, VITE_GPS_TIME_ZONE=America/Costa_Rica, and no custom VITE_GPS_TILE_URL. These are build inputs, and each digest carries a variant label. `create-plan.mjs` requires an explicit `gps-base` or `mdm-qa` selection; preflight checks Compose against that selection, and release verifies the downloaded Web image label. A different setting requires another identified digest. Never place secrets in Web configuration.
 
 ## SQL and deployment boundary
 
@@ -28,7 +28,7 @@ After a healthy 21-SQL baseline exists, retain its digest as the stable version.
 
 All commands run from a clean checkout of the candidate SHA, with private files outside Git:
 
-1. node scripts/deploy/create-plan.mjs CANDIDATE_MANIFEST PREVIOUS_MANIFEST PRIVATE_PLAN
+1. node scripts/deploy/create-plan.mjs CANDIDATE_MANIFEST PREVIOUS_MANIFEST PRIVATE_PLAN gps-base|mdm-qa
 2. node scripts/deploy/preflight.mjs --plan PRIVATE_PLAN --plan-only
 3. node scripts/deploy/preflight.mjs --plan PRIVATE_PLAN --env-file PRIVATE_ENV --target candidate
 4. node scripts/deploy/preflight.mjs --plan PRIVATE_PLAN --env-file PRIVATE_ENV --target previous
@@ -37,6 +37,6 @@ All commands run from a clean checkout of the candidate SHA, with private files 
 7. With deployment authorization and identical SQL: node scripts/deploy/release.mjs deploy --plan PRIVATE_PLAN --env-file PRIVATE_ENV --log PRIVATE_TIMINGS --state PRIVATE_STATE --execute
 8. If readiness or smoke fails, the release script attempts the already downloaded previous digests. A separately authorized manual rollback uses the same command with rollback.
 
-The scripts record UTC timestamps and durations, require local Docker context, verify image digests and OCI revision labels, compare embedded API SQL to both manifests, change only API/Web through the Compose digest overlay, and retain the database container. Do not run down, prune, migration, or gate commands as part of image rollback. A failure after a schema change needs forward recovery under the supervised Staging procedure.
+The scripts record UTC timestamps and durations, require local Docker context, verify image digests, OCI revision and Web variant labels, compare embedded API SQL to both manifests, and compare the live PostgreSQL migration ledger with all approved checksums before switching. They change only API/Web through the Compose digest overlay and retain the database container. Do not run down, prune, migration, or gate commands as part of image rollback. A failure after a schema change needs forward recovery under the supervised Staging procedure.
 
 The historic 15-migration A/B rehearsal in codex/deploy-p0 proved local mechanics only. A 21-migration, authenticated GHCR and Staging rehearsal is still required; existing synthetic measurements are not operational acceptance.

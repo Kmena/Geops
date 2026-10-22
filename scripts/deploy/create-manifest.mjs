@@ -21,8 +21,13 @@ export function migrationChecksums(directory = resolve(root, 'apps/api/src/db/mi
 
 export function createManifest(input) {
   assert.match(input.commit ?? '', /^[a-f0-9]{40}$/, 'Full commit SHA required');
-  for (const service of ['api', 'web'])
+  for (const service of ['api', 'webGps', 'webMdm'])
     assert.match(input[service] ?? '', digestRef, `${service} registry digest required`);
+  assert.notEqual(
+    input.webGps.split('@')[1],
+    input.webMdm.split('@')[1],
+    'Web variants require distinct digests',
+  );
   assert.match(
     input.ciRun ?? '',
     /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+$/,
@@ -37,34 +42,46 @@ export function createManifest(input) {
     );
   assert.ok(['none', 'expand', 'contract'].includes(input.migration), 'Migration class required');
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     commit: input.commit,
     createdAt: input.createdAt ?? new Date().toISOString(),
     ci: { run: input.ciRun, result: input.ciResult },
     publication: input.publicationRun ? { run: input.publicationRun } : undefined,
     webBuild: {
-      base: '/',
-      mdmEnabled: false,
-      gpsTimeZone: 'America/Costa_Rica',
-      gpsTileUrl: null,
+      gpsBase: {
+        variant: 'gps-base',
+        base: '/',
+        mdmEnabled: false,
+        gpsTimeZone: 'America/Costa_Rica',
+        gpsTileUrl: null,
+      },
+      mdmQa: {
+        variant: 'mdm-qa',
+        base: '/',
+        mdmEnabled: true,
+        gpsTimeZone: 'America/Costa_Rica',
+        gpsTileUrl: null,
+      },
     },
     migration: input.migration,
     migrations: input.migrations ?? migrationChecksums(),
-    images: { api: input.api, web: input.web },
+    images: { api: input.api, web: { gpsBase: input.webGps, mdmQa: input.webMdm } },
   };
 }
 
 if (process.argv[1]?.endsWith('create-manifest.mjs')) {
   try {
-    const [output, commit, api, web, ciRun, migration, publicationRun] = process.argv.slice(2);
+    const [output, commit, api, webGps, webMdm, ciRun, migration, publicationRun] =
+      process.argv.slice(2);
     assert.ok(
       output && migration,
-      'Usage: create-manifest.mjs OUTPUT COMMIT API_REF WEB_REF CI_RUN MIGRATION',
+      'Usage: create-manifest.mjs OUTPUT COMMIT API_REF WEB_GPS_REF WEB_MDM_REF CI_RUN MIGRATION',
     );
     const manifest = createManifest({
       commit,
       api,
-      web,
+      webGps,
+      webMdm,
       ciRun,
       ciResult: 'success',
       migration,
