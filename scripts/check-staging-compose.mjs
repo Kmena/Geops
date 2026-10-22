@@ -157,4 +157,16 @@ assert.deepEqual(Object.keys(proposedCaddy.networks).sort(), ['geops_stage_edge'
 assert.equal(proposedCaddy.volumes[2].target, '/etc/caddy/Caddyfile');
 assert.equal(proposedCaddy.volumes[2].read_only, true);
 assert.deepEqual(proposedPoc.networks.poc_internal, originalPoc.networks.poc_internal);
+
+const stagingNginx = readFileSync(
+  resolve(root, 'infrastructure/nginx/geops-staging-web.conf'),
+  'utf8',
+).replaceAll('\r\n', '\n');
+const apiRoute = (version) => {
+  const match = stagingNginx.match(new RegExp(`  location /v${version}/ \\{([\\s\\S]*?)\\n  \\}`));
+  assert.ok(match, `Missing /v${version}/ Nginx route`);
+  return match[1];
+};
+assert.equal(apiRoute(2), apiRoute(1), 'V2 proxy differs from the secured V1 proxy');
+assert.equal(apiRoute(3), apiRoute(1), 'V3 proxy differs from the secured V1 proxy');
 console.log('GEOPS Staging Compose/Caddy route isolation: PASS (static configuration only)');
