@@ -19,7 +19,7 @@ The sudoers rule permits `abi` to run only `/usr/local/sbin/geops-deploy` withou
 
 The authorized signer uses `sign.mjs` with a private key on a trusted machine to create release and action approval files. Signing an action requires `--release-document` and `--release-sha`; the signer checks that the document bytes match the SHA and copies its commit/digests into the approval. The signer must review the exact JSON, SHA, digests, source and target IDs; the wrapper verifies the signature and consumes an action approval once. `client.mjs stage-release ID JSON SIG` and `stage-approval ID JSON SIG` upload signed **data** to an untrusted inbox. `prepare` may pull verified digests; `deploy` and `rollback` require separate signed action approvals. The policy pins 21 SQL migrations and `gps-base`; a schema or variant change requires a reviewed policy/bundle upgrade.
 
-The new root-only controller copies do not remove access to the existing Staging source files under the `abi`-owned checkout. Retiring those originals requires a separate authorized change. The container bind-mount behavior has been modeled with Linux DAC tests; it must still be checked with the actual Docker Engine before a version switch.
+The new root-only controller copies do not remove access to the existing Staging source files under the `abi`-owned checkout. Retiring those originals requires a separate authorized change. Linux DAC tests model the bind mount, and the installer checks all six mounts with a networkless, read-only, disposable container from the active API image before installing sudoers. This check does not restart the active services.
 
 ## Remaining operational validation
 

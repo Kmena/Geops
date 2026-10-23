@@ -81,7 +81,7 @@ class LinuxIsolationTests(unittest.TestCase):
         items = bundle | {
             'geops_deploy.py': b'#!/usr/bin/python3 -I\n',
             'policy.json': json.dumps(policy).encode(),
-            'state.json': b'{"schemaVersion":1}\n',
+            'state.json': b'{"schemaVersion":1,"active":{"apiId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}\n',
             'geops-deploy.sudoers': b'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-deploy\n',
         }
         archive = self.base / 'reviewed.tar.gz'
@@ -96,6 +96,9 @@ class LinuxIsolationTests(unittest.TestCase):
 
         def checked_command(args, **_kwargs):
             executed.append(tuple(map(str, args)))
+            if args[:3] == ['/usr/bin/docker', 'run', '--rm']:
+                return json.dumps([hashlib.sha256(('synthetic-' + name).encode()).hexdigest()
+                                   for name in setup.SECRET_NAMES])
             if str(args[0]) == str(wrapper) and args[1] == 'verify':
                 attempts['verify'] += 1
                 if attempts['verify'] == 1:
@@ -164,7 +167,14 @@ class LinuxIsolationTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(wrapper.stat().st_mode), 0o755)
         self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
         self.assertEqual((state / 'inbox').stat().st_gid, 42)
-        self.assertFalse(any(args[0] == '/usr/bin/docker' for args in executed))
+        runs = [args for args in executed if args[:3] == ('/usr/bin/docker', 'run', '--rm')]
+        self.assertEqual(len(runs), 3)
+        self.assertTrue(all('--network' in args and 'none' in args and
+                            '--pull' in args and 'never' in args and
+                            args.count('--mount') == len(setup.SECRET_NAMES)
+                            for args in runs))
+        self.assertFalse(any(args[0] == '/usr/bin/docker' and args[1] == 'compose'
+                             for args in executed))
         with self.assertRaisesRegex(ValueError, 'Sudoers already installed'):
             setup.install(archive, archive_sha, public_key)
 

@@ -227,6 +227,27 @@ def inspect_baseline(state):
             raise ValueError('Protected secret copy differs from active container')
 
 
+def verify_runtime_container_access(api_image_id):
+    """Check real Docker bind mounts without starting or changing GEOPS services."""
+    script = ("const c=require('node:crypto'),f=require('node:fs');"
+              "console.log(JSON.stringify([" + ','.join(
+                  "c.createHash('sha256').update(f.readFileSync('/run/secrets/" + name +
+                  "')).digest('hex')" for name in SECRET_NAMES) + "]))")
+    mounts = []
+    for name in SECRET_NAMES:
+        mounts.extend(['--mount', 'type=bind,source=' + str(RUNTIME_SECRETS / name) +
+                       ',target=/run/secrets/' + name + ',readonly'])
+    observed = json.loads(command(['/usr/bin/docker', 'run', '--rm', '--network', 'none',
+                                   '--read-only', '--pull', 'never', '--cap-drop', 'ALL',
+                                   '--security-opt', 'no-new-privileges', '--user', 'node',
+                                   '--group-add', '24001', *mounts,
+                                   '--entrypoint', 'node', api_image_id, '-e', script], limit=45))
+    expected = [hashlib.sha256((SECRETS / name).read_bytes()).hexdigest()
+                for name in SECRET_NAMES]
+    if observed != expected:
+        raise ValueError('Container secret mounts differ from protected originals')
+
+
 def install(archive, expected, public_key):
     if grp is None or os.geteuid() != 0:
         raise ValueError('Operator root access required')
@@ -259,6 +280,7 @@ def install(archive, expected, public_key):
     if stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700:
         raise ValueError('Administrative directory is not root-only')
     provision_runtime_secrets(int(policy['secretGid']))
+    verify_runtime_container_access(state['active']['apiId'])
     for name in sorted(FILES):
         if name.startswith('bundle/'):
             write_owned(ROOT / name, items[name], 0o444)
