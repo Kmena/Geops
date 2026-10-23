@@ -45,11 +45,24 @@ if (kind === 'release') {
 } else if (kind === 'approval') {
   if (!['deploy', 'rollback'].includes(options.action) ||
       !sha.test(options['release-sha'] ?? '') ||
+      !options['release-document'] ||
       ![options['source-api-id'], options['source-web-id'],
         options['target-api-id'], options['target-web-id']].every((item) => imageId.test(item ?? ''))) {
-    throw new Error('Action, release SHA and four exact image IDs required');
+    throw new Error('Action, release document/SHA and four exact image IDs required');
+  }
+  const releaseBytes = readFileSync(options['release-document']);
+  if (createHash('sha256').update(releaseBytes).digest('hex') !== options['release-sha']) {
+    throw new Error('Release document differs from approved SHA');
+  }
+  const release = JSON.parse(releaseBytes.toString());
+  if (release.environment !== policy.environment || release.policySha256 !== policySha256 ||
+      !/^[a-f0-9]{40}$/.test(release.commit) ||
+      !/^ghcr\.io\/kmena\/geops-api@sha256:[a-f0-9]{64}$/.test(release.api) ||
+      !/^ghcr\.io\/kmena\/geops-web@sha256:[a-f0-9]{64}$/.test(release.web)) {
+    throw new Error('Release document is not valid for this policy');
   }
   document = { ...common, action: options.action, releaseSha256: options['release-sha'],
+    releaseCommit: release.commit, apiDigest: release.api, webDigest: release.web,
     policySha256, sourceApiId: options['source-api-id'],
     sourceWebId: options['source-web-id'], targetApiId: options['target-api-id'],
     targetWebId: options['target-web-id'] };

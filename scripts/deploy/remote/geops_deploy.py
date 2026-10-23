@@ -23,6 +23,7 @@ STATE_DIR = Path('/var/lib/geops-deploy')
 LOG = Path('/var/log/geops-deploy/audit.jsonl')
 DOCKER = '/usr/bin/docker'
 OPENSSL = '/usr/bin/openssl'
+COMPOSE_PLUGIN = Path('/usr/libexec/docker/cli-plugins/docker-compose')
 ENVIRONMENT = 'geops-spec02-staging'
 IDENT = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$')
 SHA = re.compile(r'^[a-f0-9]{40}$')
@@ -165,7 +166,8 @@ class Controller:
             for path in (self.root, self.state_dir, self.log.parent,
                          self.root / 'public.pem', self.root / 'policy.json',
                          self.state_dir / 'state.json', self.state_dir / 'used',
-                         self.state_dir / 'tmp', self.bundle):
+                         self.state_dir / 'tmp', self.bundle, Path(self.docker),
+                         Path(self.openssl), COMPOSE_PLUGIN, Path(__file__)):
                 secure_tree(path)
             inbox = os.stat(self.state_dir / 'inbox')
             if inbox.st_uid != 0 or inbox.st_mode & 0o002:
@@ -280,10 +282,15 @@ class Controller:
     def approval(self, identity, action, release_sha, source, target):
         value, _ = self.signed('approval', identity)
         exact_keys(value, ('schemaVersion', 'id', 'environment', 'notBefore', 'expiresAt',
-                           'action', 'releaseSha256', 'policySha256',
+                           'action', 'releaseSha256', 'releaseCommit', 'apiDigest',
+                           'webDigest', 'policySha256',
                            'sourceApiId', 'sourceWebId', 'targetApiId', 'targetWebId'))
+        release_version = target if action == 'deploy' else source
         if (value['schemaVersion'] != 1 or value['action'] != action or
                 value['releaseSha256'] != release_sha or
+                value['releaseCommit'] != release_version['commit'] or
+                value['apiDigest'] != release_version['apiRef'] or
+                value['webDigest'] != release_version['webRef'] or
                 value['policySha256'] != digest(self.policy_bytes) or
                 value['sourceApiId'] != source['apiId'] or
                 value['sourceWebId'] != source['webId'] or

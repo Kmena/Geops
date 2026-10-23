@@ -166,6 +166,7 @@ class RemoteTests(unittest.TestCase):
                     'expiresAt': (now + timedelta(minutes=20)).isoformat().replace('+00:00', 'Z'),
                     'action': action,
                     'releaseSha256': release_sha,
+                    'releaseCommit': B_COMMIT, 'apiDigest': B_API, 'webDigest': B_WEB,
                     'policySha256': remote.digest(self.control.policy_bytes),
                     'sourceApiId': source['apiId'], 'sourceWebId': source['webId'],
                     'targetApiId': target['apiId'], 'targetWebId': target['webId']}
@@ -176,6 +177,16 @@ class RemoteTests(unittest.TestCase):
         document, _ = self.release()
         self.assertTrue(self.control.execute('status')['imageMatch'])
         self.assertEqual(self.control.execute('preflight', document['id'])['result'], 'PREFLIGHT')
+
+    def test_status_and_verify_do_not_change_services_or_state(self):
+        before = (self.state / 'state.json').read_bytes()
+        self.control.execute('status')
+        self.assertEqual(self.control.execute('verify')['result'], 'VERIFIED')
+        self.assertEqual((self.state / 'state.json').read_bytes(), before)
+        self.assertFalse(any(set(command[1:]) & {'pull', 'up', 'stop', 'restart', 'rm', 'run'}
+                             for command in self.fake.commands))
+        for name in remote.SECRET_NAMES:
+            self.assertNotIn('synthetic-' + name, self.log.read_text())
 
     def test_prepare_verifies_without_switch(self):
         document, _ = self.release()
@@ -216,6 +227,8 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(self.control.state()['active']['apiId'], target['apiId'])
         with self.assertRaises(remote.Blocked):
             self.control.execute('deploy', document['id'], deploy_id)
+        with self.assertRaises(remote.Blocked):
+            self.control.execute('rollback', approval_id=deploy_id)
         rollback_id = self.approval('rollback', sha, self.control.state()['active'], old)
         self.assertEqual(self.control.execute('rollback', approval_id=rollback_id)['result'], 'ROLLED_BACK')
         self.assertEqual((self.fake.api, self.fake.web), (A_API, A_WEB))
@@ -283,7 +296,11 @@ class RemoteTests(unittest.TestCase):
         names = archive_files(package, hashlib.sha256(package.read_bytes()).hexdigest())
         self.assertEqual(set(names), FILES)
         sudoers = names['geops-deploy.sudoers'].decode()
-        self.assertIn('NOPASSWD: /usr/local/sbin/geops-deploy', sudoers)
+        self.assertEqual(sudoers.splitlines(), [
+            'Defaults!/usr/local/sbin/geops-deploy env_reset',
+            'Defaults!/usr/local/sbin/geops-deploy secure_path="/usr/sbin:/usr/bin:/sbin:/bin"',
+            'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-deploy',
+        ])
         for forbidden in ('sudo docker', '/bin/sh', '/bin/bash', 'systemctl'):
             self.assertNotIn(forbidden, sudoers)
 
@@ -344,13 +361,21 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(release['commit'], B_COMMIT)
         old = self.control.state()['active']
         approval_id = 'signed_approval_test_001'
-        target = {'apiId': B_API.split('@')[-1], 'webId': B_WEB.split('@')[-1]}
+        target = {'commit': B_COMMIT, 'apiRef': B_API, 'webRef': B_WEB,
+                  'apiId': B_API.split('@')[-1], 'webId': B_WEB.split('@')[-1]}
         subprocess.run(['node', HERE / 'sign.mjs', 'approval', '--id', approval_id,
                         '--policy', self.root / 'policy.json', '--action', 'deploy',
-                        '--release-sha', release_sha, '--source-api-id', old['apiId'],
+                        '--release-sha', release_sha,
+                        '--release-document', self.state / 'inbox' / (identity + '.release.json'),
+                        '--source-api-id', old['apiId'],
                         '--source-web-id', old['webId'], '--target-api-id', target['apiId'],
                         '--target-web-id', target['webId'], '--key', self.private,
                         '--out', self.state / 'inbox' / approval_id], check=True, capture_output=True)
+        signed_action = json.loads((self.state / 'inbox' / (approval_id + '.approval.json')).read_text())
+        self.assertEqual((signed_action['action'], signed_action['environment'],
+                          signed_action['releaseCommit'], signed_action['apiDigest'],
+                          signed_action['webDigest']),
+                         ('deploy', remote.ENVIRONMENT, B_COMMIT, B_API, B_WEB))
         self.control.approval(approval_id, 'deploy', release_sha, old, target)
 
 

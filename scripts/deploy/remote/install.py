@@ -23,6 +23,7 @@ LOG = Path('/var/log/geops-deploy')
 WRAPPER = Path('/usr/local/sbin/geops-deploy')
 SUDOERS = Path('/etc/sudoers.d/geops-deploy')
 SECRETS = ROOT / 'secrets'
+COMPOSE_PLUGIN = Path('/usr/libexec/docker/cli-plugins/docker-compose')
 FILES = {
     'geops_deploy.py', 'policy.json', 'state.json', 'geops-deploy.sudoers',
     'bundle/infrastructure/compose/compose.staging.yaml',
@@ -55,6 +56,9 @@ def verify_secrets():
     root_protected(SECRETS)
     if not stat.S_ISDIR(os.stat(SECRETS).st_mode):
         raise ValueError('Root-owned secret directory required')
+    if (stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700 or
+            stat.S_IMODE(os.stat(SECRETS).st_mode) != 0o700):
+        raise ValueError('Administrative and secret directories must be root-only')
     for name in SECRET_NAMES:
         path = SECRETS / name
         root_protected(path)
@@ -62,6 +66,17 @@ def verify_secrets():
         if (not stat.S_ISREG(info.st_mode) or info.st_size == 0 or info.st_size > 4096 or
                 info.st_gid != 24001 or stat.S_IMODE(info.st_mode) != 0o640):
             raise ValueError('Invalid provisioned secret file')
+
+
+def verify_host_tool(path):
+    root_protected(path.parent)
+    source = os.lstat(path)
+    if source.st_uid != 0:
+        raise ValueError('Host tool is not root-owned')
+    resolved = path.resolve(strict=True)
+    root_protected(resolved)
+    if not stat.S_ISREG(os.stat(resolved).st_mode):
+        raise ValueError('Host tool is not a regular file')
 
 
 def archive_files(archive, expected):
@@ -92,14 +107,30 @@ def archive_files(archive, expected):
 
 def write_owned(path, data, mode):
     ensure_directory(path.parent)
+    if os.path.lexists(path):
+        root_protected(path)
+        info = os.lstat(path)
+        if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != mode or
+                path.read_bytes() != data):
+            raise ValueError('Existing installation file differs from reviewed archive')
+        return
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
                  getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0), mode)
     try:
-        os.write(fd, data)
+        offset = 0
+        while offset < len(data):
+            written = os.write(fd, data[offset:])
+            if not written:
+                raise OSError('Incomplete installation write')
+            offset += written
         os.fchmod(fd, mode)
         os.fchown(fd, 0, 0)
         os.fsync(fd)
-    finally:
+    except Exception:
+        os.close(fd)
+        path.unlink()
+        raise
+    else:
         os.close(fd)
 
 
@@ -117,6 +148,10 @@ def ensure_directory(path):
 
 
 def inspect_baseline(state):
+    endpoint = command(['/usr/bin/docker', 'context', 'inspect', '--format',
+                        '{{.Endpoints.docker.Host}}'])
+    if endpoint not in ('unix:///var/run/docker.sock', 'unix:///run/docker.sock'):
+        raise ValueError('Only the local Docker daemon is allowed')
     expected = state['active']
     for kind, service in (('api', 'geops-api'), ('web', 'geops-web')):
         name = f'geops-spec02-staging-{service}-1'
@@ -150,9 +185,12 @@ def inspect_baseline(state):
 def install(archive, expected, public_key):
     if grp is None or os.geteuid() != 0:
         raise ValueError('Operator root access required')
-    if any(path.exists() for path in (WRAPPER, SUDOERS, ROOT / 'bundle', STATE / 'state.json')):
-        raise ValueError('Already installed; refusing to overwrite')
+    if os.path.lexists(SUDOERS):
+        raise ValueError('Sudoers already installed; refusing to overwrite')
     root_protected(public_key)
+    for tool in ('/usr/bin/python3', '/usr/bin/docker', '/usr/bin/openssl',
+                 '/usr/sbin/visudo', COMPOSE_PLUGIN):
+        verify_host_tool(Path(tool))
     command(['/usr/bin/openssl', 'pkey', '-pubin', '-in', str(public_key), '-noout'])
     verify_secrets()
     items = archive_files(archive, expected)
@@ -171,32 +209,58 @@ def install(archive, expected, public_key):
         sudoers_candidate.write_bytes(items['geops-deploy.sudoers'])
         command(['/usr/sbin/visudo', '-cf', str(sudoers_candidate)])
     ROOT.mkdir(mode=0o700, exist_ok=True)
-    os.chown(ROOT, 0, 0)
-    os.chmod(ROOT, 0o700)
     root_protected(ROOT)
+    if stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700:
+        raise ValueError('Administrative directory is not root-only')
     for name in sorted(FILES):
         if name.startswith('bundle/'):
             write_owned(ROOT / name, items[name], 0o444)
     link = ROOT / 'bundle/infrastructure/compose/.local/staging/secrets'
     ensure_directory(link.parent)
-    os.symlink(SECRETS, link)
+    if os.path.lexists(link):
+        if not link.is_symlink() or os.readlink(link) != str(SECRETS):
+            raise ValueError('Existing secret link differs from reviewed target')
+    else:
+        os.symlink(SECRETS, link)
     write_owned(ROOT / 'policy.json', items['policy.json'], 0o444)
     write_owned(ROOT / 'public.pem', public_key.read_bytes(), 0o444)
-    (ROOT / 'docker').mkdir(mode=0o700)
+    (ROOT / 'docker').mkdir(mode=0o700, exist_ok=True)
+    root_protected(ROOT / 'docker')
+    if stat.S_IMODE(os.stat(ROOT / 'docker').st_mode) != 0o700:
+        raise ValueError('Docker credential directory is not root-only')
     STATE.mkdir(mode=0o700, exist_ok=True)
     root_protected(STATE)
-    os.chmod(STATE, 0o700)
+    if stat.S_IMODE(os.stat(STATE).st_mode) != 0o700:
+        raise ValueError('State directory is not root-only')
     write_owned(STATE / 'state.json', items['state.json'], 0o600)
     for name in ('used', 'tmp'):
-        (STATE / name).mkdir(mode=0o700)
+        (STATE / name).mkdir(mode=0o700, exist_ok=True)
+        root_protected(STATE / name)
+        if stat.S_IMODE(os.stat(STATE / name).st_mode) != 0o700:
+            raise ValueError('Private state directory is not root-only')
     inbox = STATE / 'inbox'
-    inbox.mkdir(mode=0o770)
-    os.chown(inbox, 0, grp.getgrnam('abi').gr_gid)
-    os.chmod(inbox, 0o770)
+    if inbox.is_symlink():
+        raise ValueError('Approval inbox must not be a symlink')
+    if not inbox.exists():
+        inbox.mkdir(mode=0o770)
+        os.chown(inbox, 0, grp.getgrnam('abi').gr_gid)
+        os.chmod(inbox, 0o770)
+    inbox_info = os.stat(inbox)
+    if (inbox_info.st_uid != 0 or inbox_info.st_gid != grp.getgrnam('abi').gr_gid or
+            stat.S_IMODE(inbox_info.st_mode) != 0o770):
+        raise ValueError('Approval inbox permissions changed')
     LOG.mkdir(mode=0o700, exist_ok=True)
     root_protected(LOG)
-    os.chmod(LOG, 0o700)
-    write_owned(LOG / 'audit.jsonl', b'', 0o600)
+    if stat.S_IMODE(os.stat(LOG).st_mode) != 0o700:
+        raise ValueError('Audit directory is not root-only')
+    audit = LOG / 'audit.jsonl'
+    if os.path.lexists(audit):
+        root_protected(audit)
+        if (not stat.S_ISREG(os.stat(audit).st_mode) or
+                stat.S_IMODE(os.stat(audit).st_mode) != 0o600):
+            raise ValueError('Existing audit log is not protected')
+    else:
+        write_owned(audit, b'', 0o600)
     write_owned(WRAPPER, items['geops_deploy.py'], 0o755)
     command([str(WRAPPER), 'status'])
     command([str(WRAPPER), 'verify'])
