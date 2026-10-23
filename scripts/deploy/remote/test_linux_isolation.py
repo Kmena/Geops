@@ -67,15 +67,15 @@ class LinuxIsolationTests(unittest.TestCase):
         for name in setup.SECRET_NAMES:
             secret = secrets / name
             secret.write_bytes(('synthetic-' + name).encode())
-            os.chown(secret, 0, 24001)
-            secret.chmod(0o640)
+            os.chown(secret, 0, 0)
+            secret.chmod(0o600)
         public_key = self.base / 'approval.pub'
         public_key.write_bytes(b'isolated-test-public-key')
         public_key.chmod(0o600)
 
         bundle = {name: ('synthetic ' + name).encode()
                   for name in setup.FILES if name.startswith('bundle/')}
-        policy = {'environment': 'geops-spec02-staging',
+        policy = {'environment': 'geops-spec02-staging', 'secretGid': '24001',
                   'files': {name.removeprefix('bundle/'): hashlib.sha256(data).hexdigest()
                             for name, data in bundle.items()}}
         items = bundle | {
@@ -108,6 +108,7 @@ class LinuxIsolationTests(unittest.TestCase):
                      patch.object(setup, 'WRAPPER', wrapper),
                      patch.object(setup, 'SUDOERS', sudoers),
                      patch.object(setup, 'SECRETS', secrets),
+                     patch.object(setup, 'RUNTIME_SECRETS', root / 'runtime-secrets'),
                      patch.object(setup, 'verify_host_tool'),
                      patch.object(setup, 'inspect_baseline'),
                      patch.object(setup, 'command', side_effect=checked_command),
@@ -120,6 +121,14 @@ class LinuxIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'root-only'):
             setup.verify_secrets()
         root.chmod(0o700)
+
+        original = secrets / setup.SECRET_NAMES[0]
+        os.chown(original, 0, 24001)
+        original.chmod(0o640)
+        with self.assertRaisesRegex(ValueError, 'Invalid provisioned secret file'):
+            setup.verify_secrets()
+        os.chown(original, 0, 0)
+        original.chmod(0o600)
 
         with self.assertRaisesRegex(ValueError, 'Synthetic read-only verification failure'):
             setup.install(archive, archive_sha, public_key)
@@ -139,6 +148,18 @@ class LinuxIsolationTests(unittest.TestCase):
         config.chmod(0o444)
 
         setup.install(archive, archive_sha, public_key)
+        self.assertEqual(stat.S_IMODE((secrets / setup.SECRET_NAMES[0]).stat().st_mode), 0o600)
+        self.assertEqual((secrets / setup.SECRET_NAMES[0]).stat().st_gid, 0)
+        runtime = root / 'runtime-secrets'
+        self.assertEqual(stat.S_IMODE(runtime.stat().st_mode), 0o700)
+        self.assertEqual((runtime / setup.SECRET_NAMES[0]).stat().st_gid, 24001)
+        self.assertEqual(stat.S_IMODE((runtime / setup.SECRET_NAMES[0]).stat().st_mode), 0o640)
+        self.assertEqual((runtime / setup.SECRET_NAMES[0]).read_bytes(),
+                         (secrets / setup.SECRET_NAMES[0]).read_bytes())
+        (runtime / setup.SECRET_NAMES[0]).chmod(0o644)
+        with self.assertRaisesRegex(ValueError, 'Runtime secret differs'):
+            setup.provision_runtime_secrets(24001)
+        (runtime / setup.SECRET_NAMES[0]).chmod(0o640)
         self.assertEqual(audit.read_text(), 'retained audit entry\n')
         self.assertEqual(stat.S_IMODE(wrapper.stat().st_mode), 0o755)
         self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
@@ -146,6 +167,49 @@ class LinuxIsolationTests(unittest.TestCase):
         self.assertFalse(any(args[0] == '/usr/bin/docker' for args in executed))
         with self.assertRaisesRegex(ValueError, 'Sudoers already installed'):
             setup.install(archive, archive_sha, public_key)
+
+    def test_abi_group_cannot_read_root_secrets_or_runtime_tree(self):
+        with tempfile.TemporaryDirectory(prefix='geops-p0-dac-', dir='/tmp') as folder:
+            root = Path(folder)
+            root.chmod(0o755)
+            admin = root / 'etc-geops-deploy'
+            admin.mkdir(mode=0o700)
+            secrets = admin / 'secrets'
+            secrets.mkdir(mode=0o700)
+            runtime = admin / 'runtime-secrets'
+            runtime.mkdir(mode=0o700)
+            master = secrets / 'db_password'
+            master.write_bytes(b'synthetic-secret')
+            master.chmod(0o600)
+            mount_source = runtime / 'db_password'
+            mount_source.write_bytes(b'synthetic-secret')
+            os.chown(mount_source, 0, 24001)
+            mount_source.chmod(0o640)
+            mounted = root / 'container-bind-view'
+            os.link(mount_source, mounted)
+
+            child = os.fork()
+            if child == 0:
+                try:
+                    os.setgroups([24001])
+                    os.setgid(1001)
+                    os.setuid(1001)
+                    for path in (master, mount_source):
+                        try:
+                            path.read_bytes()
+                        except PermissionError:
+                            continue
+                        os._exit(2)
+                    if mounted.read_bytes() != b'synthetic-secret':
+                        os._exit(3)
+                    os._exit(0)
+                except Exception:
+                    os._exit(4)
+            _, status = os.waitpid(child, 0)
+            self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+            self.assertEqual(master.read_bytes(), mount_source.read_bytes())
+            self.assertEqual(remote.regular_bytes(master, 4096, trusted=True),
+                             remote.regular_bytes(mounted, 4096, trusted=True))
 
 
 if __name__ == '__main__':

@@ -186,7 +186,7 @@ class Controller:
             raise Blocked('Invalid SQL list hash')
         if policy['origin'] != 'https://geops-staging.duckdns.org':
             raise Blocked('Unexpected origin')
-        if not isinstance(policy['secretGid'], str) or not re.fullmatch(r'[0-9]{1,8}', policy['secretGid']):
+        if policy['secretGid'] != '24001':
             raise Blocked('Invalid secret group')
         if not isinstance(policy['imageTag'], str) or not SHA.fullmatch(policy['imageTag']):
             raise Blocked('Invalid base image tag')
@@ -203,11 +203,29 @@ class Controller:
         secret_dir = self.bundle / 'infrastructure/compose/.local/staging/secrets'
         if self.enforce_root:
             link = os.lstat(secret_dir)
-            if not stat.S_ISLNK(link.st_mode) or os.readlink(secret_dir) != str(self.root / 'secrets'):
+            if not stat.S_ISLNK(link.st_mode) or os.readlink(secret_dir) != str(self.root / 'runtime-secrets'):
                 raise Blocked('Secret directory link changed')
             secure_tree(self.root / 'secrets')
+            secure_tree(self.root / 'runtime-secrets')
+            if (stat.S_IMODE(os.stat(self.root / 'secrets').st_mode) != 0o700 or
+                    os.stat(self.root / 'secrets').st_gid != 0 or
+                    stat.S_IMODE(os.stat(self.root / 'runtime-secrets').st_mode) != 0o700 or
+                    os.stat(self.root / 'runtime-secrets').st_gid != 0):
+                raise Blocked('Secret directory permissions changed')
             for name in SECRET_NAMES:
-                secure_tree(self.root / 'secrets' / name)
+                master = self.root / 'secrets' / name
+                runtime = self.root / 'runtime-secrets' / name
+                secure_tree(master)
+                secure_tree(runtime)
+                master_info, runtime_info = os.stat(master), os.stat(runtime)
+                if (not stat.S_ISREG(master_info.st_mode) or master_info.st_gid != 0 or
+                        stat.S_IMODE(master_info.st_mode) != 0o600 or
+                        not stat.S_ISREG(runtime_info.st_mode) or
+                        runtime_info.st_gid != int(policy['secretGid']) or
+                        stat.S_IMODE(runtime_info.st_mode) != 0o640 or
+                        digest(regular_bytes(master, 4096, True)) !=
+                        digest(regular_bytes(runtime, 4096, True))):
+                    raise Blocked('Protected and runtime secret copies differ')
         self.policy = policy
         return policy
 

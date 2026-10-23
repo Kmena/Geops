@@ -23,6 +23,7 @@ LOG = Path('/var/log/geops-deploy')
 WRAPPER = Path('/usr/local/sbin/geops-deploy')
 SUDOERS = Path('/etc/sudoers.d/geops-deploy')
 SECRETS = ROOT / 'secrets'
+RUNTIME_SECRETS = ROOT / 'runtime-secrets'
 COMPOSE_PLUGIN = Path('/usr/libexec/docker/cli-plugins/docker-compose')
 FILES = {
     'geops_deploy.py', 'policy.json', 'state.json', 'geops-deploy.sudoers',
@@ -56,16 +57,60 @@ def verify_secrets():
     root_protected(SECRETS)
     if not stat.S_ISDIR(os.stat(SECRETS).st_mode):
         raise ValueError('Root-owned secret directory required')
-    if (stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700 or
-            stat.S_IMODE(os.stat(SECRETS).st_mode) != 0o700):
+    if (stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700 or os.stat(ROOT).st_gid != 0 or
+            stat.S_IMODE(os.stat(SECRETS).st_mode) != 0o700 or
+            os.stat(SECRETS).st_gid != 0):
         raise ValueError('Administrative and secret directories must be root-only')
     for name in SECRET_NAMES:
         path = SECRETS / name
         root_protected(path)
         info = os.stat(path)
         if (not stat.S_ISREG(info.st_mode) or info.st_size == 0 or info.st_size > 4096 or
-                info.st_gid != 24001 or stat.S_IMODE(info.st_mode) != 0o640):
+                info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o600):
             raise ValueError('Invalid provisioned secret file')
+
+
+def provision_runtime_secrets(gid):
+    """Make container-readable bind sources behind a root-only host directory."""
+    if os.path.lexists(RUNTIME_SECRETS):
+        root_protected(RUNTIME_SECRETS)
+        info = os.lstat(RUNTIME_SECRETS)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_gid != 0 or
+                stat.S_IMODE(info.st_mode) != 0o700):
+            raise ValueError('Runtime secret directory must be root:root 0700')
+    else:
+        RUNTIME_SECRETS.mkdir(mode=0o700)
+        os.chown(RUNTIME_SECRETS, 0, 0)
+        os.chmod(RUNTIME_SECRETS, 0o700)
+    for name in SECRET_NAMES:
+        source = (SECRETS / name).read_bytes()
+        target = RUNTIME_SECRETS / name
+        if os.path.lexists(target):
+            root_protected(target)
+            info = os.lstat(target)
+            if (not stat.S_ISREG(info.st_mode) or info.st_gid != gid or
+                    stat.S_IMODE(info.st_mode) != 0o640 or
+                    target.read_bytes() != source):
+                raise ValueError('Runtime secret differs from protected original')
+        else:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0)
+            fd = os.open(target, flags, 0o600)
+            try:
+                os.fchown(fd, 0, gid)
+                offset = 0
+                while offset < len(source):
+                    count = os.write(fd, source[offset:])
+                    if not count:
+                        raise OSError('Incomplete runtime secret write')
+                    offset += count
+                os.fchmod(fd, 0o640)
+                os.fsync(fd)
+            except Exception:
+                os.close(fd)
+                target.unlink()
+                raise
+            else:
+                os.close(fd)
 
 
 def verify_host_tool(path):
@@ -196,7 +241,8 @@ def install(archive, expected, public_key):
     items = archive_files(archive, expected)
     policy = json.loads(items['policy.json'])
     state = json.loads(items['state.json'])
-    if policy.get('environment') != 'geops-spec02-staging' or state.get('schemaVersion') != 1:
+    if (policy.get('environment') != 'geops-spec02-staging' or
+            policy.get('secretGid') != '24001' or state.get('schemaVersion') != 1):
         raise ValueError('Wrong installation target')
     if set(policy['files']) != {name[7:] for name in FILES if name.startswith('bundle/')}:
         raise ValueError('Bundle inventory differs from policy')
@@ -212,16 +258,17 @@ def install(archive, expected, public_key):
     root_protected(ROOT)
     if stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700:
         raise ValueError('Administrative directory is not root-only')
+    provision_runtime_secrets(int(policy['secretGid']))
     for name in sorted(FILES):
         if name.startswith('bundle/'):
             write_owned(ROOT / name, items[name], 0o444)
     link = ROOT / 'bundle/infrastructure/compose/.local/staging/secrets'
     ensure_directory(link.parent)
     if os.path.lexists(link):
-        if not link.is_symlink() or os.readlink(link) != str(SECRETS):
+        if not link.is_symlink() or os.readlink(link) != str(RUNTIME_SECRETS):
             raise ValueError('Existing secret link differs from reviewed target')
     else:
-        os.symlink(SECRETS, link)
+        os.symlink(RUNTIME_SECRETS, link)
     write_owned(ROOT / 'policy.json', items['policy.json'], 0o444)
     write_owned(ROOT / 'public.pem', public_key.read_bytes(), 0o444)
     (ROOT / 'docker').mkdir(mode=0o700, exist_ok=True)

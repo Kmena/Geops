@@ -22,6 +22,14 @@ B_API = 'ghcr.io/kmena/geops-api@sha256:d15c33f7e0788da0086f9ac82f4de5d9d55d8a02
 B_WEB = 'ghcr.io/kmena/geops-web@sha256:d01c1fe94f8644b96f51af2f0f8d94cdc4af22bebf9de8555edac9ac7a6fd19c'
 
 
+def pinned_migrations():
+    """Use the published release tree, not unrelated edits in this checkout."""
+    paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', B_COMMIT,
+                                     'apps/api/src/db/migrations'], cwd=SOURCE, text=True).splitlines()
+    return [(Path(path).name, subprocess.check_output(['git', 'show', f'{B_COMMIT}:{path}'], cwd=SOURCE))
+            for path in paths if Path(path).name[:4].isdigit() and path.endswith('.sql')]
+
+
 def openssl_path():
     return shutil.which('openssl') or 'C:/Program Files/Git/usr/bin/openssl.exe'
 
@@ -66,9 +74,8 @@ class FakeDocker:
         elif args[1] == 'run':
             text = json.dumps({'count': 21, 'sha256': 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e'})
         elif args[1] == 'exec' and 'SELECT version,checksum' in args[-1]:
-            migrations = sorted((SOURCE / 'apps/api/src/db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql'))
-            text = '\n'.join(f'{file.name}|{hashlib.sha256(file.read_bytes()).hexdigest()}'
-                             for file in migrations)
+            text = '\n'.join(f'{name}|{hashlib.sha256(body).hexdigest()}'
+                             for name, body in pinned_migrations())
         elif args[1] == 'exec' and args[-1].startswith('/run/secrets/'):
             name = args[-1].removeprefix('/run/secrets/')
             text = hashlib.sha256(('synthetic-' + name).encode()).hexdigest()
@@ -341,12 +348,12 @@ class RemoteTests(unittest.TestCase):
     def test_signer_produces_verifiable_release_and_approval(self):
         if not shutil.which('node'):
             self.skipTest('Node not installed')
-        migrations = sorted((SOURCE / 'apps/api/src/db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql'))
+        migrations = pinned_migrations()
         manifest = {'schemaVersion': 3, 'ci': {'result': 'success'},
                     'migration': 'none', 'commit': B_COMMIT,
-                    'migrations': [{'version': f.name,
-                                    'sha256': hashlib.sha256(f.read_bytes()).hexdigest()}
-                                   for f in migrations],
+                    'migrations': [{'version': name,
+                                    'sha256': hashlib.sha256(body).hexdigest()}
+                                   for name, body in migrations],
                     'webBuild': {'gpsBase': {'variant': 'gps-base', 'mdmEnabled': False}},
                     'images': {'api': B_API, 'web': {'gpsBase': B_WEB}}}
         path = Path(self.temp.name) / 'manifest.json'
