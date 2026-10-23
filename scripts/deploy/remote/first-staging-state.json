@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "active": {
+    "commit": "03e582fba66c0d29eab885e109d3404e86b140a3",
+    "apiRef": "geops-spec02-api:03e582fba66c0d29eab885e109d3404e86b140a3",
+    "webRef": "geops-spec02-web:03e582fba66c0d29eab885e109d3404e86b140a3",
+    "apiId": "sha256:7ade7bd65f75f351c2227697f5b76f107352180d96945bbfadee47087bf82d21",
+    "webId": "sha256:a7be25f6149e9e749ff6514640975c82870b58c8bfb0eea2187b818ab8669a0b",
+    "releaseSha256": null
+  },
+  "previous": null
+}

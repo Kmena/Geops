@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "environment": "geops-spec02-staging",
+  "origin": "https://geops-staging.duckdns.org",
+  "secretGid": "24001",
+  "imageTag": "03e582fba66c0d29eab885e109d3404e86b140a3",
+  "sqlCount": 21,
+  "sqlListSha256": "cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e",
+  "variant": "gps-base",
+  "backupMaxAgeSeconds": 86400,
+  "files": {
+    "infrastructure/compose/compose.staging.yaml": "165865879bd3037c03ca4b033f3ea1a9ad283d45ae4c43439e7163adcf6248f4",
+    "infrastructure/compose/compose.staging.digest.override.yaml": "d7dd571c46c46a8f20751611d747914bd4da1f2bf8cac34c02504fdffbd6f702",
+    "infrastructure/nginx/geops-staging-web.conf": "1915dcbdcb77673d7caa61fdaec5ffceb675135499c712afca71fe6c49e0a734",
+    "infrastructure/staging/api-entrypoint.sh": "690d5a2f9870973c260eb46edd8223cf52ec3984229c924975e4af742c766da0",
+    "infrastructure/staging/backup.sh": "b6784af0ac4c6180e65b981a963b33ea79d2f4902ace966c2c23e99b02f6ef6f"
+  }
+}
