@@ -235,7 +235,8 @@ def verify_runtime_container_access(api_image_id):
                   "')).digest('hex')" for name in SECRET_NAMES) + "]))")
     mounts = []
     for name in SECRET_NAMES:
-        mounts.extend(['--mount', 'type=bind,source=' + str(RUNTIME_SECRETS / name) +
+        mounted_path = ROOT / 'bundle/infrastructure/compose/.local/staging/secrets' / name
+        mounts.extend(['--mount', 'type=bind,source=' + str(mounted_path) +
                        ',target=/run/secrets/' + name + ',readonly'])
     observed = json.loads(command(['/usr/bin/docker', 'run', '--rm', '--network', 'none',
                                    '--read-only', '--pull', 'never', '--cap-drop', 'ALL',
@@ -280,7 +281,6 @@ def install(archive, expected, public_key):
     if stat.S_IMODE(os.stat(ROOT).st_mode) != 0o700:
         raise ValueError('Administrative directory is not root-only')
     provision_runtime_secrets(int(policy['secretGid']))
-    verify_runtime_container_access(state['active']['apiId'])
     for name in sorted(FILES):
         if name.startswith('bundle/'):
             write_owned(ROOT / name, items[name], 0o444)
@@ -291,6 +291,7 @@ def install(archive, expected, public_key):
             raise ValueError('Existing secret link differs from reviewed target')
     else:
         os.symlink(RUNTIME_SECRETS, link)
+    verify_runtime_container_access(state['active']['apiId'])
     write_owned(ROOT / 'policy.json', items['policy.json'], 0o444)
     write_owned(ROOT / 'public.pem', public_key.read_bytes(), 0o444)
     (ROOT / 'docker').mkdir(mode=0o700, exist_ok=True)

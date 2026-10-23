@@ -168,7 +168,7 @@ class LinuxIsolationTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
         self.assertEqual((state / 'inbox').stat().st_gid, 42)
         runs = [args for args in executed if args[:3] == ('/usr/bin/docker', 'run', '--rm')]
-        self.assertEqual(len(runs), 3)
+        self.assertEqual(len(runs), 2)
         self.assertTrue(all('--network' in args and 'none' in args and
                             '--pull' in args and 'never' in args and
                             args.count('--mount') == len(setup.SECRET_NAMES)
