@@ -177,6 +177,35 @@ class LinuxIsolationTests(unittest.TestCase):
                              for args in executed))
         with self.assertRaisesRegex(ValueError, 'Sudoers already installed'):
             setup.install(archive, archive_sha, public_key)
+        sudoers.unlink()
+        predecessor = b'#!/usr/bin/python3 -I\n# reviewed predecessor\n'
+        wrapper.write_bytes(predecessor)
+        with self.assertRaisesRegex(ValueError, 'differs from reviewed predecessor'):
+            setup.install(archive, archive_sha, public_key)
+        self.assertEqual(wrapper.read_bytes(), predecessor)
+        with patch.object(setup, 'OLD_WRAPPER_SHA256', hashlib.sha256(predecessor).hexdigest()):
+            setup.install(archive, archive_sha, public_key)
+        self.assertEqual(wrapper.read_bytes(), items['geops_deploy.py'])
+        self.assertTrue(sudoers.exists())
+
+    def test_gate_data_owner_is_pinned_without_changing_gate(self):
+        volume = self.base / 'volume'
+        volume.mkdir(mode=0o700)
+        data = volume / '_data'
+        data.mkdir(mode=0o755)
+        os.chown(data, 1000, 1000)
+        gate = data / 'security-gate.json'
+        gate.write_bytes(b'{"phase":"open"}')
+        os.chown(gate, 1000, 1000)
+        gate.chmod(0o600)
+        self.assertEqual(remote.gate_bytes(gate, True), b'{"phase":"open"}')
+        data.chmod(0o775)
+        with self.assertRaisesRegex(remote.Blocked, 'Gate volume ownership'):
+            remote.gate_bytes(gate, True)
+        data.chmod(0o755)
+        gate.chmod(0o640)
+        with self.assertRaisesRegex(remote.Blocked, 'Data file ownership'):
+            remote.gate_bytes(gate, True)
 
     def test_abi_group_cannot_read_root_secrets_or_runtime_tree(self):
         with tempfile.TemporaryDirectory(prefix='geops-p0-dac-', dir='/tmp') as folder:

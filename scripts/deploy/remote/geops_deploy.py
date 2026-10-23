@@ -68,7 +68,7 @@ def utc(value):
         raise Blocked('Invalid UTC timestamp') from exc
 
 
-def regular_bytes(path, limit=65536, trusted=False):
+def regular_bytes(path, limit=65536, trusted=False, owner=None, group=None, mode=None):
     """Read one inode; never follow a final symlink."""
     flags = (os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) |
              getattr(os, 'O_CLOEXEC', 0) | getattr(os, 'O_BINARY', 0))
@@ -79,6 +79,10 @@ def regular_bytes(path, limit=65536, trusted=False):
             raise Blocked('Invalid input file')
         if trusted and (info.st_uid != 0 or info.st_mode & 0o022):
             raise Blocked('Trusted file is not root-protected')
+        if ((owner is not None and info.st_uid != owner) or
+                (group is not None and info.st_gid != group) or
+                (mode is not None and stat.S_IMODE(info.st_mode) != mode)):
+            raise Blocked('Data file ownership or mode changed')
         chunks = []
         remaining = limit + 1
         while remaining:
@@ -102,6 +106,18 @@ def secure_tree(path):
         info = os.lstat(part)
         if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
             raise Blocked('Privileged path is not root-protected')
+
+
+def gate_bytes(path, enforce_root):
+    """The writable gate volume belongs to the fixed non-root container UID."""
+    if enforce_root:
+        secure_tree(path.parent.parent)
+        directory = os.lstat(path.parent)
+        if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != 1000 or
+                directory.st_gid != 1000 or stat.S_IMODE(directory.st_mode) != 0o755):
+            raise Blocked('Gate volume ownership or mode changed')
+        return regular_bytes(path, 256, owner=1000, group=1000, mode=0o600)
+    return regular_bytes(path, 256)
 
 
 def image_ref(value, service):
@@ -363,9 +379,8 @@ class Controller:
 
     def gate_and_backup(self):
         if self.enforce_root:
-            secure_tree(GATE.parent)
             secure_tree(BACKUPS)
-        gate = json.loads(regular_bytes(GATE, 256))
+        gate = json.loads(gate_bytes(GATE, self.enforce_root))
         if gate.get('phase') != 'open' or not re.fullmatch(
                 r'[a-f0-9-]{36}', gate.get('epoch', '')):
             raise Blocked('External gate is not open')

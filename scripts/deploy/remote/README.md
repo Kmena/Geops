@@ -21,6 +21,8 @@ The authorized signer uses `sign.mjs` with a private key on a trusted machine to
 
 The new root-only controller copies do not remove access to the existing Staging source files under the `abi`-owned checkout. Retiring those originals requires a separate authorized change. Linux DAC tests model the bind mount, and the installer checks all six mounts with a networkless, read-only, disposable container from the active API image before installing sudoers. This check does not restart the active services.
 
+On the existing host, the gate data directory and file are owned by UID/GID 1000 because the non-root gate container writes them. The wrapper pins the observed `0755` directory and `0600` file, requires root-owned ancestors, and still compares the gate epoch with PostgreSQL. A partial installation containing the exact prior wrapper hash can be resumed with a newly reviewed archive; any other installed wrapper is rejected. The installer does not change the gate or active services.
+
 ## Remaining operational validation
 
 Local tests use a simulated Docker runner and real ephemeral Ed25519 signatures. They do not establish Staging rollback time, GPS continuity or sudoers behavior after installation. Before the first approved switch, confirm fresh backup, unchanged A IDs, gate epoch, 21/21 ledger, Nginx/Caddy routes, prepared B digests and the signed approval. Measure real deploy/readiness, GPS retries and B→A rollback in the supervised window. Keep A images and all volumes.

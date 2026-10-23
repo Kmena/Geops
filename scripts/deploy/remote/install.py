@@ -25,6 +25,7 @@ SUDOERS = Path('/etc/sudoers.d/geops-deploy')
 SECRETS = ROOT / 'secrets'
 RUNTIME_SECRETS = ROOT / 'runtime-secrets'
 COMPOSE_PLUGIN = Path('/usr/libexec/docker/cli-plugins/docker-compose')
+OLD_WRAPPER_SHA256 = '9e201072e7365450a8bded2fd736a88f24af2bac34bcf8bb60b16ee6fc4f4050'
 FILES = {
     'geops_deploy.py', 'policy.json', 'state.json', 'geops-deploy.sudoers',
     'bundle/infrastructure/compose/compose.staging.yaml',
@@ -179,6 +180,33 @@ def write_owned(path, data, mode):
         os.close(fd)
 
 
+def write_wrapper(data):
+    if not os.path.lexists(WRAPPER):
+        write_owned(WRAPPER, data, 0o755)
+        return
+    root_protected(WRAPPER)
+    info = os.lstat(WRAPPER)
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o755:
+        raise ValueError('Existing wrapper permissions changed')
+    old = WRAPPER.read_bytes()
+    if old == data:
+        return
+    if hashlib.sha256(old).hexdigest() != OLD_WRAPPER_SHA256:
+        raise ValueError('Existing wrapper differs from reviewed predecessor')
+    fd, temporary = tempfile.mkstemp(prefix='.geops-deploy-', dir=WRAPPER.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchmod(stream.fileno(), 0o755)
+            os.fchown(stream.fileno(), 0, 0)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, WRAPPER)
+    except Exception:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
 def ensure_directory(path):
     missing = []
     cursor = path
@@ -331,7 +359,7 @@ def install(archive, expected, public_key):
             raise ValueError('Existing audit log is not protected')
     else:
         write_owned(audit, b'', 0o600)
-    write_owned(WRAPPER, items['geops_deploy.py'], 0o755)
+    write_wrapper(items['geops_deploy.py'])
     command([str(WRAPPER), 'status'])
     command([str(WRAPPER), 'verify'])
     write_owned(SUDOERS, items['geops-deploy.sudoers'], 0o440)
