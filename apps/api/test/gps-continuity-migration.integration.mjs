@@ -104,6 +104,7 @@ try {
     '0019_mdm_security.sql',
     '0020_gps_mixed_batch_receipt.sql',
     '0021_gps_offline_policy_contract.sql',
+    '0022_mdm_web_oauth.sql',
   ]);
   assert.equal(await checkReadiness(pool), true);
   assert.equal(
@@ -129,7 +130,7 @@ try {
   );
   assert.deepEqual(await applyMigrations(pool), []);
   console.log(
-    'gps-continuity migration PASS: 0016 -> 0021, alerts and resolution preserved, idempotent',
+    'gps-continuity migration PASS: 0016 -> 0022, alerts and resolution preserved, idempotent',
   );
 } finally {
   await pool.end();
