@@ -9,6 +9,7 @@ import type { MdmPage, MdmProvider } from './provider.js';
 import type { MdmInventoryService } from './inventory.js';
 import type { MdmOAuthRuntime } from './oauth-runtime.js';
 import type { MdmConnectionControl } from './connection-control.js';
+import type { MdmWebOAuth } from './web-oauth.js';
 
 interface PageQuery {
   cursor?: string;
@@ -54,6 +55,7 @@ export function registerInventoryRoutes(
   inventory?: MdmInventoryService,
   oauth?: MdmOAuthRuntime,
   control?: MdmConnectionControl,
+  webOAuth?: MdmWebOAuth,
 ): void {
   const guarded = <T>(operation: () => Promise<T>): Promise<T> =>
     control ? control.withConnected(operation) : operation();
@@ -145,7 +147,9 @@ export function registerInventoryRoutes(
     const admin = await requireAdmin(request, auth);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.status.read');
     const status = await mdm.integrationStatus();
-    if (control && !(await control.isConnected())) {
+    status.authorized = control ? await control.isConnected() : false;
+    status.authorization_state = control ? await control.authorizationState() : 'never';
+    if (!status.authorized) {
       status.connected = false;
       status.sanitized_error_code = 'mdm_disconnected';
     }
@@ -159,6 +163,63 @@ export function registerInventoryRoutes(
     });
     return status;
   });
+
+  if (webOAuth) {
+    app.post('/v1/admin/mdm/oauth/start', async (request, reply) => {
+      const admin = await requireAdmin(request, auth, true);
+      const flow = await webOAuth.start(admin.id, admin.sessionId, request.id);
+      reply.header('Cache-Control', 'no-store');
+      reply.header(
+        'Set-Cookie',
+        `${webOAuth.cookieName}=${flow.nonce}; Path=${webOAuth.callbackPath}; Max-Age=300; HttpOnly; SameSite=Lax${webOAuth.secureCookie ? '; Secure' : ''}`,
+      );
+      return { authorization_url: flow.url };
+    });
+
+    app.get<{
+      Querystring: {
+        state?: string;
+        code?: string;
+        error?: string;
+        location?: string;
+      };
+    }>(webOAuth.callbackPath, async (request, reply) => {
+      reply.header('Cache-Control', 'no-store');
+      reply.header('Referrer-Policy', 'no-referrer');
+      reply.header(
+        'Set-Cookie',
+        `${webOAuth.cookieName}=; Path=${webOAuth.callbackPath}; Max-Age=0; HttpOnly; SameSite=Lax${webOAuth.secureCookie ? '; Secure' : ''}`,
+      );
+      const nonce = request.headers.cookie
+        ?.split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(`${webOAuth.cookieName}=`))
+        ?.slice(webOAuth.cookieName.length + 1);
+      let outcome = 'failed';
+      try {
+        await webOAuth.complete({
+          state: request.query.state,
+          code: request.query.code,
+          error: request.query.error,
+          location: request.query.location ?? null,
+          nonce,
+          correlationId: request.id,
+        });
+        oauth?.clearCache();
+        outcome = 'connected';
+      } catch (error) {
+        await appendAudit(devices.pool, {
+          actorType: 'SYSTEM',
+          action: 'mdm.oauth.callback',
+          outcome: 'rejected',
+          correlationId: request.id,
+          metadata: { code: error instanceof ApiError ? error.code : 'mdm_oauth_failed' },
+        }).catch(() => {});
+        // The fixed redirect contains no code, state, grant, or upstream detail.
+      }
+      return reply.code(303).header('Location', `/status?mdm_oauth=${outcome}`).send();
+    });
+  }
 
   app.get<{ Querystring: PageQuery }>('/v1/admin/mdm/devices', async (request) => {
     const admin = await requireAdmin(request, auth);
@@ -260,6 +321,7 @@ export function registerInventoryRoutes(
         await requireInstallationCapability(devices, admin.id, request.id, 'mdm.disconnect');
         if (!control) throw new ApiError(503, 'mdm_control_unavailable', 'MDM unavailable');
         const revoked = await control.disconnect(admin.id, request.id, () => oauth.revoke());
+        if (revoked) await oauth.removePersistedGrant();
         return { local_disconnected: true, remote_revoked: revoked };
       });
 

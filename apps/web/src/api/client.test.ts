@@ -172,3 +172,47 @@ test('MDM admin mutations use session credentials and CSRF without browser OAuth
     globalThis.fetch = prior;
   }
 });
+
+test('MDM OAuth controls keep grants off Web and inventory uses a bounded cursor', async () => {
+  const prior = globalThis.fetch;
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init: init ?? {} });
+    return Response.json({
+      authorization_url: 'https://accounts.zoho.com/oauth/v2/auth?state=synthetic',
+      local_disconnected: true,
+      remote_revoked: true,
+      items: [],
+      next_cursor: null,
+    });
+  };
+  try {
+    await api.mdmOAuthStart('synthetic-csrf');
+    await api.mdmInventory('9007199254740995123');
+    await api.mdmDisconnect('synthetic-csrf');
+    assert.deepEqual(
+      requests.map((request) => [request.init.method ?? 'GET', request.url]),
+      [
+        ['POST', '/v1/admin/mdm/oauth/start'],
+        ['GET', '/v1/admin/mdm/inventory?after=9007199254740995123'],
+        ['POST', '/v1/admin/mdm/disconnect'],
+      ],
+    );
+    assert.equal(
+      requests.every((request) => request.init.credentials === 'same-origin'),
+      true,
+    );
+    assert.equal(
+      requests
+        .filter((request) => request.init.method === 'POST')
+        .every(
+          (request) =>
+            (request.init.headers as Record<string, string>)['x-csrf-token'] === 'synthetic-csrf',
+        ),
+      true,
+    );
+    assert.doesNotMatch(JSON.stringify(requests), /refresh_token|client_secret|Zoho-oauthtoken/i);
+  } finally {
+    globalThis.fetch = prior;
+  }
+});

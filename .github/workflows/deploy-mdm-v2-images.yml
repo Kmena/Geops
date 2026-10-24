@@ -1,0 +1,149 @@
+name: Build MDM v2 immutable images
+
+# Publishes artifacts only; never connects to Staging.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        required: true
+        default: false
+      approved_sha:
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Authorize immutable publication
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: node scripts/deploy/publication-gate.mjs
+      - id: source_ci
+        name: Verify exact source CI
+        if: inputs.publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/deploy/verify-source-ci.mjs
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run security:scan && npm run staging:check && npm run staging:caddy:check && npm run typecheck && npm run lint && npm run contracts:check && npm test && npm run build
+      - run: npx biome check scripts/deploy && node --test scripts/deploy/*.test.mjs
+      - run: python -B -m unittest discover -s scripts/deploy/remote -p 'test_geops_deploy_v2.py' -v
+      - uses: docker/setup-buildx-action@v3
+        if: inputs.publish && github.ref == 'refs/heads/main'
+      - uses: docker/login-action@v3
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: repository
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - id: api_safe
+        uses: docker/build-push-action@v7
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        with:
+          context: .
+          file: infrastructure/docker/api.Dockerfile
+          push: true
+          tags: ${{ steps.repository.outputs.name }}-api:${{ github.sha }}-b22-safe
+          build-args: GEOPS_API_VARIANT=B22-safe
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.geops.api.variant=B22-safe
+      - id: api_mdm
+        uses: docker/build-push-action@v7
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        with:
+          context: .
+          file: infrastructure/docker/api.Dockerfile
+          push: true
+          tags: ${{ steps.repository.outputs.name }}-api:${{ github.sha }}-b22-mdm
+          build-args: GEOPS_API_VARIANT=B22-mdm
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.geops.api.variant=B22-mdm
+      - id: web_gps
+        uses: docker/build-push-action@v7
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        with:
+          context: .
+          file: infrastructure/docker/web.Dockerfile
+          push: true
+          tags: ${{ steps.repository.outputs.name }}-web:${{ github.sha }}-gps-base
+          build-args: |
+            GEOPS_WEB_BASE=/
+            MDM_ENABLED=false
+            VITE_GPS_TIME_ZONE=America/Costa_Rica
+            VITE_GPS_TILE_URL=
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.geops.web.base=/
+            org.geops.web.variant=gps-base
+            org.geops.web.mdm_enabled=false
+            org.geops.web.gps_time_zone=America/Costa_Rica
+      - id: web_mdm
+        uses: docker/build-push-action@v7
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        with:
+          context: .
+          file: infrastructure/docker/web.Dockerfile
+          push: true
+          tags: ${{ steps.repository.outputs.name }}-web:${{ github.sha }}-mdm-qa
+          build-args: |
+            GEOPS_WEB_BASE=/
+            MDM_ENABLED=true
+            VITE_GPS_TIME_ZONE=America/Costa_Rica
+            VITE_GPS_TILE_URL=
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.geops.web.base=/
+            org.geops.web.variant=mdm-qa
+            org.geops.web.mdm_enabled=true
+            org.geops.web.gps_time_zone=America/Costa_Rica
+      - name: Create signed-release input manifest
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        env:
+          API_SAFE: ${{ steps.api_safe.outputs.digest }}
+          API_MDM: ${{ steps.api_mdm.outputs.digest }}
+          WEB_GPS: ${{ steps.web_gps.outputs.digest }}
+          WEB_MDM: ${{ steps.web_mdm.outputs.digest }}
+          CI_RUN: ${{ steps.source_ci.outputs.ci_run }}
+          PUBLICATION_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.name }}
+        run: |
+          node scripts/deploy/create-manifest-v2.mjs release-manifest-v2.json "${GITHUB_SHA}" \
+            "${IMAGE_REPOSITORY}-api@${API_SAFE}" \
+            "${IMAGE_REPOSITORY}-api@${API_MDM}" \
+            "${IMAGE_REPOSITORY}-web@${WEB_GPS}" \
+            "${IMAGE_REPOSITORY}-web@${WEB_MDM}" \
+            "${CI_RUN}" "${PUBLICATION_RUN}"
+      - uses: actions/upload-artifact@v4
+        if: inputs.publish && github.ref == 'refs/heads/main'
+        with:
+          name: geops-mdm-v2-release-${{ github.sha }}
+          path: release-manifest-v2.json
+          retention-days: 90

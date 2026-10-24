@@ -18,7 +18,8 @@ export interface AppConfig {
     customerId: string;
     clientId: string;
     clientSecret: string;
-    refreshToken: string;
+    refreshToken?: string;
+    webOrigin: string;
     configuredEdition: 'TRIAL' | 'FREE' | 'LICENSED';
   } | null;
 }
@@ -79,6 +80,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const cookieName = env.GEOPS_ADMIN_COOKIE_NAME ?? 'geops_admin';
   const stageOrigin = 'https://geops-staging.duckdns.org';
   const usesStageOrigin = origins.includes(stageOrigin);
+  const localMdmOrigin =
+    origins.length === 1 &&
+    /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origins[0] ?? '') &&
+    !secureCookie &&
+    cookieName === 'geops_admin';
   if (
     cookiePath !== '/' ||
     (usesStageOrigin && cookieName !== '__Host-geops_stage_admin') ||
@@ -111,10 +117,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
       !['TRIAL', 'FREE', 'LICENSED'].includes(edition) ||
       !env.GEOPS_MDM_CLIENT_ID ||
       !env.GEOPS_MDM_CLIENT_SECRET ||
-      !env.GEOPS_MDM_REFRESH_TOKEN ||
       env.GEOPS_MDM_TEST_TENANT !== '1' ||
-      !usesStageOrigin ||
-      !secureCookie
+      !((usesStageOrigin && secureCookie) || localMdmOrigin)
     )
       throw new Error('Real MDM requires explicit staging test-tenant configuration');
     mdm = {
@@ -123,7 +127,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
       configuredEdition: edition as 'TRIAL' | 'FREE' | 'LICENSED',
       clientId: env.GEOPS_MDM_CLIENT_ID,
       clientSecret: env.GEOPS_MDM_CLIENT_SECRET,
-      refreshToken: env.GEOPS_MDM_REFRESH_TOKEN,
+      ...(env.GEOPS_MDM_REFRESH_TOKEN ? { refreshToken: env.GEOPS_MDM_REFRESH_TOKEN } : {}),
+      webOrigin: usesStageOrigin ? stageOrigin : (origins[0] ?? stageOrigin),
     };
   } else {
     if (env.MDM_ENABLED && env.MDM_ENABLED !== 'false') throw new Error('MDM_ENABLED is invalid');

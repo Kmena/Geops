@@ -29,8 +29,9 @@ const versions = [
   '0019_mdm_security.sql',
   '0020_gps_mixed_batch_receipt.sql',
   '0021_gps_offline_policy_contract.sql',
+  '0022_mdm_web_oauth.sql',
 ] as const;
-type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21;
+type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -93,7 +94,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18, 19, 20, 21].includes(actual.size) ||
+    ![14, 15, 16, 17, 18, 19, 20, 21, 22].includes(actual.size) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -128,6 +129,9 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['gps_mixed_batch_receipt_retention', 20, 'i'],
     ['gps_offline_boot_clock', 21, 'r'],
     ['gps_delivery_offline_lookup', 21, 'i'],
+    ['mdm_oauth_pending', 22, 'r'],
+    ['mdm_oauth_one_pending_tenant', 22, 'i'],
+    ['mdm_oauth_pending_expiry', 22, 'i'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -180,6 +184,12 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['gps_session_event', 'time_evidence', 21, true],
     ['position_event', 'time_evidence', 21, true],
     ['gps_offline_boot_clock', 'first_elapsed_ms', 21, true],
+    ['mdm_oauth_pending', 'state_digest', 22, true],
+    ['mdm_oauth_pending', 'nonce_digest', 22, true],
+    ['mdm_oauth_pending', 'admin_id', 22, true],
+    ['mdm_oauth_pending', 'session_id', 22, true],
+    ['mdm_oauth_pending', 'verifier_ciphertext', 22, true],
+    ['mdm_oauth_pending', 'expires_at', 22, true],
   ];
   for (const [table, column, introduced, notNull] of columns) {
     const found = await db.query<{ attnotnull: boolean; type: string }>(
@@ -298,6 +308,26 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
       controls.rows[0].login_primary !== 1
     )
       throw new Error('MDM security constraints mismatch');
+  }
+  if (state >= 22) {
+    const oauth = await db.query<{
+      foreign_keys: number;
+      checks: number;
+      unique_definition: string;
+    }>(`SELECT
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_oauth_pending'::regclass
+        AND contype='f') AS foreign_keys,
+      (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_oauth_pending'::regclass
+        AND contype='c') AS checks,
+      pg_get_indexdef('mdm_oauth_one_pending_tenant'::regclass) AS unique_definition`);
+    const row = oauth.rows[0];
+    if (
+      row?.foreign_keys !== 2 ||
+      row.checks !== 4 ||
+      !row.unique_definition.includes('UNIQUE INDEX') ||
+      !row.unique_definition.includes('consumed_at IS NULL')
+    )
+      throw new Error('MDM OAuth pending structure mismatch');
   }
   return state;
 }
@@ -435,7 +465,7 @@ export async function recoverMaintenance(
       throw error;
     }
     await onStage?.('authorized');
-    for (let next = before + 1; next <= 21; next++) {
+    for (let next = before + 1; next <= 22; next++) {
       const migration = catalog[next - 1];
       if (!migration) throw new Error('Recovery migration missing');
       await db.query('BEGIN');
@@ -466,12 +496,12 @@ export async function recoverMaintenance(
         throw new Error('Identity or permission inventory changed during recovery');
     }
     await checkIdentity(db, path, auth);
-    if ((await schemaState(db, catalog)) !== 21) throw new Error('Schema 21 not committed');
+    if ((await schemaState(db, catalog)) !== 22) throw new Error('Schema 22 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
     try {
-      await audit(db, auth, 'maintenance.recovery.validated', 21);
+      await audit(db, auth, 'maintenance.recovery.validated', 22);
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
@@ -480,7 +510,7 @@ export async function recoverMaintenance(
     await onStage?.('audited');
     const gate = await checkIdentity(db, path, auth);
     if (
-      (await schemaState(db, catalog)) !== 21 ||
+      (await schemaState(db, catalog)) !== 22 ||
       identities !== (await identityFingerprint(db, before))
     )
       throw new Error('Final maintenance integrity check failed');

@@ -12,6 +12,35 @@ paths:
         '200': {description: No tokens or customer ID, content: {application/json: {schema: {$ref: '#/components/schemas/Status'}}}}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/oauth/start:
+    post:
+      summary: Begin one-use browser authorization for the isolated MDM tenant
+      description: Requires installation access, gps.tenant.grant, admin session, Origin and CSRF.
+      security: [{adminCookie: [], csrfHeader: []}]
+      responses:
+        '200':
+          description: Authorization URL; nonce is held in an HttpOnly SameSite=Lax callback cookie
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorization_url]
+                properties:
+                  authorization_url: {type: string, format: uri}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/admin/mdm/oauth/callback:
+    get:
+      summary: Consume state and PKCE authorization code once on the backend
+      description: Validates the callback nonce and original admin session server-side; redirects to a fixed Web path without tokens.
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: code, in: query, schema: {type: string}}
+        - {name: error, in: query, schema: {type: string}}
+        - {name: location, in: query, schema: {type: string}}
+      responses:
+        '303': {description: Fixed redirect to /status with an opaque outcome}
   /v1/admin/mdm/devices:
     get:
       summary: Live provider page
@@ -150,6 +179,8 @@ components:
       properties:
         provider: {enum: [fake, manageengine]}
         connected: {type: boolean}
+        authorized: {type: boolean}
+        authorization_state: {enum: [never, connected, disconnecting, disconnected]}
         edition_evidence: {enum: [UNVERIFIED, TRIAL, FREE, LICENSED]}
         configured_edition: {enum: [TRIAL, FREE, LICENSED]}
         region: {type: string}

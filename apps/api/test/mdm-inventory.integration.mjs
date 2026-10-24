@@ -22,12 +22,13 @@ try {
     /^geops_verify_[0-9]+$/,
   );
   const applied = await applyMigrations(pool);
-  assert.equal(applied.length, 21);
-  assert.deepEqual(applied.slice(-4), [
+  assert.equal(applied.length, 22);
+  assert.deepEqual(applied.slice(-5), [
     '0018_mdm_inventory.sql',
     '0019_mdm_security.sql',
     '0020_gps_mixed_batch_receipt.sql',
     '0021_gps_offline_policy_contract.sql',
+    '0022_mdm_web_oauth.sql',
   ]);
   assert.equal(await checkReadiness(pool), true);
   const auth = new AdminAuthService(pool, {

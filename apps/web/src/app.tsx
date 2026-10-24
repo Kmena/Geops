@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   BrowserRouter,
   Link,
@@ -39,6 +39,21 @@ function ErrorText({ error }: { error: unknown }) {
       {message}
     </div>
   );
+}
+
+function mdmErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiClientError))
+    return 'No se pudo comunicar con GEOPS. Inténtalo de nuevo.';
+  if (error.code === 'mdm_rate_limited')
+    return 'ManageEngine limitó las solicitudes. Inténtalo más tarde.';
+  if (error.code === 'mdm_unauthorized' || error.code === 'mdm_oauth_failed')
+    return 'ManageEngine rechazó la autorización. Reconecta la cuenta.';
+  if (error.code === 'mdm_connection_error' || error.code === 'mdm_upstream_error')
+    return 'ManageEngine no responde. Inténtalo más tarde.';
+  if (error.status === 401) return 'La sesión GEOPS expiró. Vuelve a entrar.';
+  if (error.status === 403) return 'No tienes permiso para administrar MDM.';
+  if (error.code === 'mdm_disconnected') return 'ManageEngine está desconectado.';
+  return 'No se pudo completar la operación MDM. Consulta el estado y vuelve a intentarlo.';
 }
 
 function Login() {
@@ -408,7 +423,52 @@ function Inventory() {
 }
 
 function Status() {
+  const { profile } = useAuth();
+  const location = useLocation();
   const state = useLoad(api.mdmStatus);
+  const [busy, setBusy] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [notice, setNotice] = useState('');
+  const authorized = Boolean(state.data?.authorized);
+  const callbackResult = new URLSearchParams(location.search).get('mdm_oauth');
+  async function connect() {
+    if (!profile || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const result = await api.mdmOAuthStart(profile.csrf_token);
+      const url = new URL(result.authorization_url);
+      if (
+        !/^accounts\.zoho\.(com|eu|in|com\.au|jp|ca|cn|sa|uk)$/.test(url.hostname) ||
+        url.protocol !== 'https:'
+      )
+        throw new Error('Invalid authorization origin');
+      window.location.assign(url.href);
+    } catch (error) {
+      setActionError(mdmErrorMessage(error));
+      setBusy(false);
+    }
+  }
+  async function disconnect() {
+    if (!profile || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      const result = await api.mdmDisconnect(profile.csrf_token);
+      setNotice(
+        result.remote_revoked
+          ? 'ManageEngine desconectado.'
+          : 'Acceso local bloqueado. La revocación remota sigue pendiente; reintenta la desconexión.',
+      );
+      setConfirmDisconnect(false);
+      state.refresh();
+    } catch (error) {
+      setActionError(mdmErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <Shell>
       <h1>Integración MDM</h1>
@@ -417,6 +477,14 @@ function Status() {
       </p>
       <section className="panel status-panel" aria-labelledby="status-title">
         <h2 id="status-title">Estado de la conexión</h2>
+        {callbackResult === 'failed' && (
+          <p role="alert">No se completó la autorización de ManageEngine. Vuelve a intentarlo.</p>
+        )}
+        {callbackResult === 'connected' && authorized && (
+          <p role="status">Cuenta ManageEngine conectada.</p>
+        )}
+        {notice && <p role="status">{notice}</p>}
+        {actionError && <p role="alert">{actionError}</p>}
         {state.loading ? (
           <p role="status">Cargando estado…</p>
         ) : state.error ? (
@@ -437,9 +505,16 @@ function Status() {
             <div>
               <dt>Conexión</dt>
               <dd>
+                {authorized ? 'Autorizada' : 'Desconectada'} ·{' '}
                 {state.data.connected ? 'Consulta real confirmada' : 'Sin consulta real confirmada'}
               </dd>
             </div>
+            {state.data.authorization_state === 'disconnecting' && (
+              <div>
+                <dt>Revocación</dt>
+                <dd>Pendiente de confirmar en ManageEngine</dd>
+              </div>
+            )}
             <div>
               <dt>Edición configurada</dt>
               <dd>{state.data.configured_edition ?? 'Sin configurar'}</dd>
@@ -462,12 +537,41 @@ function Status() {
             </div>
           </dl>
         ) : null}
+        {state.data?.provider === 'manageengine' && !state.loading && !state.error && (
+          <div className="mdm-actions">
+            {state.data.authorization_state === 'disconnecting' ? (
+              <button type="button" onClick={() => void disconnect()} disabled={busy || !profile}>
+                {busy ? 'Reintentando…' : 'Reintentar desconexión'}
+              </button>
+            ) : !authorized ? (
+              <button type="button" onClick={() => void connect()} disabled={busy || !profile}>
+                {busy ? 'Preparando autorización…' : 'Conectar o reconectar ManageEngine'}
+              </button>
+            ) : confirmDisconnect ? (
+              <>
+                <p>Se bloqueará el acceso MDM y se solicitará revocar el grant remoto.</p>
+                <button type="button" onClick={() => void disconnect()} disabled={busy}>
+                  {busy ? 'Desconectando…' : 'Confirmar desconexión'}
+                </button>
+                <button type="button" onClick={() => setConfirmDisconnect(false)} disabled={busy}>
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setConfirmDisconnect(true)}>
+                Desconectar ManageEngine
+              </button>
+            )}
+          </div>
+        )}
       </section>
-      {state.data?.provider === 'manageengine' ? (
+      {state.data?.provider === 'manageengine' && authorized ? (
         <MdmAdminWorkspace refreshStatus={state.refresh} />
       ) : (
         <p className="empty">
-          La integración real está desactivada. El inventario MDM sigue simulado.
+          {state.data?.provider === 'manageengine'
+            ? 'Conecta ManageEngine para consultar y sincronizar el inventario.'
+            : 'La integración real está desactivada. El inventario MDM sigue simulado.'}
         </p>
       )}
     </Shell>
@@ -476,7 +580,10 @@ function Status() {
 
 function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
   const { profile } = useAuth();
-  const inventory = useLoad(api.mdmInventory);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [history, setHistory] = useState<string[]>([]);
+  const loadInventory = useCallback(() => api.mdmInventory(cursor), [cursor]);
+  const inventory = useLoad(loadInventory);
   const geops = useLoad(api.enrollmentDevices);
   const [mdmId, setMdmId] = useState('');
   const [geopsId, setGeopsId] = useState('');
@@ -501,10 +608,13 @@ function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
       setNotice(
         `Sincronización terminada: ${result.device_count} Android observados. Las ausencias no se consideran bajas.`,
       );
-      inventory.refresh();
+      if (cursor) {
+        setHistory([]);
+        setCursor(undefined);
+      } else inventory.refresh();
       refreshStatus();
-    } catch {
-      setError('No se pudo sincronizar. Revisa el estado de la conexión y vuelve a intentarlo.');
+    } catch (error) {
+      setError(mdmErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -525,10 +635,8 @@ function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
       }
       inventory.refresh();
       setVerified(false);
-    } catch {
-      setError(
-        'No se pudo cambiar la asociación. Actualiza el inventario y verifica que ambos registros sean únicos.',
-      );
+    } catch (error) {
+      setError(mdmErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -558,7 +666,12 @@ function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
       {inventory.loading ? (
         <p role="status">Cargando inventario sincronizado…</p>
       ) : inventory.error ? (
-        <p role="alert">No se pudo cargar el inventario sincronizado.</p>
+        <div>
+          <p role="alert">{mdmErrorMessage(inventory.error)}</p>
+          <button type="button" onClick={inventory.refresh}>
+            Reintentar inventario
+          </button>
+        </div>
       ) : inventory.data?.items.length ? (
         <div className="mdm-table-wrap">
           <table className="mdm-table">
@@ -590,15 +703,39 @@ function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
               ))}
             </tbody>
           </table>
-          {inventory.data.next_cursor && (
-            <p>Hay más equipos. Consulta la página siguiente mediante el API.</p>
-          )}
         </div>
       ) : (
         <p className="empty">
           Todavía no hay Android sincronizados. Ejecuta la sincronización después de verificar el
           tenant.
         </p>
+      )}
+      {!inventory.loading && !inventory.error && (
+        <nav className="mdm-pages" aria-label="Páginas del inventario MDM">
+          <span>
+            Página {history.length + 1} · {inventory.data?.items.length ?? 0} equipos en esta página
+          </span>
+          <button
+            type="button"
+            disabled={history.length === 0}
+            onClick={() => {
+              setCursor(history.at(-1) || undefined);
+              setHistory(history.slice(0, -1));
+            }}
+          >
+            Anterior
+          </button>
+          <button
+            type="button"
+            disabled={!inventory.data?.next_cursor}
+            onClick={() => {
+              setHistory([...history, cursor ?? '']);
+              setCursor(inventory.data?.next_cursor ?? undefined);
+            }}
+          >
+            Siguiente
+          </button>
+        </nav>
       )}
       {eligible.length > 0 && (
         <div className="mdm-link-form">

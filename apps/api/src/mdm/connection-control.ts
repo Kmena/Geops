@@ -15,15 +15,21 @@ interface ConnectionRow {
 
 /** Cross-process gate for every real-MDM operation. No credential value is stored in PostgreSQL. */
 export class MdmConnectionControl {
-  private readonly digest: Buffer;
+  private readonly refreshSource: string | (() => Promise<string | null>);
 
   constructor(
     private readonly pool: Pool,
     private readonly region: string,
     private readonly customerId: string,
-    refreshToken: string,
+    refreshToken: string | (() => Promise<string | null>),
   ) {
-    this.digest = createHash('sha256').update(refreshToken).digest();
+    this.refreshSource = refreshToken;
+  }
+
+  private async digest(): Promise<Buffer | null> {
+    const token =
+      typeof this.refreshSource === 'string' ? this.refreshSource : await this.refreshSource();
+    return token ? createHash('sha256').update(token).digest() : null;
   }
 
   private async row(db: PoolClient): Promise<ConnectionRow | undefined> {
@@ -35,22 +41,24 @@ export class MdmConnectionControl {
     return result.rows[0];
   }
 
-  private async initialize(db: PoolClient): Promise<void> {
+  private async initialize(db: PoolClient, digest: Buffer): Promise<void> {
     await db.query(
       `INSERT INTO mdm_connection_control(provider,region,customer_id,state,credential_digest)
        VALUES('manageengine',$1,$2,'CONNECTED',$3) ON CONFLICT DO NOTHING`,
-      [this.region, this.customerId, this.digest],
+      [this.region, this.customerId, digest],
     );
   }
 
   async withConnected<T>(operation: () => Promise<T>): Promise<T> {
+    const digest = await this.digest();
+    if (!digest) throw new ApiError(503, 'mdm_disconnected', 'MDM unavailable');
     const db = await this.pool.connect();
     try {
       await db.query('BEGIN');
       await db.query('SELECT pg_advisory_xact_lock_shared($1)', [LOCK_ID]);
-      await this.initialize(db);
+      await this.initialize(db, digest);
       const current = await this.row(db);
-      if (current?.state !== 'CONNECTED' || !current.credential_digest.equals(this.digest))
+      if (current?.state !== 'CONNECTED' || !current.credential_digest.equals(digest))
         throw new ApiError(503, 'mdm_disconnected', 'MDM unavailable');
       const result = await operation();
       await db.query('COMMIT');
@@ -64,13 +72,29 @@ export class MdmConnectionControl {
   }
 
   async isConnected(): Promise<boolean> {
+    const digest = await this.digest();
+    if (!digest) return false;
     const result = await this.pool.query<ConnectionRow>(
       `SELECT state,credential_digest,remote_revoked FROM mdm_connection_control
        WHERE provider='manageengine' AND region=$1 AND customer_id=$2`,
       [this.region, this.customerId],
     );
     const row = result.rows[0];
-    return !row || (row.state === 'CONNECTED' && row.credential_digest.equals(this.digest));
+    return !row || (row.state === 'CONNECTED' && row.credential_digest.equals(digest));
+  }
+
+  async authorizationState(): Promise<'never' | 'connected' | 'disconnecting' | 'disconnected'> {
+    const result = await this.pool.query<ConnectionRow>(
+      `SELECT state,credential_digest,remote_revoked FROM mdm_connection_control
+       WHERE provider='manageengine' AND region=$1 AND customer_id=$2`,
+      [this.region, this.customerId],
+    );
+    const row = result.rows[0];
+    if (!row) return (await this.digest()) ? 'connected' : 'never';
+    if (row.state === 'DISCONNECTING') return 'disconnecting';
+    if (row.state === 'DISCONNECTED') return 'disconnected';
+    const digest = await this.digest();
+    return digest && row.credential_digest.equals(digest) ? 'connected' : 'disconnected';
   }
 
   async disconnect(
@@ -78,14 +102,16 @@ export class MdmConnectionControl {
     correlationId: string,
     remoteRevoke: () => Promise<boolean>,
   ): Promise<boolean> {
+    const digest = await this.digest();
+    if (!digest) throw new ApiError(503, 'mdm_disconnected', 'MDM unavailable');
     const db = await this.pool.connect();
     let alreadyRevoked = false;
     try {
       await db.query('BEGIN');
       await db.query('SELECT pg_advisory_xact_lock($1)', [LOCK_ID]);
-      await this.initialize(db);
+      await this.initialize(db, digest);
       const current = await this.row(db);
-      if (!current?.credential_digest.equals(this.digest))
+      if (!current?.credential_digest.equals(digest))
         throw new ApiError(503, 'mdm_credential_mismatch', 'MDM unavailable');
       alreadyRevoked = current.state === 'DISCONNECTED' && current.remote_revoked;
       if (!alreadyRevoked) {
@@ -157,10 +183,7 @@ export class MdmConnectionControl {
     verifyNewGrant: () => Promise<unknown>,
     reason = 'Authorized new MDM grant',
   ): Promise<void> {
-    const db = await this.pool.connect();
-    try {
-      await db.query('BEGIN');
-      await db.query('SELECT pg_advisory_xact_lock($1)', [LOCK_ID]);
+    const check = async (db: PoolClient, digest: Buffer) => {
       await requireInstallationAccess(db, actorId, 'synthetic');
       const permission = await db.query(
         `SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.tenant.grant'
@@ -172,33 +195,50 @@ export class MdmConnectionControl {
       if (
         current?.state !== 'DISCONNECTED' ||
         !current.remote_revoked ||
-        current.credential_digest.equals(this.digest)
+        current.credential_digest.equals(digest)
       )
         throw new ApiError(409, 'mdm_reconnect_requires_new_grant', 'Conflict');
-      await verifyNewGrant();
-      await db.query(
-        `UPDATE mdm_connection_control SET state='CONNECTED',credential_digest=$3,
+    };
+    const validate = async (digest: Buffer, finish: boolean): Promise<void> => {
+      const db = await this.pool.connect();
+      try {
+        await db.query('BEGIN');
+        await db.query('SELECT pg_advisory_xact_lock($1)', [LOCK_ID]);
+        await check(db, digest);
+        if (finish) {
+          await db.query(
+            `UPDATE mdm_connection_control SET state='CONNECTED',credential_digest=$3,
          remote_revoked=false,updated_at=now()
          WHERE provider='manageengine' AND region=$1 AND customer_id=$2`,
-        [this.region, this.customerId, this.digest],
-      );
-      await appendAudit(db, {
-        actorType: 'ADMIN',
-        actorId,
-        action: 'mdm.reconnect',
-        outcome: 'success',
-        correlationId,
-        metadata: {
-          provider: 'manageengine',
-          reason_sha256: createHash('sha256').update(reason.trim()).digest('hex'),
-        },
-      });
-      await db.query('COMMIT');
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    } finally {
-      db.release();
-    }
+            [this.region, this.customerId, digest],
+          );
+          await appendAudit(db, {
+            actorType: 'ADMIN',
+            actorId,
+            action: 'mdm.reconnect',
+            outcome: 'success',
+            correlationId,
+            metadata: {
+              provider: 'manageengine',
+              reason_sha256: createHash('sha256').update(reason.trim()).digest('hex'),
+            },
+          });
+        }
+        await db.query('COMMIT');
+      } catch (error) {
+        await db.query('ROLLBACK');
+        throw error;
+      } finally {
+        db.release();
+      }
+    };
+    const initialDigest = await this.digest();
+    if (!initialDigest) throw new ApiError(503, 'mdm_disconnected', 'MDM unavailable');
+    await validate(initialDigest, false);
+    // Vendor verification may refresh a grant; it must not run under the exclusive DB lock.
+    await verifyNewGrant();
+    const finalDigest = await this.digest();
+    if (!finalDigest) throw new ApiError(503, 'mdm_disconnected', 'MDM unavailable');
+    await validate(finalDigest, true);
   }
 }

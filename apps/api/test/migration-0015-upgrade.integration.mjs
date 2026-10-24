@@ -1,4 +1,4 @@
-// Prepare 14-18 or verify 14 -> current schema only in a fresh disposable geops_verify_* database.
+// Prepare 14-18/21 or verify 14 -> current schema only in a fresh disposable geops_verify_* database.
 import assert from 'node:assert/strict';
 import { createHash, createHmac, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
@@ -18,7 +18,15 @@ if (
   !url ||
   !/^geops_verify_[0-9]+$/.test(new URL(url).pathname.slice(1)) ||
   process.env.GEOPS_DATA_MODE !== 'synthetic' ||
-  !['full', 'prepare-14', 'prepare-15', 'prepare-16', 'prepare-17', 'prepare-18'].includes(mode)
+  ![
+    'full',
+    'prepare-14',
+    'prepare-15',
+    'prepare-16',
+    'prepare-17',
+    'prepare-18',
+    'prepare-21',
+  ].includes(mode)
 )
   throw new Error('Fresh disposable synthetic DB required');
 const pool = new pg.Pool({ connectionString: url, max: 2 });
@@ -164,6 +172,7 @@ try {
       '0019_mdm_security.sql',
       '0020_gps_mixed_batch_receipt.sql',
       '0021_gps_offline_policy_contract.sql',
+      '0022_mdm_web_oauth.sql',
     ]);
     const rows = await pool.query(
       'SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL',

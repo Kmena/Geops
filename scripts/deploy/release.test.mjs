@@ -12,7 +12,8 @@ import {
 } from './release.mjs';
 
 const ref = (service, digit) => `localhost:5000/geops-${service}@sha256:${digit.repeat(64)}`;
-const migrations = migrationChecksums();
+// The installed v1 policy remains A21; the integrated source already contains 0022.
+const migrations = migrationChecksums().slice(0, 21);
 
 test('embedded API migrations must match the approved manifest', () => {
   assert.doesNotThrow(() => assertImageMigrations(migrations, migrations));
@@ -27,7 +28,8 @@ test('embedded API migrations must match the approved manifest', () => {
       encoding: 'utf8',
     }),
   );
-  assertImageMigrations(actual, migrations);
+  assert.equal(actual.length, 22);
+  assert.throws(() => assertImageMigrations(actual, migrations));
 });
 
 test('database ledger must match all approved SQL versions and checksums before switching', () => {

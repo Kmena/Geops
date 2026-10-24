@@ -13,6 +13,8 @@ import { ManageEngineReadOnly } from './mdm/provider.js';
 import { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
 import { MdmInventoryService } from './mdm/inventory.js';
 import { MdmConnectionControl } from './mdm/connection-control.js';
+import { RealMdmGrantStore } from './mdm/real-grants.js';
+import { MdmWebOAuth } from './mdm/web-oauth.js';
 import { GpsPolicyService } from './gps-policy-service.js';
 import { GpsHealthService } from './gps-health-service.js';
 import { GpsDeviceConfigService } from './gps-device-config.js';
@@ -34,15 +36,29 @@ async function main(): Promise<void> {
     cookieName: config.adminCookieName,
   });
   const devices = new DeviceRepository(pool);
-  const mdmOAuth = config.mdm ? new MdmOAuthRuntime(config.mdm) : undefined;
+  const mdmGrants = config.mdm
+    ? new RealMdmGrantStore(pool, config.mdmGrantKey, config.mdm.region, config.mdm.customerId)
+    : undefined;
+  const mdmOAuth =
+    config.mdm && mdmGrants
+      ? new MdmOAuthRuntime({ ...config.mdm, grantStore: mdmGrants })
+      : undefined;
   const mdmControl = config.mdm
     ? new MdmConnectionControl(
         pool,
         config.mdm.region,
         config.mdm.customerId,
-        config.mdm.refreshToken,
+        () => mdmOAuth?.refreshGrant() ?? Promise.resolve(null),
       )
     : undefined;
+  const mdmWebOAuth =
+    config.mdm && mdmGrants
+      ? new MdmWebOAuth(pool, mdmGrants, {
+          ...config.mdm,
+          grantKey: config.mdmGrantKey,
+          mountedGrantPresent: Boolean(config.mdm.refreshToken),
+        })
+      : undefined;
   const mdmOrigin = config.mdm ? `https://mdm.manageengine.${config.mdm.region}` : null;
   const mdm =
     config.mdm && mdmOAuth && mdmOrigin
@@ -95,6 +111,7 @@ async function main(): Promise<void> {
     ...(mdmInventory ? { mdmInventory } : {}),
     ...(mdmOAuth ? { mdmOAuth } : {}),
     ...(mdmControl ? { mdmControl } : {}),
+    ...(mdmWebOAuth ? { mdmWebOAuth } : {}),
     secureCookie: config.secureCookie,
     adminCookiePath: config.adminCookiePath,
   });

@@ -90,6 +90,8 @@ export interface Page<T> {
 export interface MdmStatus {
   provider: 'fake' | 'manageengine';
   connected: boolean;
+  authorized?: boolean;
+  authorization_state?: 'never' | 'connected' | 'disconnecting' | 'disconnected';
   edition_evidence: 'TRIAL' | 'FREE' | 'LICENSED' | 'UNVERIFIED';
   configured_edition?: 'TRIAL' | 'FREE' | 'LICENSED';
   region?: string;
@@ -289,8 +291,20 @@ export const api = {
       `/v1/admin/mdm/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   mdmStatus: () => read<MdmStatus>('/v1/admin/mdm/status'),
-  mdmInventory: () =>
-    read<{ items: MdmInventoryDevice[]; next_cursor: string | null }>('/v1/admin/mdm/inventory'),
+  mdmInventory: (after?: string) =>
+    read<{ items: MdmInventoryDevice[]; next_cursor: string | null }>(
+      `/v1/admin/mdm/inventory${after ? `?after=${encodeURIComponent(after)}` : ''}`,
+    ),
+  mdmOAuthStart: (csrf: string) =>
+    read<{ authorization_url: string }>('/v1/admin/mdm/oauth/start', {
+      method: 'POST',
+      headers: { 'x-csrf-token': csrf },
+    }),
+  mdmDisconnect: (csrf: string) =>
+    read<{ local_disconnected: boolean; remote_revoked: boolean }>('/v1/admin/mdm/disconnect', {
+      method: 'POST',
+      headers: { 'x-csrf-token': csrf },
+    }),
   mdmSync: (csrf: string) =>
     read<{ run_id: string; device_count: number }>('/v1/admin/mdm/sync', {
       method: 'POST',

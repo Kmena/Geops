@@ -193,7 +193,7 @@ export async function revokeRefresh(config, refreshToken, fetchImpl = fetch) {
   return response.status === 200;
 }
 
-function locationMatches(region, location) {
+export function locationMatches(region, location) {
   if (!location) return true;
   const accepted = REGIONS.get(region);
   return location === region || location === accepted;

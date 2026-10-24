@@ -138,6 +138,18 @@ jobs:
           docker exec "$container" createdb -U postgres geops_dev
           docker exec "$container" pg_restore -U postgres -d geops_dev /tmp/geops-pre0015.dump
           GEOPS_DISPOSABLE_MAINTENANCE_REHEARSAL=YES DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_dev npm run maintenance:cli:rehearsal --workspace @geops/api
+      - name: A21 backup restore and supervised 0022 interruption rehearsal
+        run: |
+          container='${{ job.services.postgis.id }}'
+          docker exec "$container" createdb -U postgres geops_verify_20261031
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261031 npm run migration:0015:integration --workspace @geops/api -- prepare-21
+          docker exec "$container" pg_dump -U postgres -d geops_verify_20261031 -Fc -f /tmp/geops-pre0022.dump
+          docker exec "$container" sha256sum /tmp/geops-pre0022.dump
+          docker exec "$container" createdb -U postgres geops_verify_20261031_restore
+          docker exec "$container" pg_restore -U postgres -d geops_verify_20261031_restore /tmp/geops-pre0022.dump
+          test "$(docker exec "$container" psql -U postgres -d geops_verify_20261031_restore -Atc 'SELECT count(*) FROM geops_schema_migrations')" = 21
+          test "$(docker exec "$container" psql -U postgres -d geops_verify_20261031_restore -Atc 'SELECT count(*) FROM admin_session WHERE revoked_at IS NULL')" = 1
+          DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261031 node --import tsx apps/api/test/maintenance-recovery-22.integration.mjs
       - name: Authenticated synthetic PostgreSQL regressions
         run: |
           npm run device:enrollment:integration --workspace @geops/api

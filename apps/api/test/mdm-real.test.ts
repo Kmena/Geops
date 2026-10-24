@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ManageEngineReadOnly } from '../src/mdm/provider.js';
 import { MdmOAuthRuntime } from '../src/mdm/oauth-runtime.js';
+import type { RealMdmGrantStore } from '../src/mdm/real-grants.js';
 import { loadConfig } from '../src/config.js';
 import { createApp } from '../src/app.js';
 import { MdmInventoryService } from '../src/mdm/inventory.js';
@@ -72,6 +73,37 @@ test('OAuth refresh grants inventory access without exposing secrets and caches 
   assert.equal(await token.token(), 'test-access');
   assert.equal(await token.token(), 'test-access');
   assert.equal(refreshes, 1);
+});
+
+test('browser grant rotation is persisted before a refreshed access token is returned', async () => {
+  let grant = 'synthetic-old-refresh';
+  let rotations = 0;
+  const store = {
+    load: async () => grant,
+    rotate: async (oldValue: string, newValue: string) => {
+      assert.equal(oldValue, grant);
+      grant = newValue;
+      rotations++;
+    },
+  } as unknown as RealMdmGrantStore;
+  const runtime = new MdmOAuthRuntime({
+    clientId: 'synthetic-client',
+    clientSecret: 'synthetic-secret',
+    region: 'com',
+    grantStore: store,
+    fetchImpl: async () =>
+      Response.json({
+        access_token: 'synthetic-access',
+        refresh_token: 'synthetic-new-refresh',
+        expires_in: 3600,
+        scope: 'MDMOnDemand.MDMInventory.READ',
+      }),
+  });
+  assert.equal(await runtime.token(), 'synthetic-access');
+  assert.equal(grant, 'synthetic-new-refresh');
+  assert.equal(rotations, 1);
+  assert.equal(await runtime.token(), 'synthetic-access');
+  assert.equal(rotations, 1);
 });
 
 test('large numeric device IDs, detail attributes and vendor continuation preserve exact identity', async () => {

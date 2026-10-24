@@ -15,6 +15,8 @@ RUN npm run build --workspace @geops/api-contracts && npm run build --workspace 
 RUN npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM node:24.16.0-bookworm-slim
+ARG GEOPS_API_VARIANT=unspecified
+LABEL org.geops.api.variant=${GEOPS_API_VARIANT}
 ENV NODE_ENV=development
 WORKDIR /work
 COPY --from=build /work/node_modules ./node_modules

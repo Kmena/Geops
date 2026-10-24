@@ -19,7 +19,7 @@ try {
   assert.match(identity.rows[0].name, /^geops_verify_[0-9]+$/);
   assert.equal(identity.rows[0].version_table, null, 'test needs an empty disposable database');
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 21);
+  assert.equal(migrations.length, 22);
   const db = await pool.connect();
   try {
     await db.query('BEGIN');

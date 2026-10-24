@@ -5,10 +5,10 @@ import { MdmOnly, mdmEnabled } from './MdmAvailability.js';
 
 test('MDM controls are absent from the default Staging 1 Web bundle', () => {
   assert.equal(mdmEnabled, false);
-  assert.equal(renderToStaticMarkup(<MdmOnly>Sincronizar MDM</MdmOnly>), '');
-  assert.equal(renderToStaticMarkup(<MdmOnly enabled={false}>Vincular MDM</MdmOnly>), '');
+  assert.equal(renderToStaticMarkup(MdmOnly({ children: 'Sincronizar MDM' })), '');
+  assert.equal(renderToStaticMarkup(MdmOnly({ enabled: false, children: 'Vincular MDM' })), '');
   assert.equal(
-    renderToStaticMarkup(<MdmOnly enabled={true}>Integración MDM</MdmOnly>),
+    renderToStaticMarkup(MdmOnly({ enabled: true, children: 'Integración MDM' })),
     'Integración MDM',
   );
 });

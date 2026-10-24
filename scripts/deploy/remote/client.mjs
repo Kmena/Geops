@@ -9,9 +9,16 @@ const operations = { status: 0, verify: 0, preflight: 1, prepare: 1, deploy: 2, 
 const [operation, ...args] = process.argv.slice(2);
 
 function run(program, command, timeout) {
-  const result = spawnSync(program, command, { stdio: 'inherit', timeout,
-    env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE } });
+  const result = spawnSync(program, command, {
+    stdio: 'inherit',
+    timeout,
+    env: {
+      PATH: process.env.PATH,
+      SystemRoot: process.env.SystemRoot,
+      HOME: process.env.HOME,
+      USERPROFILE: process.env.USERPROFILE,
+    },
+  });
   if (result.error || result.status !== 0) process.exit(result.status || 1);
 }
 
@@ -23,19 +30,32 @@ if (operation === 'stage-release' || operation === 'stage-approval') {
   const kind = operation === 'stage-release' ? 'release' : 'approval';
   // The server verifies the signature; these files are untrusted data in a writable inbox.
   const remote = `geops-staging:/var/lib/geops-deploy/inbox/${identity}.${kind}`;
-  run('scp', ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-    resolve(document), `${remote}.json`], 60_000);
-  run('scp', ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-    resolve(signature), `${remote}.sig`], 60_000);
+  run(
+    'scp',
+    ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', resolve(document), `${remote}.json`],
+    60_000,
+  );
+  run(
+    'scp',
+    ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', resolve(signature), `${remote}.sig`],
+    60_000,
+  );
 } else if (Object.hasOwn(operations, operation)) {
   if (args.length !== operations[operation] || !args.every((item) => id.test(item))) {
     throw new Error('Invalid operation arguments');
   }
   const remote = ['sudo', '-n', '/usr/local/sbin/geops-deploy', operation, ...args].join(' ');
-  run('ssh', ['-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-    'geops-staging', remote],
-  operation === 'deploy' || operation === 'rollback' ? 20 * 60_000 :
-    operation === 'prepare' ? 8 * 60_000 : 4 * 60_000);
+  run(
+    'ssh',
+    ['-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', 'geops-staging', remote],
+    operation === 'deploy' || operation === 'rollback'
+      ? 20 * 60_000
+      : operation === 'prepare'
+        ? 8 * 60_000
+        : 4 * 60_000,
+  );
 } else {
-  throw new Error('Allowed: status, preflight, prepare, deploy, rollback, verify, stage-release, stage-approval');
+  throw new Error(
+    'Allowed: status, preflight, prepare, deploy, rollback, verify, stage-release, stage-approval',
+  );
 }
