@@ -190,7 +190,7 @@ try {
     );
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
-      21,
+      22,
     );
     assert.equal((await pool.query('SELECT epoch FROM security_epoch')).rows[0].epoch, epoch);
     assert.equal(
@@ -253,7 +253,7 @@ try {
       ).rows[0].consumed_at,
       null,
     );
-    console.log('Migrations 0015-0021 upgrade from populated 14-migration database: PASS');
+    console.log('Migrations 0015-0022 upgrade from populated 14-migration database: PASS');
   }
 } finally {
   await pool.end();

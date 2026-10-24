@@ -86,13 +86,32 @@ assert c["volumes"]["stage_backups"]["name"] == "geops_spec02_stage_backups"
 ' "$approved_sha" "$secret_gid"
 docker network inspect geops_spec02_stage_edge >/dev/null
 
-# The published catalog is immutable for this reinstall. Verify names before touching Docker.
+# The published catalog is immutable for this reinstall. A21 remains the default;
+# B22-safe requires an explicit profile and the reviewed A21 prefix plus 0022.
 migration_files=("$root"/apps/api/src/db/migrations/*.sql)
-[[ ${#migration_files[@]} -eq 21 ]] || { echo 'El catálogo no contiene exactamente 21 migraciones' >&2; exit 1; }
+catalog_profile=${GEOPS_CATALOG_PROFILE:-A21}
+case $catalog_profile in
+  A21) expected_count=21; expected_hash=cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e ;;
+  B22-safe) expected_count=22; expected_hash=aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2 ;;
+  *) echo 'Perfil de catálogo no permitido' >&2; exit 1 ;;
+esac
+[[ ${#migration_files[@]} -eq $expected_count ]] || { echo 'Cantidad de migraciones incompatible con el perfil' >&2; exit 1; }
 for index in "${!migration_files[@]}"; do
   printf -v prefix '%04d_' "$((index + 1))"
   [[ $(basename -- "${migration_files[$index]}") == "$prefix"* ]] || { echo 'Catálogo de migraciones fuera de orden' >&2; exit 1; }
 done
+expected_migrations=$(for file in "${migration_files[@]}"; do
+  printf '%s|%s\n' "$(basename -- "$file")" "$(sha256sum -- "$file" | cut -d' ' -f1)"
+done)
+catalog_hash=$(printf '%s' "$expected_migrations" | sha256sum | cut -d' ' -f1)
+[[ $catalog_hash == "$expected_hash" ]] || { echo 'Hash del catálogo no coincide con el perfil revisado' >&2; exit 1; }
+if [[ $catalog_profile == B22-safe ]]; then
+  a21_migrations=$(for file in "${migration_files[@]:0:21}"; do
+    printf '%s|%s\n' "$(basename -- "$file")" "$(sha256sum -- "$file" | cut -d' ' -f1)"
+  done)
+  a21_hash=$(printf '%s' "$a21_migrations" | sha256sum | cut -d' ' -f1)
+  [[ $a21_hash == cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e ]] || { echo 'Prefijo A21 alterado' >&2; exit 1; }
+fi
 
 for pair in 'stage_db geops_spec02_stage_db' 'stage_app geops_spec02_stage_app'; do
   read -r key network <<< "$pair"
@@ -250,13 +269,14 @@ done
 "${compose[@]}" build geops-api geops-web
 "${compose[@]}" up -d --wait geops-db
 "${compose[@]}" run --rm --no-deps geops-migrate
-expected_migrations=$(for file in "${migration_files[@]}"; do
-  printf '%s|%s\n' "$(basename -- "$file")" "$(sha256sum -- "$file" | cut -d' ' -f1)"
-done)
 actual_migrations=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -F '|' -Atc 'SELECT version,checksum FROM geops_schema_migrations ORDER BY version')
-[[ $actual_migrations == "$expected_migrations" ]] || { echo 'Ledger o checksums no coinciden con 0001–0021' >&2; exit 1; }
+[[ $actual_migrations == "$expected_migrations" ]] || { echo 'Ledger o checksums no coinciden con el catálogo revisado' >&2; exit 1; }
 structure=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc "SELECT (PostGIS_Version() IS NOT NULL AND to_regclass('gps_continuity_alert') IS NOT NULL AND to_regclass('gps_continuity_alert_page') IS NOT NULL AND to_regclass('mdm_inventory_device') IS NOT NULL AND to_regclass('mdm_sync_run') IS NOT NULL)")
 [[ $structure == t ]] || { echo 'Estructura 0016–0018 incompleta' >&2; exit 1; }
+if [[ $catalog_profile == B22-safe ]]; then
+  oauth_table=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc "SELECT to_regclass('mdm_oauth_pending') IS NOT NULL")
+  [[ $oauth_table == t ]] || { echo 'Estructura 0022 incompleta' >&2; exit 1; }
+fi
 identities=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc 'SELECT (SELECT count(*) FROM admin_user)+(SELECT count(*) FROM geops_device)+(SELECT count(*) FROM security_epoch)')
 [[ $identities == 0 ]] || { echo 'Base no está vacía; gate no inicializado' >&2; exit 1; }
 "${compose[@]}" run --rm --no-deps geops-gate-init
@@ -273,4 +293,4 @@ assert str(uuid.UUID(epoch)) == epoch
 assert gate == {"version":1,"phase":"open","epoch":epoch}
 ' || { echo 'Gate nuevo no coincide con epoch de DB' >&2; exit 1; }
 [[ -z $("${compose[@]}" ps --status running --services geops-api geops-web) ]] || { echo 'API/Web se iniciaron inesperadamente' >&2; exit 1; }
-echo 'Base limpia con 21 migraciones, checksums verificados y gate nuevo. API/Web detenidas; continuar con bootstrap interactivo del runbook.'
+printf 'Base limpia con %s migraciones (%s), checksums verificados y gate nuevo. API/Web detenidas; continuar con bootstrap interactivo del runbook.\n' "$expected_count" "$catalog_profile"

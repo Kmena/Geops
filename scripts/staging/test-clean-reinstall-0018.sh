@@ -64,9 +64,15 @@ for name in db_password admin_session_key admin_csrf_key invitation_hmac_key mdm
   chmod 600 "$secret_dir/$name"
 done
 sha=$(git rev-parse HEAD)
+catalog_count=$(find "$root/apps/api/src/db/migrations" -maxdepth 1 -name '*.sql' | wc -l)
+case $catalog_count in
+  21) catalog_profile=A21 ;;
+  22) catalog_profile=B22-safe ;;
+  *) echo 'Unexpected migration catalog size' >&2; exit 1 ;;
+esac
 printf 'GEOPS_STAGE_IMAGE_TAG=%s\nGEOPS_STAGE_ORIGIN=https://geops-staging.duckdns.org\nGEOPS_STAGE_SECRET_GID=%s\n' \
   "$sha" "$gid" > "$env_file"
-as_operator=(sudo -u "$operator" -g "$group" --)
+as_operator=(sudo -u "$operator" -g "$group" -- env "GEOPS_CATALOG_PROFILE=$catalog_profile")
 
 if "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check \
   0000000000000000000000000000000000000000 "$env_file" > /dev/null 2>&1; then
@@ -176,6 +182,10 @@ old_api_container=
 docker image rm "$old_api_image" >/dev/null
 old_api_image=
 
+if [[ $catalog_profile == B22-safe ]] &&
+   sudo -u "$operator" -g "$group" -- bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file" >/dev/null 2>&1; then
+  echo 'B22 catalog accepted without explicit profile' >&2; exit 1
+fi
 "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file"
 "${as_operator[@]}" bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file" >/dev/null
 
@@ -202,7 +212,7 @@ echo 'Detached HEAD, exact SHA, clean tree and private secret access: PASS'
 docker volume inspect geops_spec02_stage_backups >/dev/null
 docker run --rm --pull never --network none --mount type=volume,src=geops_spec02_stage_backups,dst=/geops-backups,readonly \
   --entrypoint /bin/sh postgis/postgis:18-3.6 -ec 'test -s /geops-backups/geops-stage-ci.dump'
-echo 'Fresh 0001–0021 install, new gate and preserved backup: PASS'
+printf 'Fresh 0001–%04d install (%s), new gate and preserved backup: PASS\n' "$catalog_count" "$catalog_profile"
 
 # Exercise the actual TTY-only commands with generated, synthetic credentials.
 python3 -I - "$operator" "$group" "$env_file" "$root" <<'PY'
