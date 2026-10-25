@@ -145,7 +145,7 @@ export function registerInventoryRoutes(
     return;
   }
 
-  if (tenant && webOAuth) {
+  if (tenant) {
     registerDiscoveredTenantRoutes(app, auth, devices, tenant, webOAuth);
     return;
   }
@@ -380,7 +380,7 @@ function registerDiscoveredTenantRoutes(
   auth: AdminAuthService,
   devices: DeviceRepository,
   tenant: MdmTenantRuntime,
-  oauth: MdmWebOAuth,
+  oauth?: MdmWebOAuth,
 ): void {
   app.get('/v1/admin/mdm/status', async (request) => {
     const admin = await requireAdmin(request, auth);
@@ -390,6 +390,7 @@ function registerDiscoveredTenantRoutes(
 
   app.post('/v1/admin/mdm/oauth/start', async (request, reply) => {
     const admin = await requireAdmin(request, auth, true);
+    if (!oauth) throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
     const flow = await oauth.start(admin.id, admin.sessionId, request.id);
     reply.header('Cache-Control', 'no-store');
     reply.header(
@@ -399,83 +400,85 @@ function registerDiscoveredTenantRoutes(
     return { authorization_url: flow.url };
   });
 
-  app.get<{ Querystring: { state?: string; code?: string; error?: string; location?: string } }>(
-    oauth.callbackPath,
-    async (request, reply) => {
-      reply.header('Cache-Control', 'no-store');
-      reply.header('Referrer-Policy', 'no-referrer');
-      const cookies = [
-        `${oauth.cookieName}=; Path=${oauth.callbackPath}; Max-Age=0; HttpOnly; SameSite=Lax${oauth.secureCookie ? '; Secure' : ''}`,
-      ];
-      let outcome = 'failed';
-      try {
-        const completed = await oauth.complete({
-          state: request.query.state,
-          code: request.query.code,
-          error: request.query.error,
-          location: request.query.location ?? null,
-          nonce: cookieValue(request, oauth.cookieName),
-          correlationId: request.id,
-        });
-        outcome = completed.kind === 'selection' ? 'select' : 'connected';
-        if (completed.kind === 'selection')
-          cookies.push(
-            `${oauth.selectionCookieName}=${completed.selectionToken}; Path=${oauth.selectionPath}; Max-Age=300; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
-          );
-      } catch (error) {
-        await appendAudit(devices.pool, {
-          actorType: 'SYSTEM',
-          action: 'mdm.oauth.callback',
-          outcome: 'rejected',
-          correlationId: request.id,
-          metadata: { code: error instanceof ApiError ? error.code : 'mdm_oauth_failed' },
-        }).catch(() => {});
-      }
-      reply.header('Set-Cookie', cookies);
-      return reply.code(303).header('Location', `/status?mdm_oauth=${outcome}`).send();
-    },
-  );
+  if (oauth) {
+    app.get<{ Querystring: { state?: string; code?: string; error?: string; location?: string } }>(
+      oauth.callbackPath,
+      async (request, reply) => {
+        reply.header('Cache-Control', 'no-store');
+        reply.header('Referrer-Policy', 'no-referrer');
+        const cookies = [
+          `${oauth.cookieName}=; Path=${oauth.callbackPath}; Max-Age=0; HttpOnly; SameSite=Lax${oauth.secureCookie ? '; Secure' : ''}`,
+        ];
+        let outcome = 'failed';
+        try {
+          const completed = await oauth.complete({
+            state: request.query.state,
+            code: request.query.code,
+            error: request.query.error,
+            location: request.query.location ?? null,
+            nonce: cookieValue(request, oauth.cookieName),
+            correlationId: request.id,
+          });
+          outcome = completed.kind === 'selection' ? 'select' : 'connected';
+          if (completed.kind === 'selection')
+            cookies.push(
+              `${oauth.selectionCookieName}=${completed.selectionToken}; Path=${oauth.selectionPath}; Max-Age=300; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
+            );
+        } catch (error) {
+          await appendAudit(devices.pool, {
+            actorType: 'SYSTEM',
+            action: 'mdm.oauth.callback',
+            outcome: 'rejected',
+            correlationId: request.id,
+            metadata: { code: error instanceof ApiError ? error.code : 'mdm_oauth_failed' },
+          }).catch(() => {});
+        }
+        reply.header('Set-Cookie', cookies);
+        return reply.code(303).header('Location', `/status?mdm_oauth=${outcome}`).send();
+      },
+    );
 
-  app.get(oauth.selectionPath, async (request, reply) => {
-    const admin = await requireAdmin(request, auth);
-    reply.header('Cache-Control', 'no-store');
-    return {
-      customers: await oauth.customers(
-        cookieValue(request, oauth.selectionCookieName) ?? '',
-        admin.id,
-        admin.sessionId,
-      ),
-    };
-  });
-  app.post<{ Body: { customer_id: string } }>(
-    oauth.selectionPath,
-    {
-      schema: {
-        body: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['customer_id'],
-          properties: { customer_id: { type: 'string', pattern: '^[0-9]{1,30}$' } },
+    app.get(oauth.selectionPath, async (request, reply) => {
+      const admin = await requireAdmin(request, auth);
+      reply.header('Cache-Control', 'no-store');
+      return {
+        customers: await oauth.customers(
+          cookieValue(request, oauth.selectionCookieName) ?? '',
+          admin.id,
+          admin.sessionId,
+        ),
+      };
+    });
+    app.post<{ Body: { customer_id: string } }>(
+      oauth.selectionPath,
+      {
+        schema: {
+          body: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['customer_id'],
+            properties: { customer_id: { type: 'string', pattern: '^[0-9]{1,30}$' } },
+          },
         },
       },
-    },
-    async (request, reply) => {
-      const admin = await requireAdmin(request, auth, true);
-      await oauth.choose(
-        cookieValue(request, oauth.selectionCookieName) ?? '',
-        request.body.customer_id,
-        admin.id,
-        admin.sessionId,
-        request.id,
-      );
-      reply.header('Cache-Control', 'no-store');
-      reply.header(
-        'Set-Cookie',
-        `${oauth.selectionCookieName}=; Path=${oauth.selectionPath}; Max-Age=0; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
-      );
-      return { connected: true };
-    },
-  );
+      async (request, reply) => {
+        const admin = await requireAdmin(request, auth, true);
+        await oauth.choose(
+          cookieValue(request, oauth.selectionCookieName) ?? '',
+          request.body.customer_id,
+          admin.id,
+          admin.sessionId,
+          request.id,
+        );
+        reply.header('Cache-Control', 'no-store');
+        reply.header(
+          'Set-Cookie',
+          `${oauth.selectionCookieName}=; Path=${oauth.selectionPath}; Max-Age=0; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
+        );
+        return { connected: true };
+      },
+    );
+  }
 
   app.get<{ Querystring: PageQuery }>('/v1/admin/mdm/devices', async (request) => {
     const admin = await requireAdmin(request, auth);

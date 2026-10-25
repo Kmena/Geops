@@ -40,6 +40,30 @@ test('real adapter configuration is limited to explicit staging test tenants', (
   assert.equal(discovered.mdm?.region, 'com');
   assert.equal(discovered.mdm?.customerId, undefined);
   assert.equal(discovered.mdm?.configuredEdition, undefined);
+  const pending = loadConfig({
+    ...env,
+    GEOPS_MDM_TEST_TENANT: '1',
+    GEOPS_MDM_CLIENT_ID: undefined,
+    GEOPS_MDM_CLIENT_SECRET: undefined,
+    GEOPS_MDM_CUSTOMER_ID: undefined,
+    GEOPS_MDM_EDITION: undefined,
+    GEOPS_MDM_REFRESH_TOKEN: undefined,
+  });
+  assert.equal(pending.mdm?.region, 'com');
+  assert.equal(pending.mdm?.clientId, undefined);
+  assert.equal(pending.mdm?.clientSecret, undefined);
+  const partial = loadConfig({
+    ...env,
+    GEOPS_MDM_TEST_TENANT: '1',
+    GEOPS_MDM_CLIENT_SECRET: undefined,
+    GEOPS_MDM_REFRESH_TOKEN: undefined,
+  });
+  assert.equal(partial.mdm?.clientId, undefined);
+  assert.equal(
+    loadConfig({ ...env, GEOPS_MDM_TEST_TENANT: '1', GEOPS_MDM_CLIENT_SECRET: ' \n' }).mdm
+      ?.clientId,
+    undefined,
+  );
   assert.throws(() => loadConfig({ ...env, MDM_ENABLED: 'false' }), /credentials/);
   assert.throws(() => loadConfig({ ...env, MDM_ENABLED: undefined }), /credentials/);
   assert.throws(

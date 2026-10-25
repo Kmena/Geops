@@ -55,7 +55,6 @@ PROFILES = {
 MDM_OVERLAY = 'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml'
 MIGRATE_OVERLAY = 'infrastructure/compose/compose.staging.migrate.digest.override.yaml'
 BUNDLE_FILES = v1.BUNDLE_FILES + (MDM_OVERLAY, MIGRATE_OVERLAY)
-MDM_SECRET_NAMES = ('mdm_client_id', 'mdm_client_secret')
 V2_ROOT = Path('/etc/geops-deploy-v2')
 STATE_KEYS = ('schemaVersion', 'active', 'previous', 'phase', 'pending')
 SWITCH_OPERATIONS = ('webStop', 'apiStart', 'webStart', 'commit')
@@ -335,7 +334,6 @@ class ControllerV2(v1.Controller):
                        for item in api_service.get('secrets', [])}
         required = set(v1.SECRET_NAMES)
         if profile == 'B22-mdm':
-            required.update(MDM_SECRET_NAMES)
             mdm = api_service.get('environment', {})
             if (mdm.get('GEOPS_MDM_TEST_TENANT') != '1' or
                     mdm.get('GEOPS_MDM_REGION') != self.policy['mdm']['region'] or
@@ -386,7 +384,7 @@ class ControllerV2(v1.Controller):
         return result
 
     def verify_secrets(self, profile, mounted=False):
-        names = v1.SECRET_NAMES + (MDM_SECRET_NAMES if profile == 'B22-mdm' else ())
+        names = v1.SECRET_NAMES
         for name in names:
             master = self.root / 'secrets' / name
             runtime = self.root / 'runtime-secrets' / name

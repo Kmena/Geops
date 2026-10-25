@@ -16,8 +16,8 @@ export interface AppConfig {
   mdm: {
     region: string;
     customerId?: string;
-    clientId: string;
-    clientSecret: string;
+    clientId?: string;
+    clientSecret?: string;
     refreshToken?: string;
     webOrigin: string;
     configuredEdition?: 'TRIAL' | 'FREE' | 'LICENSED';
@@ -111,13 +111,21 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     const region = env.GEOPS_MDM_REGION ?? '';
     const customerId = env.GEOPS_MDM_CUSTOMER_ID ?? '';
     const edition = env.GEOPS_MDM_EDITION ?? '';
+    const clientId = env.GEOPS_MDM_CLIENT_ID;
+    const clientSecret = env.GEOPS_MDM_CLIENT_SECRET;
+    const validClientValue = (value: string | undefined): value is string => {
+      if (!value?.trim() || value.length > 2048) return false;
+      return [...value].every((character) => {
+        const code = character.charCodeAt(0);
+        return code > 31 && code !== 127;
+      });
+    };
+    const oauthConfigured = validClientValue(clientId) && validClientValue(clientSecret);
     if (
       !['com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'].includes(region) ||
       (customerId !== '' && !/^[0-9]{1,30}$/.test(customerId)) ||
       (edition !== '' && !['TRIAL', 'FREE', 'LICENSED'].includes(edition)) ||
       (Boolean(env.GEOPS_MDM_REFRESH_TOKEN) && !customerId) ||
-      !env.GEOPS_MDM_CLIENT_ID ||
-      !env.GEOPS_MDM_CLIENT_SECRET ||
       env.GEOPS_MDM_TEST_TENANT !== '1' ||
       !((usesStageOrigin && secureCookie) || localMdmOrigin)
     )
@@ -126,8 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
       region,
       ...(customerId ? { customerId } : {}),
       ...(edition ? { configuredEdition: edition as 'TRIAL' | 'FREE' | 'LICENSED' } : {}),
-      clientId: env.GEOPS_MDM_CLIENT_ID,
-      clientSecret: env.GEOPS_MDM_CLIENT_SECRET,
+      ...(oauthConfigured ? { clientId, clientSecret } : {}),
       ...(env.GEOPS_MDM_REFRESH_TOKEN ? { refreshToken: env.GEOPS_MDM_REFRESH_TOKEN } : {}),
       webOrigin: usesStageOrigin ? stageOrigin : (origins[0] ?? stageOrigin),
     };

@@ -23,7 +23,7 @@ def normalized(path):
     return path.read_bytes().replace(b'\r\n', b'\n')
 
 
-def build(output, policy_path):
+def build(output, policy_path, *, update=False):
     policy_bytes = normalized(policy_path)
     policy = json.loads(policy_bytes)
     if policy.get('schemaVersion') != 2 or set(policy.get('files', {})) != set(BUNDLE_FILES):
@@ -32,6 +32,8 @@ def build(output, policy_path):
         raise ValueError('V2 controller inventory required')
     files = {'policy.json': policy_bytes,
              'geops-deploy-v2.sudoers': normalized(HERE / 'geops-deploy-v2.sudoers')}
+    if update:
+        files['operator/install-v2.py'] = normalized(HERE / 'install-v2.py')
     for name, path in CONTROLLERS.items():
         body = normalized(path)
         if hashlib.sha256(body).hexdigest() != policy['controllers'][name]:
@@ -54,6 +56,6 @@ def build(output, policy_path):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        raise SystemExit('Usage: package-v2.py OUTPUT.tar.gz REVIEWED_POLICY.json')
-    build(Path(sys.argv[1]), Path(sys.argv[2]))
+    if len(sys.argv) not in (3, 4) or (len(sys.argv) == 4 and sys.argv[3] != '--update'):
+        raise SystemExit('Usage: package-v2.py OUTPUT.tar.gz REVIEWED_POLICY.json [--update]')
+    build(Path(sys.argv[1]), Path(sys.argv[2]), update=len(sys.argv) == 4)

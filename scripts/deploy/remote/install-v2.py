@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Root-only, resumable v1→v2 controller installation. Never changes GEOPS services."""
+"""Root-only, resumable v1→v2 installation and v2 point update. Never changes services."""
 
 import fcntl
 import hashlib
@@ -19,6 +19,7 @@ from pathlib import Path
 
 A21_HASH = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e'
 B22_HASH = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2'
+INSTALLED_V2_POLICY_SHA = 'c733cdd30eace4c464bcc1490290566a9bc8f7631be6d5ab8a7e771061cc2987'
 HEX64 = re.compile(r'^[a-f0-9]{64}$')
 SQL_LINE = re.compile(r'^\d{4}_[a-z0-9_]+\.sql\|[a-f0-9]{64}$')
 SECRETS = ('db_password', 'admin_session_key', 'admin_csrf_key',
@@ -32,14 +33,18 @@ BUNDLE = (
     'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml',
     'infrastructure/compose/compose.staging.migrate.digest.override.yaml',
 )
+MDM_OVERLAY = 'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml'
+API_ENTRYPOINT = 'infrastructure/staging/api-entrypoint.sh'
 FILES = {'policy.json', 'lib/geops_deploy.py', 'controller/geops_deploy_v2.py',
          'geops-deploy-v2.sudoers'} | {'bundle/' + name for name in BUNDLE}
+UPDATE_INSTALLER = 'operator/install-v2.py'
 V1_SUDOERS = (b'Defaults!/usr/local/sbin/geops-deploy env_reset\n'
               b'Defaults!/usr/local/sbin/geops-deploy secure_path="/usr/sbin:/usr/bin:/sbin:/bin"\n'
               b'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-deploy\n')
 V2_SUDOERS = (b'Defaults!/usr/local/sbin/geops-deploy-v2 env_reset\n'
               b'Defaults!/usr/local/sbin/geops-deploy-v2 secure_path="/usr/sbin:/usr/bin:/sbin:/bin"\n'
               b'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-deploy-v2\n')
+UPDATE_SUDOERS = b'# GEOPS v2 controller update in progress; retry only with reviewed root installer\n'
 PROFILES = {
     'A21': {'sqlCount': 21, 'sqlListSha256': A21_HASH,
             'variant': 'gps-base', 'mdmEnabled': False},
@@ -64,6 +69,8 @@ class Layout:
         self.new_wrapper = self.base / 'usr/local/sbin/geops-deploy-v2'
         self.sudoers = self.base / 'etc/sudoers.d/geops-deploy'
         self.journal = self.state / 'v2-install.json'
+        self.update_journal = self.state / 'v2-update.json'
+        self.update_backup = self.state / 'v2-update-backup'
         self.gate = self.base / 'var/lib/docker/volumes/geops_spec02_stage_security/_data/security-gate.json'
 
 
@@ -183,10 +190,11 @@ def checked(args, *, limit=45):
     return result.stdout.strip()
 
 
-def archive_items(data):
+def archive_items(data, *, update=False):
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
         members = archive.getmembers()
-        if len(members) != len(FILES) or {item.name for item in members} != FILES:
+        required = FILES | ({UPDATE_INSTALLER} if update else set())
+        if len(members) != len(required) or {item.name for item in members} != required:
             raise Blocked('V2 archive inventory differs')
         if any(not item.isfile() or item.size > 1_000_000 for item in members):
             raise Blocked('V2 archive contains special or oversized file')
@@ -225,12 +233,12 @@ def validate_policy(items, old_policy):
             set(policy['controllers']) != {'geops_deploy.py', 'geops_deploy_v2.py'}):
         raise Blocked('V2 policy is incompatible with installed A21')
     mdm = policy['mdm']
-    if (set(mdm) != {'region', 'edition', 'customerId'} or
-            mdm['region'] not in ('com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk') or
-            mdm['edition'] not in ('TRIAL', 'FREE', 'LICENSED') or
-            not isinstance(mdm['customerId'], str) or
-            not re.fullmatch(r'[0-9]{1,30}', mdm['customerId'])):
-        raise Blocked('Invalid v2 MDM tenant')
+    if (not isinstance(mdm, dict) or
+            mdm.get('region') not in ('com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk') or
+            not (set(mdm) == {'region'} or
+                 (set(mdm) == {'region', 'edition', 'customerId'} and
+                  mdm['edition'] is None and mdm['customerId'] is None))):
+        raise Blocked('Invalid v2 MDM server region')
     for name in BUNDLE:
         if sha(items['bundle/' + name]) != policy['files'][name]:
             raise Blocked('V2 bundle hash mismatch')
@@ -313,6 +321,148 @@ def validate_installed_v2(layout):
     state = control.preflight()
     if state['active']['profile'] != 'A21':
         raise Blocked('V2 preflight did not retain A21')
+    control.smoke()
+
+
+def update_targets(layout):
+    return {'policy.json': layout.new / 'policy.json',
+            'lib/geops_deploy.py': layout.new / 'lib/geops_deploy.py',
+            'controller/geops_deploy_v2.py': layout.new_wrapper,
+            **{'bundle/' + name: layout.new / 'bundle' / name for name in BUNDLE}}
+
+
+def replace_once(body, old, new):
+    if body.count(old) != 1:
+        raise Blocked('Installed v2 source differs from reviewed OAuth dependency')
+    return body.replace(old, new)
+
+
+def validate_update_policy(items, old_items):
+    if sha(old_items['policy.json']) != INSTALLED_V2_POLICY_SHA:
+        raise Blocked('Installed B22-safe policy differs from reviewed v2 source')
+    old_policy = json.loads(old_items['policy.json'])
+    policy = json.loads(items['policy.json'])
+    if set(old_policy) != set(policy) or set(policy) != {
+            'schemaVersion', 'environment', 'origin', 'secretGid', 'imageTag',
+            'backupMaxAgeSeconds', 'profiles', 'mdm', 'files', 'controllers'}:
+        raise Blocked('V2 policy inventory changed')
+    if any(old_policy[key] != policy[key] for key in (
+            'schemaVersion', 'environment', 'origin', 'secretGid', 'imageTag',
+            'backupMaxAgeSeconds', 'profiles')):
+        raise Blocked('V2 point update changed deployment policy')
+    if (set(old_policy['files']) != set(BUNDLE) or
+            set(policy['files']) != set(BUNDLE) or
+            any(old_policy['files'][name] != policy['files'][name]
+                for name in BUNDLE if name not in (MDM_OVERLAY, API_ENTRYPOINT))):
+        raise Blocked('Non-MDM bundle changed during v2 point update')
+    if (policy['schemaVersion'] != 2 or
+            policy['environment'] != 'geops-spec02-staging' or
+            policy['profiles'] != PROFILES or
+            policy['mdm'] != {'region': 'com'} or
+            not isinstance(old_policy['mdm'], dict) or
+            old_policy['mdm'].get('region') != 'com' or
+            set(old_policy['mdm']) not in ({'region'}, {'region', 'edition', 'customerId'}) or
+            set(policy['files']) != set(BUNDLE) or
+            set(policy['controllers']) != {'geops_deploy.py', 'geops_deploy_v2.py'} or
+            old_policy['controllers']['geops_deploy.py'] != policy['controllers']['geops_deploy.py']):
+        raise Blocked('V2 point update requires unchanged B22 policy and region com')
+    old_overlay = old_items['bundle/' + MDM_OVERLAY]
+    expected_overlay = replace_once(
+        old_overlay,
+        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key, mdm_client_id, mdm_client_secret]\n',
+        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]\n')
+    expected_overlay = replace_once(
+        expected_overlay,
+        b'secrets:\n  mdm_client_id:\n    file: ./.local/staging/secrets/mdm_client_id\n  mdm_client_secret:\n    file: ./.local/staging/secrets/mdm_client_secret\n', b'')
+    if items['bundle/' + MDM_OVERLAY] != expected_overlay:
+        raise Blocked('MDM overlay differs beyond optional OAuth client secrets')
+    old_entrypoint = old_items['bundle/' + API_ENTRYPOINT]
+    expected_entrypoint = replace_once(
+        old_entrypoint,
+        b'  export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)\n  export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)\n',
+        b'  if [ -s /run/secrets/mdm_client_id ] && [ -s /run/secrets/mdm_client_secret ]; then\n    export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)\n    export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)\n  fi\n')
+    expected_entrypoint = replace_once(
+        expected_entrypoint,
+        b'  if [ -e /run/secrets/mdm_refresh_token ]; then\n',
+        b'  if [ -n "${GEOPS_MDM_CLIENT_ID:-}" ] && [ -n "${GEOPS_MDM_CLIENT_SECRET:-}" ] && [ -e /run/secrets/mdm_refresh_token ]; then\n')
+    if items['bundle/' + API_ENTRYPOINT] != expected_entrypoint:
+        raise Blocked('API entrypoint differs beyond optional OAuth client secrets')
+    for name, body in old_items.items():
+        if name == 'policy.json':
+            continue
+        expected = (old_policy['controllers']['geops_deploy_v2.py'] if
+                    name == 'controller/geops_deploy_v2.py' else
+                    old_policy['controllers']['geops_deploy.py'] if
+                    name == 'lib/geops_deploy.py' else
+                    old_policy['files'][name.removeprefix('bundle/')])
+        if sha(body) != expected:
+            raise Blocked('Installed v2 file differs from active policy')
+    for name, body in items.items():
+        if name in (UPDATE_INSTALLER, 'geops-deploy-v2.sudoers', 'policy.json'):
+            continue
+        expected = (policy['controllers']['geops_deploy_v2.py'] if
+                    name == 'controller/geops_deploy_v2.py' else
+                    policy['controllers']['geops_deploy.py'] if
+                    name == 'lib/geops_deploy.py' else
+                    policy['files'][name.removeprefix('bundle/')])
+        if sha(body) != expected:
+            raise Blocked('Signed v2 update file differs from policy')
+    if items['geops-deploy-v2.sudoers'] != V2_SUDOERS:
+        raise Blocked('V2 sudoers rule changed')
+    return policy
+
+
+def observe_b22_live(layout, state):
+    if (state.get('schemaVersion') != 2 or state.get('phase') != 'steady' or
+            state.get('previous') is not None or state.get('pending') is not None or
+            state.get('active', {}).get('profile') != 'B22-safe'):
+        raise Blocked('Steady B22-safe is required for controller update')
+    endpoint = checked(['/usr/bin/docker', 'context', 'inspect', '--format',
+                        '{{.Endpoints.docker.Host}}'])
+    if endpoint not in ('unix:///var/run/docker.sock', 'unix:///run/docker.sock'):
+        raise Blocked('Only local Docker is allowed')
+    result = {}
+    for kind in ('api', 'web', 'db'):
+        service = f'geops-spec02-staging-geops-{kind}-1'
+        value = json.loads(checked(['/usr/bin/docker', 'inspect', '--format', '{{json .}}', service]))
+        labels = value['Config'].get('Labels') or {}
+        if (labels.get('com.docker.compose.project') != 'geops-spec02-staging' or
+                labels.get('com.docker.compose.service') != 'geops-' + kind or
+                value['State'].get('Status') != 'running' or
+                value['State'].get('Health', {}).get('Status') != 'healthy'):
+            raise Blocked('Staging service identity or health changed')
+        if kind in ('api', 'web') and value['Image'] != state['active'][kind + 'Id']:
+            raise Blocked('B22-safe image differs from protected state')
+        result[kind] = {'containerId': value['Id'], 'imageId': value['Image'],
+                        'health': 'healthy'}
+    rows = checked(['/usr/bin/docker', 'exec', 'geops-spec02-staging-geops-db-1',
+                    'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'geops_stage',
+                    '-d', 'geops_dev', '-Atq', '-c',
+                    'SELECT version,checksum FROM geops_schema_migrations ORDER BY version'])
+    lines = [line for line in rows.splitlines() if line]
+    if len(lines) != 22 or any(not SQL_LINE.fullmatch(line) for line in lines) or \
+            sha('\n'.join(lines).encode()) != B22_HASH:
+        raise Blocked('Exact B22 PostgreSQL ledger required')
+    gate_bytes = layout.gate.read_bytes()
+    if json.loads(gate_bytes).get('phase') != 'open':
+        raise Blocked('External gate must be open')
+    result['ledger'] = {'count': 22, 'sha256': B22_HASH}
+    result['gateSha256'] = sha(gate_bytes)
+    result['stateSha256'] = sha(read_file(layout.state / 'state.json', mode=0o600))
+    return result
+
+
+def validate_updated_v2(layout):
+    loader = SourceFileLoader('geops_reviewed_v2_update', str(layout.new_wrapper))
+    spec = importlib.util.spec_from_loader('geops_reviewed_v2_update', loader)
+    if spec is None or spec.loader is None:
+        raise Blocked('Updated v2 controller could not be loaded')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    control = module.ControllerV2()
+    state = control.preflight()
+    if state['active']['profile'] != 'B22-safe':
+        raise Blocked('Updated v2 preflight did not retain B22-safe')
     control.smoke()
 
 
@@ -410,6 +560,174 @@ def lock_state(layout):
         os.close(fd)
         raise Blocked('Another GEOPS controller operation is running')
     return fd
+
+
+def update_v2(layout, archive_path, signature_path, *,
+              observe=observe_b22_live, validate=validate_updated_v2,
+              preflight=None, visudo=None, fault=lambda _: None):
+    if os.geteuid() != 0:
+        raise Blocked('Root on Linux required')
+    protected(Path(__file__).absolute(), regular=True)
+    archive = read_file(archive_path)
+    signature = read_file(signature_path, 4096)
+    digest = sha(archive)
+    verify_signature(layout, archive, digest, signature)
+    items = archive_items(archive, update=True)
+    if items[UPDATE_INSTALLER] != read_file(Path(__file__).absolute()):
+        raise Blocked('Running installer is not the signed installer')
+    if preflight is None:
+        preflight = lambda: checked([str(layout.new_wrapper), 'verify'], limit=120)
+    if visudo is None:
+        visudo = lambda path: checked(['/usr/sbin/visudo', '-cf', str(path)])
+    # The installed controller acquires the same shared lock in `verify`.
+    # Run that read-only check before taking it; the locked observer below
+    # rechecks images, ledger, gate and protected state before any switch.
+    prior_update = (json.loads(read_file(layout.update_journal, 32768, mode=0o600))
+                    if os.path.lexists(layout.update_journal) else None)
+    if prior_update is None or (prior_update.get('phase') == 'active' and
+                                prior_update.get('packageSha256') != digest):
+        preflight()
+    lock = lock_state(layout)
+    try:
+        installation = read_journal(layout)
+        if installation is None or installation['phase'] != 'active':
+            raise Blocked('Installed v2 has not been activated')
+        targets = update_targets(layout)
+        journal = None
+        rotate_backup = False
+        previous_journal_bytes = None
+        if os.path.lexists(layout.update_journal):
+            previous_journal_bytes = read_file(layout.update_journal, 32768, mode=0o600)
+            journal = json.loads(previous_journal_bytes)
+            if (set(journal) != {'schemaVersion', 'phase', 'packageSha256',
+                                'oldHashes', 'newHashes', 'baseline'} or
+                    journal['schemaVersion'] != 1 or
+                    journal['phase'] not in ('preparing', 'prepared', 'switching', 'active') or
+                    set(journal['oldHashes']) != set(targets) or
+                    set(journal['newHashes']) != set(targets)):
+                raise Blocked('Pending v2 update identity differs')
+            if journal['packageSha256'] != digest:
+                if (journal['phase'] != 'active' or
+                        read_file(layout.sudoers, mode=0o440) != V2_SUDOERS):
+                    raise Blocked('Pending v2 update identity differs')
+                prior_backup = {name: read_file(layout.update_backup / name, mode=0o400)
+                                for name in targets}
+                if {name: sha(body) for name, body in prior_backup.items()} != journal['oldHashes']:
+                    raise Blocked('Previous v2 recovery copy differs')
+                old_items = {name: read_file(path, mode=0o755 if path == layout.new_wrapper else 0o444)
+                             for name, path in targets.items()}
+                if {name: sha(body) for name, body in old_items.items()} != journal['newHashes']:
+                    raise Blocked('Installed v2 update differs from active journal')
+                journal = None
+                rotate_backup = True
+            elif journal['newHashes'] != {name: sha(items[name]) for name in targets}:
+                raise Blocked('Pending v2 update identity differs')
+            elif journal['phase'] == 'preparing':
+                old_items = {name: read_file(path, mode=0o755 if path == layout.new_wrapper else 0o444)
+                             for name, path in targets.items()}
+                if {name: sha(body) for name, body in old_items.items()} != journal['oldHashes']:
+                    raise Blocked('Installed v2 changed during backup preparation')
+                rotate_backup = True
+            else:
+                old_items = {name: read_file(layout.update_backup / name, mode=0o400)
+                             for name in targets}
+                if {name: sha(body) for name, body in old_items.items()} != journal['oldHashes']:
+                    raise Blocked('Protected v2 recovery copy differs')
+        else:
+            if read_file(layout.sudoers, mode=0o440) != V2_SUDOERS:
+                raise Blocked('V2 sudoers must be active before update')
+            old_items = {name: read_file(path, mode=0o755 if path == layout.new_wrapper else 0o444)
+                         for name, path in targets.items()}
+        validate_update_policy(items, old_items)
+        if read_file(layout.new / 'public.pem', mode=0o444) != \
+                read_file(layout.old / 'public.pem', mode=0o444):
+            raise Blocked('Operational Ed25519 identity changed')
+        state = json.loads(read_file(layout.state / 'state.json', mode=0o600))
+        baseline = observe(layout, state)
+        if journal is None and rotate_backup:
+            journal = {'schemaVersion': 1, 'phase': 'preparing',
+                       'packageSha256': digest,
+                       'oldHashes': {name: sha(body) for name, body in old_items.items()},
+                       'newHashes': {name: sha(items[name]) for name in targets},
+                       'baseline': baseline}
+            atomic_replace(layout.update_journal,
+                           (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600,
+                           expected_old=previous_journal_bytes)
+            fault('after-update-journal')
+        if rotate_backup:
+            if baseline != journal['baseline']:
+                raise Blocked('B22-safe changed during backup preparation')
+            for name, body in old_items.items():
+                backup = layout.update_backup / name
+                if os.path.lexists(backup):
+                    prior = read_file(backup, mode=0o400)
+                    if prior != body:
+                        atomic_replace(backup, body, 0o400, expected_old=prior)
+                else:
+                    write_exact(backup, body, 0o400)
+                fault('after-update-backup:' + name)
+            journal['phase'] = 'prepared'
+            atomic_replace(layout.update_journal,
+                           (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
+        elif journal is None:
+            ensure_dir(layout.update_backup, 0o700)
+            for name, body in old_items.items():
+                write_exact(layout.update_backup / name, body, 0o400)
+            journal = {'schemaVersion': 1, 'phase': 'prepared',
+                       'packageSha256': digest,
+                       'oldHashes': {name: sha(body) for name, body in old_items.items()},
+                       'newHashes': {name: sha(items[name]) for name in targets},
+                       'baseline': baseline}
+            atomic_replace(layout.update_journal,
+                           (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
+            fault('after-update-journal')
+        elif baseline != journal['baseline']:
+            raise Blocked('B22-safe changed during pending controller update')
+        rule = read_file(layout.sudoers, mode=0o440)
+        if journal['phase'] == 'active':
+            if rule != V2_SUDOERS or any(
+                    read_file(path, mode=0o755 if path == layout.new_wrapper else 0o444)
+                    != items[name] for name, path in targets.items()):
+                raise Blocked('Active v2 update differs')
+            validate(layout)
+            return {'result': 'ALREADY_UPDATED', 'packageSha256': digest}
+        if rule not in (V2_SUDOERS, UPDATE_SUDOERS):
+            raise Blocked('Unknown controller sudoers rule during update')
+        with tempfile.TemporaryDirectory(prefix='geops-v2-update-sudo-', dir=layout.state / 'tmp') as folder:
+            for name, body in (('disabled', UPDATE_SUDOERS), ('active', V2_SUDOERS)):
+                candidate = Path(folder) / name
+                candidate.write_bytes(body)
+                visudo(candidate)
+        if rule == V2_SUDOERS:
+            atomic_replace(layout.sudoers, UPDATE_SUDOERS, 0o440, expected_old=V2_SUDOERS)
+        journal['phase'] = 'switching'
+        atomic_replace(layout.update_journal,
+                       (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
+        fault('after-update-disabled')
+        for name, path in targets.items():
+            current = read_file(path, mode=0o755 if path == layout.new_wrapper else 0o444)
+            if current not in (old_items[name], items[name]):
+                raise Blocked('Unexpected controller file during update')
+            if current != items[name]:
+                atomic_replace(path, items[name], 0o755 if path == layout.new_wrapper else 0o444,
+                               expected_old=old_items[name])
+            fault('after-update-file:' + name)
+        validate(layout)
+        if observe(layout, state) != journal['baseline']:
+            raise Blocked('B22-safe changed during controller update')
+        fault('before-update-enable')
+        atomic_replace(layout.sudoers, V2_SUDOERS, 0o440, expected_old=UPDATE_SUDOERS)
+        fault('after-update-enable')
+        validate(layout)
+        if observe(layout, state) != journal['baseline']:
+            atomic_replace(layout.sudoers, UPDATE_SUDOERS, 0o440, expected_old=V2_SUDOERS)
+            raise Blocked('B22-safe changed after controller update')
+        journal['phase'] = 'active'
+        atomic_replace(layout.update_journal,
+                       (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
+        return {'result': 'V2_UPDATED_B22_SAFE', 'packageSha256': digest}
+    finally:
+        os.close(lock)
 
 
 def install(layout, archive_path, expected, signature_path, v1_wrapper_sha,
@@ -570,8 +888,10 @@ def main(argv):
         result = install(layout, Path(argv[1]), argv[2], Path(argv[3]), argv[4], argv[5])
     elif len(argv) == 2 and argv[0] == 'return-v1':
         result = return_v1(layout, argv[1])
+    elif len(argv) == 3 and argv[0] == 'update-v2':
+        result = update_v2(layout, Path(argv[1]), Path(argv[2]))
     else:
-        raise Blocked('Allowed: install PACKAGE SHA256 SIG V1_WRAPPER_SHA V1_POLICY_SHA; return-v1 PACKAGE_SHA')
+        raise Blocked('Allowed: install PACKAGE SHA256 SIG V1_WRAPPER_SHA V1_POLICY_SHA; return-v1 PACKAGE_SHA; update-v2 PACKAGE SIG')
     print(json.dumps(result, sort_keys=True))
 
 

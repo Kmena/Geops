@@ -155,7 +155,7 @@ class LabController(v2.ControllerV2):
     def verify_secrets(self, profile, mounted=False):
         config = self.check_compose(profile, ref(profile, 'api'), ref(profile, 'web'))
         if mounted:
-            for name in v1.SECRET_NAMES + (v2.MDM_SECRET_NAMES if profile == 'B22-mdm' else ()):
+            for name in v1.SECRET_NAMES:
                 self.call([self.docker, 'exec', v1.SERVICES['api'], 'test', '-s',
                            '/run/secrets/' + name], timeout=10)
         return config

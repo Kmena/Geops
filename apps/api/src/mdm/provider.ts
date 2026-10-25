@@ -22,6 +22,7 @@ export interface MdmStatus {
   provider: 'fake' | 'manageengine';
   connected: boolean;
   authorized?: boolean;
+  oauth_configured?: boolean;
   authorization_state?: 'never' | 'connected' | 'disconnecting' | 'disconnected';
   edition_evidence: 'TRIAL' | 'FREE' | 'LICENSED' | 'UNVERIFIED';
   configured_edition?: 'TRIAL' | 'FREE' | 'LICENSED';

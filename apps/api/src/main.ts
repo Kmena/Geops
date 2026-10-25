@@ -35,23 +35,24 @@ async function main(): Promise<void> {
   const mdmTenant = config.mdm
     ? new MdmTenantRuntime(pool, {
         region: config.mdm.region,
-        clientId: config.mdm.clientId,
-        clientSecret: config.mdm.clientSecret,
+        ...(config.mdm.clientId ? { clientId: config.mdm.clientId } : {}),
+        ...(config.mdm.clientSecret ? { clientSecret: config.mdm.clientSecret } : {}),
         grantKey: config.mdmGrantKey,
         ...(config.mdm.customerId ? { mountedCustomerId: config.mdm.customerId } : {}),
         ...(config.mdm.refreshToken ? { mountedRefreshToken: config.mdm.refreshToken } : {}),
       })
     : undefined;
-  const mdmWebOAuth = config.mdm
-    ? new MdmWebOAuth(pool, {
-        region: config.mdm.region,
-        clientId: config.mdm.clientId,
-        clientSecret: config.mdm.clientSecret,
-        webOrigin: config.mdm.webOrigin,
-        grantKey: config.mdmGrantKey,
-        mountedGrantPresent: Boolean(config.mdm.refreshToken),
-      })
-    : undefined;
+  const mdmWebOAuth =
+    config.mdm?.clientId && config.mdm.clientSecret
+      ? new MdmWebOAuth(pool, {
+          region: config.mdm.region,
+          clientId: config.mdm.clientId,
+          clientSecret: config.mdm.clientSecret,
+          webOrigin: config.mdm.webOrigin,
+          grantKey: config.mdmGrantKey,
+          mountedGrantPresent: Boolean(config.mdm.refreshToken),
+        })
+      : undefined;
   const gpsPolicies = new GpsPolicyService(pool);
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);

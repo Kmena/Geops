@@ -53,6 +53,7 @@ function mdmErrorMessage(error: unknown): string {
   if (error.status === 401) return 'La sesión GEOPS expiró. Vuelve a entrar.';
   if (error.status === 403) return 'No tienes permiso para administrar MDM.';
   if (error.code === 'mdm_disconnected') return 'ManageEngine está desconectado.';
+  if (error.code === 'mdm_oauth_unconfigured') return 'Configuración OAuth pendiente.';
   return 'No se pudo completar la operación MDM. Consulta el estado y vuelve a intentarlo.';
 }
 
@@ -558,7 +559,12 @@ function Status() {
             <div>
               <dt>Conexión</dt>
               <dd>
-                {authorized ? 'Autorizada' : 'Desconectada'} ·{' '}
+                {authorized
+                  ? 'Autorizada'
+                  : state.data.oauth_configured === false
+                    ? 'Configuración OAuth pendiente'
+                    : 'ManageEngine no conectado'}{' '}
+                ·{' '}
                 {state.data.connected ? 'Consulta real confirmada' : 'Sin consulta real confirmada'}
               </dd>
             </div>
@@ -618,7 +624,11 @@ function Status() {
                 {busy ? 'Reintentando…' : 'Reintentar desconexión'}
               </button>
             ) : !authorized && callbackResult !== 'select' ? (
-              <button type="button" onClick={() => void connect()} disabled={busy || !profile}>
+              <button
+                type="button"
+                onClick={() => void connect()}
+                disabled={busy || !profile || state.data.oauth_configured === false}
+              >
                 {busy ? 'Preparando autorización…' : 'Conectar ManageEngine'}
               </button>
             ) : !authorized ? null : confirmDisconnect ? (

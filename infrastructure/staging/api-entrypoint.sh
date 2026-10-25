@@ -20,11 +20,13 @@ export GEOPS_INVITATION_HMAC_KEY=$(read_secret invitation_hmac_key)
 export GEOPS_MDM_GRANT_KEY=$(read_secret mdm_grant_key)
 export GEOPS_GPS_QUARANTINE_KEY=$(read_secret gps_quarantine_key)
 if [ "${MDM_ENABLED:-false}" = "true" ] && [ "${1:-}" = "server" ]; then
-  export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)
-  export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)
+  if [ -s /run/secrets/mdm_client_id ] && [ -s /run/secrets/mdm_client_secret ]; then
+    export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)
+    export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)
+  fi
   # An initial Web OAuth connection has no mounted grant. Keep the legacy
   # mounted grant path when the optional secret exists.
-  if [ -e /run/secrets/mdm_refresh_token ]; then
+  if [ -n "${GEOPS_MDM_CLIENT_ID:-}" ] && [ -n "${GEOPS_MDM_CLIENT_SECRET:-}" ] && [ -e /run/secrets/mdm_refresh_token ]; then
     export GEOPS_MDM_REFRESH_TOKEN=$(read_secret mdm_refresh_token)
   fi
 fi

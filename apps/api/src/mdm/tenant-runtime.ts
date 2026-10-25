@@ -14,8 +14,8 @@ interface Tenant {
 
 export interface TenantRuntimeConfig {
   region: string;
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
+  clientSecret?: string;
   grantKey: Buffer;
   mountedCustomerId?: string;
   mountedRefreshToken?: string;
@@ -45,6 +45,7 @@ export class MdmTenantRuntime {
   }
 
   private async context() {
+    if (!this.config.clientId || !this.config.clientSecret) return null;
     const tenant = await this.tenant();
     if (!tenant) return null;
     const grants = new RealMdmGrantStore(
@@ -88,7 +89,14 @@ export class MdmTenantRuntime {
 
   private async required() {
     const context = await this.context();
-    if (!context) throw new ApiError(503, 'mdm_disconnected', 'MDM unavailable');
+    if (!context)
+      throw new ApiError(
+        503,
+        this.config.clientId && this.config.clientSecret
+          ? 'mdm_disconnected'
+          : 'mdm_oauth_unconfigured',
+        'MDM unavailable',
+      );
     return context;
   }
 
@@ -106,12 +114,16 @@ export class MdmTenantRuntime {
         provider: 'manageengine',
         connected: false,
         authorized: false,
+        oauth_configured: Boolean(this.config.clientId && this.config.clientSecret),
         authorization_state: 'never',
         edition_evidence: 'UNVERIFIED',
         region: this.config.region,
         last_checked_at: null,
         last_http_status: null,
-        sanitized_error_code: 'mdm_disconnected',
+        sanitized_error_code:
+          this.config.clientId && this.config.clientSecret
+            ? 'mdm_disconnected'
+            : 'mdm_oauth_unconfigured',
       };
     const status = await context.provider.integrationStatus();
     status.authorized = await context.control.isConnected();
@@ -148,6 +160,7 @@ export class MdmTenantRuntime {
     );
     return {
       ...status,
+      oauth_configured: true,
       customer_id: context.tenant.customer_id,
       ...(this.nameCache?.key === key && this.nameCache.name
         ? { customer_name: this.nameCache.name }

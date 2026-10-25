@@ -5,7 +5,7 @@ services:
       MDM_ENABLED: "true"
       GEOPS_MDM_REGION: ${GEOPS_MDM_REGION:?Reviewed test tenant region required}
       GEOPS_MDM_TEST_TENANT: "1"
-    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key, mdm_client_id, mdm_client_secret]
+    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]
     networks:
       stage_app: {}
       stage_db: {}
@@ -14,11 +14,6 @@ services:
     build:
       args:
         MDM_ENABLED: "true"
-secrets:
-  mdm_client_id:
-    file: ./.local/staging/secrets/mdm_client_id
-  mdm_client_secret:
-    file: ./.local/staging/secrets/mdm_client_secret
 networks:
   stage_egress:
     name: geops_spec02_mdm_stage_egress

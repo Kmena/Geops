@@ -205,7 +205,7 @@ class V2TransitionTests(unittest.TestCase):
 
             controller.call = mounted_hash
             v2.ControllerV2.verify_secrets(controller, 'B22-mdm', mounted=True)
-        self.assertEqual(len(calls), len(v1.SECRET_NAMES) + len(v2.MDM_SECRET_NAMES))
+        self.assertEqual(len(calls), len(v1.SECRET_NAMES))
         self.assertTrue(all(item[2] == v1.SERVICES['api'] for item in calls))
 
     def test_safe_to_mdm_and_return_to_safe(self):

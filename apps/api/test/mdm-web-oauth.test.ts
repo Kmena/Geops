@@ -7,6 +7,70 @@ import type { DeviceRepository } from '../src/device-identity/repository.js';
 import { ApiError } from '../src/errors.js';
 import { MdmWebOAuth } from '../src/mdm/web-oauth.js';
 import { FakeMdmProvider } from '../src/mdm/provider.js';
+import { MdmTenantRuntime } from '../src/mdm/tenant-runtime.js';
+
+test('MDM interface remains available without OAuth credentials and cannot start OAuth', async () => {
+  const pool = { query: async () => ({ rowCount: 1, rows: [{ one: 1 }] }) } as unknown as Pool;
+  const auth = {
+    cookieName: 'geops_admin',
+    authenticate: async (token: string | undefined) => {
+      if (token !== 'session') throw new ApiError(401, 'unauthorized', 'Unauthorized');
+      return {
+        id: '00000000-0000-4000-8000-000000000001',
+        sessionId: 'session',
+        csrfToken: 'csrf',
+      };
+    },
+    isAllowedOrigin: (origin: string | undefined) => origin === 'http://localhost:3501',
+    assertCsrf: (_identity: unknown, token: string | undefined) => {
+      if (token !== 'csrf') throw new ApiError(403, 'csrf_rejected', 'Forbidden');
+    },
+  } as unknown as AdminAuthService;
+  const app = createApp({
+    readinessProbe: async () => true,
+    logLevel: 'silent',
+    adminAuth: auth,
+    devices: { pool } as DeviceRepository,
+    mdmTenant: new MdmTenantRuntime(pool, { region: 'com', grantKey: Buffer.alloc(32) }),
+  });
+  try {
+    await app.ready();
+    const headers = {
+      cookie: 'geops_admin=session',
+      origin: 'http://localhost:3501',
+      'x-csrf-token': 'csrf',
+    };
+    const status = await app.inject({ method: 'GET', url: '/v1/admin/mdm/status', headers });
+    assert.equal(status.statusCode, 200);
+    assert.equal(status.json().oauth_configured, false);
+    assert.equal(status.json().sanitized_error_code, 'mdm_oauth_unconfigured');
+    const start = await app.inject({ method: 'POST', url: '/v1/admin/mdm/oauth/start', headers });
+    assert.equal(start.statusCode, 503);
+    assert.equal(start.json().error.code, 'mdm_oauth_unconfigured');
+    assert.equal(start.headers.location, undefined);
+    assert.equal(
+      (await app.inject({ method: 'POST', url: '/v1/admin/mdm/oauth/start' })).statusCode,
+      401,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/admin/mdm/oauth/start',
+          headers: { cookie: 'geops_admin=session', origin: 'http://localhost:3501' },
+        })
+      ).statusCode,
+      403,
+    );
+    assert.equal(
+      (await app.inject({ method: 'GET', url: '/v1/admin/mdm/oauth/callback' })).statusCode,
+      404,
+    );
+    assert.equal((await app.inject({ method: 'GET', url: '/health/live' })).statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
 
 test('Web OAuth discovers one MSP customer without preconfigured identity and rejects replay', async () => {
   let pending: Record<string, unknown> | null = null;
