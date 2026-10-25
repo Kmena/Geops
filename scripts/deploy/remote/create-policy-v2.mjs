@@ -16,15 +16,14 @@ const files = [
   'infrastructure/compose/compose.staging.migrate.digest.override.yaml',
 ];
 const hash = (value) => createHash('sha256').update(value).digest('hex');
-const [output, aTag, region, edition, customerId] = process.argv.slice(2);
+const [output, aTag, region, extra] = process.argv.slice(2);
 if (
   !output ||
   !/^[a-f0-9]{40}$/.test(aTag ?? '') ||
   !['com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'].includes(region) ||
-  !['TRIAL', 'FREE', 'LICENSED'].includes(edition) ||
-  !/^[0-9]{1,30}$/.test(customerId ?? '')
+  extra !== undefined
 )
-  throw Error('Usage: create-policy-v2.mjs OUTPUT A21_TAG REGION EDITION CUSTOMER_ID');
+  throw Error('Usage: create-policy-v2.mjs OUTPUT A21_TAG REGION');
 const profiles = {
   A21: {
     sqlCount: 21,
@@ -69,7 +68,7 @@ const policy = {
   imageTag: aTag,
   backupMaxAgeSeconds: 86400,
   profiles,
-  mdm: { region, edition, customerId },
+  mdm: { region },
   files: bundle,
   controllers,
 };

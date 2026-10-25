@@ -30,6 +30,16 @@ test('real adapter configuration is limited to explicit staging test tenants', (
   };
   assert.throws(() => loadConfig(env), /staging test-tenant/);
   assert.equal(loadConfig({ ...env, GEOPS_MDM_TEST_TENANT: '1' }).mdm?.customerId, '12345');
+  const discovered = loadConfig({
+    ...env,
+    GEOPS_MDM_TEST_TENANT: '1',
+    GEOPS_MDM_CUSTOMER_ID: undefined,
+    GEOPS_MDM_EDITION: undefined,
+    GEOPS_MDM_REFRESH_TOKEN: undefined,
+  });
+  assert.equal(discovered.mdm?.region, 'com');
+  assert.equal(discovered.mdm?.customerId, undefined);
+  assert.equal(discovered.mdm?.configuredEdition, undefined);
   assert.throws(() => loadConfig({ ...env, MDM_ENABLED: 'false' }), /credentials/);
   assert.throws(() => loadConfig({ ...env, MDM_ENABLED: undefined }), /credentials/);
   assert.throws(

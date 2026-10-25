@@ -8,6 +8,7 @@ import { MdmWebOAuth } from '../src/mdm/web-oauth.ts';
 import { RealMdmGrantStore } from '../src/mdm/real-grants.ts';
 import { MdmOAuthRuntime } from '../src/mdm/oauth-runtime.ts';
 import { MdmConnectionControl } from '../src/mdm/connection-control.ts';
+import { MdmTenantRuntime } from '../src/mdm/tenant-runtime.ts';
 
 const url = process.env.DATABASE_URL;
 if (
@@ -48,6 +49,8 @@ try {
   );
   const grants = new RealMdmGrantStore(pool, Buffer.alloc(32, 21), 'com', '12345');
   let refreshes = 0;
+  let customerMode = 'one';
+  let insufficientScope = false;
   const mockFetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     if (path === '/oauth/v2/token') {
@@ -58,10 +61,12 @@ try {
           access_token: 'synthetic-access-1',
           refresh_token: 'synthetic-refresh-1',
           expires_in: 3600,
-          scope: 'MDMOnDemand.MDMInventory.READ',
+          scope: insufficientScope
+            ? 'MDMOnDemand.MDMInventory.READ'
+            : 'MDMOnDemand.MDMInventory.READ,MDMOnDemand.MDMAdmin.READ',
         });
       }
-      assert.equal(body.get('refresh_token'), 'synthetic-refresh-1');
+      assert.ok(['synthetic-refresh-1', 'synthetic-refresh-2'].includes(body.get('refresh_token')));
       refreshes++;
       return Response.json({
         access_token: 'synthetic-access-2',
@@ -71,12 +76,23 @@ try {
       });
     }
     if (path === '/oauth/v2/revoke/token') return Response.json({ status: 'success' });
+    if (path === '/customers')
+      return Response.json({
+        customers:
+          customerMode === 'none'
+            ? []
+            : customerMode === 'multi'
+              ? [
+                  { customer_id: '12345', customer_name: 'Synthetic MSP' },
+                  { customer_id: '67890', customer_name: 'Other synthetic tenant' },
+                ]
+              : [{ customer_id: '12345', customer_name: 'Synthetic MSP' }],
+      });
     assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), '12345');
     return Response.json({ devices: [], paging: {} });
   };
-  const browser = new MdmWebOAuth(pool, grants, {
+  const browser = new MdmWebOAuth(pool, {
     region: 'com',
-    customerId: '12345',
     clientId: 'synthetic-client',
     clientSecret: 'synthetic-secret',
     webOrigin: 'http://localhost:3501',
@@ -152,6 +168,19 @@ try {
   );
   assert.equal(row.rows[0].credential_digest.equals(digest), true);
   assert.equal(await control.isConnected(), true);
+  const tenantRuntime = new MdmTenantRuntime(pool, {
+    region: 'com',
+    clientId: 'synthetic-client',
+    clientSecret: 'synthetic-secret',
+    grantKey: Buffer.alloc(32, 21),
+    fetchImpl: mockFetch,
+  });
+  const tenantStatus = await tenantRuntime.status();
+  assert.equal(tenantStatus.authorized, true);
+  assert.equal(tenantStatus.customer_id, '12345');
+  assert.equal(tenantStatus.customer_name, 'Synthetic MSP');
+  assert.equal(tenantStatus.edition_evidence, 'UNVERIFIED');
+  assert.deepEqual((await tenantRuntime.devices(undefined, 1)).items, []);
   assert.equal(
     (await pool.query("SELECT count(*) AS n FROM audit_event WHERE action='mdm.oauth.connect'"))
       .rows[0].n,
@@ -161,10 +190,60 @@ try {
   await runtime.removePersistedGrant();
   assert.equal(await grants.load(), null);
   assert.equal(await control.isConnected(), false);
+  customerMode = 'none';
+  const empty = await browser.start(adminId, activeSession.sessionId);
+  await assert.rejects(
+    browser.complete({
+      state: new URL(empty.url).searchParams.get('state'),
+      nonce: empty.nonce,
+      code: 'synthetic-code',
+      location: 'us',
+      error: undefined,
+      correlationId: randomUUID(),
+    }),
+    { code: 'mdm_no_authorized_customer' },
+  );
+  assert.equal(await grants.load(), null);
+  insufficientScope = true;
+  const insufficient = await browser.start(adminId, activeSession.sessionId);
+  await assert.rejects(
+    browser.complete({
+      state: new URL(insufficient.url).searchParams.get('state'),
+      nonce: insufficient.nonce,
+      code: 'synthetic-code',
+      location: 'us',
+      error: undefined,
+      correlationId: randomUUID(),
+    }),
+    { code: 'mdm_oauth_scope_insufficient' },
+  );
+  insufficientScope = false;
+  customerMode = 'multi';
+  const unauthorized = await browser.start(adminId, activeSession.sessionId);
+  const unauthorizedChoice = await browser.complete({
+    state: new URL(unauthorized.url).searchParams.get('state'),
+    nonce: unauthorized.nonce,
+    code: 'synthetic-code',
+    location: 'us',
+    error: undefined,
+    correlationId: randomUUID(),
+  });
+  assert.equal(unauthorizedChoice.kind, 'selection');
+  await assert.rejects(
+    browser.choose(
+      unauthorizedChoice.selectionToken,
+      '99999',
+      adminId,
+      activeSession.sessionId,
+      randomUUID(),
+    ),
+    { code: 'mdm_customer_forbidden' },
+  );
+  assert.equal(await grants.load(), null);
   const restarted = await browser.start(adminId, activeSession.sessionId);
   const newState = new URL(restarted.url).searchParams.get('state');
   assert.ok(newState);
-  await browser.complete({
+  const pendingChoice = await browser.complete({
     state: newState,
     nonce: restarted.nonce,
     code: 'synthetic-new-code',
@@ -172,9 +251,23 @@ try {
     error: undefined,
     correlationId: randomUUID(),
   });
+  assert.equal(pendingChoice.kind, 'selection');
+  assert.equal(await grants.load(), null);
+  const selectionToken = pendingChoice.selectionToken;
+  assert.deepEqual(
+    (await browser.customers(selectionToken, adminId, activeSession.sessionId)).map(
+      (row) => row.customer_id,
+    ),
+    ['12345', '67890'],
+  );
+  await browser.choose(selectionToken, '12345', adminId, activeSession.sessionId, randomUUID());
   assert.equal(await control.isConnected(), true);
+  await assert.rejects(
+    browser.choose(selectionToken, '67890', adminId, activeSession.sessionId, randomUUID()),
+    { code: 'mdm_selection_expired' },
+  );
   await grants.remove(); // A delayed cleanup from the previous disconnect cannot delete the new grant.
-  assert.equal(await grants.load(), 'synthetic-refresh-1');
+  assert.equal(await grants.load(), 'synthetic-refresh-2');
 } finally {
   await pool.end();
 }

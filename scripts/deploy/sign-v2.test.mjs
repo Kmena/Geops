@@ -32,6 +32,7 @@ const policy = {
       mdmEnabled: true,
     },
   },
+  mdm: { region: 'com' },
 };
 
 test('v2 release signature binds exact policy, catalog and profile', () => {
@@ -100,6 +101,17 @@ test('v2 release signature binds exact policy, catalog and profile', () => {
     assert.equal(parsed.sqlCount, 22);
     assert.equal(parsed.api, manifest.images.api.mdm);
     assert.equal(parsed.web, manifest.images.web.mdmQa);
+    writeFileSync(
+      policyPath,
+      `${JSON.stringify({ ...policy, mdm: { region: 'com', edition: 'TRIAL', customerId: '12345' } })}\n`,
+    );
+    const preloaded = spawnSync(
+      process.execPath,
+      [...args.slice(0, 7), join(folder, 'preloaded'), ...args.slice(8)],
+      { encoding: 'utf8' },
+    );
+    assert.notEqual(preloaded.status, 0);
+    writeFileSync(policyPath, `${JSON.stringify(policy)}\n`);
     assert.equal(
       verify(
         null,

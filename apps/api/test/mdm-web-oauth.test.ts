@@ -6,13 +6,12 @@ import type { AdminAuthService } from '../src/admin-auth/service.js';
 import type { DeviceRepository } from '../src/device-identity/repository.js';
 import { ApiError } from '../src/errors.js';
 import { MdmWebOAuth } from '../src/mdm/web-oauth.js';
-import type { RealMdmGrantStore } from '../src/mdm/real-grants.js';
 import { FakeMdmProvider } from '../src/mdm/provider.js';
 
-test('Web OAuth binds state and Lax callback nonce, verifies tenant, and rejects replay', async () => {
+test('Web OAuth discovers one MSP customer without preconfigured identity and rejects replay', async () => {
   let pending: Record<string, unknown> | null = null;
   let consumed = false;
-  let activation = '';
+  let activation = false;
   const calls: string[] = [];
   const query = async (sql: string, params: unknown[] = []) => {
     if (
@@ -21,7 +20,14 @@ test('Web OAuth binds state and Lax callback nonce, verifies tenant, and rejects
       sql.includes('FROM admin_user u')
     )
       return { rowCount: 1, rows: [{ one: 1 }] };
-    if (sql.includes('FROM mdm_connection_control')) return { rowCount: 0, rows: [] };
+    if (sql.includes('FROM mdm_connection_control') || sql.includes('FROM mdm_integration'))
+      return { rowCount: 0, rows: [] };
+    if (sql.startsWith('INSERT INTO mdm_integration')) {
+      assert.equal(params[2], '12345');
+      assert.equal((params[3] as Buffer).includes(Buffer.from('synthetic-refresh')), false);
+      activation = true;
+      return { rowCount: 1, rows: [] };
+    }
     if (sql.startsWith('DELETE FROM mdm_oauth_pending')) {
       pending = null;
       return { rowCount: 1, rows: [] };
@@ -57,15 +63,8 @@ test('Web OAuth binds state and Lax callback nonce, verifies tenant, and rejects
     query,
     connect: async () => ({ query, release: () => {} }),
   } as unknown as Pool;
-  const grants = {
-    load: async () => null,
-    activate: async (_db: unknown, token: string) => {
-      activation = token;
-    },
-  } as unknown as RealMdmGrantStore;
-  const oauth = new MdmWebOAuth(pool, grants, {
+  const oauth = new MdmWebOAuth(pool, {
     region: 'com',
-    customerId: '12345',
     clientId: 'synthetic-client',
     clientSecret: 'synthetic-secret',
     webOrigin: 'http://localhost:3501',
@@ -79,8 +78,12 @@ test('Web OAuth binds state and Lax callback nonce, verifies tenant, and rejects
           access_token: 'synthetic-access',
           refresh_token: 'synthetic-refresh',
           expires_in: 3600,
-          scope: 'MDMOnDemand.MDMInventory.READ',
+          scope: 'MDMOnDemand.MDMInventory.READ,MDMOnDemand.MDMAdmin.READ',
         });
+      }
+      if (url.endsWith('/customers')) {
+        assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), null);
+        return Response.json({ customers: [{ customer_id: '12345', customer_name: 'Test MSP' }] });
       }
       assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), '12345');
       return Response.json({ devices: [], paging: {} });
@@ -97,6 +100,10 @@ test('Web OAuth binds state and Lax callback nonce, verifies tenant, and rejects
     'http://localhost:3501/v1/admin/mdm/oauth/callback',
   );
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(
+    url.searchParams.get('scope'),
+    'MDMOnDemand.MDMAdmin.READ,MDMOnDemand.MDMInventory.READ',
+  );
   const state = url.searchParams.get('state') ?? '';
   const input = {
     state,
@@ -109,13 +116,13 @@ test('Web OAuth binds state and Lax callback nonce, verifies tenant, and rejects
     code: 'mdm_oauth_state_invalid',
   });
   assert.equal(calls.length, 0);
-  await oauth.complete({ ...input, nonce: started.nonce });
-  assert.equal(activation, 'synthetic-refresh');
-  assert.equal(calls.length, 2);
+  assert.deepEqual(await oauth.complete({ ...input, nonce: started.nonce }), { kind: 'connected' });
+  assert.equal(activation, true);
+  assert.equal(calls.length, 3);
   await assert.rejects(oauth.complete({ ...input, nonce: started.nonce }), {
     code: 'mdm_oauth_state_invalid',
   });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
 
 test('OAuth routes require admin session, Origin and CSRF; callback uses only one-use correlation', async () => {

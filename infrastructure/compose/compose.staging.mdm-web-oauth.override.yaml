@@ -4,8 +4,6 @@ services:
     environment:
       MDM_ENABLED: "true"
       GEOPS_MDM_REGION: ${GEOPS_MDM_REGION:?Reviewed test tenant region required}
-      GEOPS_MDM_EDITION: ${GEOPS_MDM_EDITION:?Reviewed test tenant edition required}
-      GEOPS_MDM_CUSTOMER_ID: ${GEOPS_MDM_CUSTOMER_ID:?Reviewed test customer required}
       GEOPS_MDM_TEST_TENANT: "1"
     secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key, mdm_client_id, mdm_client_secret]
     networks:

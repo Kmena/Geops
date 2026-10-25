@@ -5,6 +5,7 @@ export interface OAuthConfig {
   redirectUri?: string;
 }
 export const INVENTORY_SCOPE: string;
+export const CUSTOMER_SCOPE: string;
 export function buildAuthorizationUrl(config: OAuthConfig, flow: {
   scope: string; state: string; verifier: string;
 }): string;

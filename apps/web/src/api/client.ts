@@ -95,6 +95,10 @@ export interface MdmStatus {
   edition_evidence: 'TRIAL' | 'FREE' | 'LICENSED' | 'UNVERIFIED';
   configured_edition?: 'TRIAL' | 'FREE' | 'LICENSED';
   region?: string;
+  customer_id?: string;
+  customer_name?: string;
+  device_count?: number;
+  last_sync_at?: string | null;
   last_checked_at: string | null;
   last_http_status: number | null;
   sanitized_error_code: string | null;
@@ -299,6 +303,16 @@ export const api = {
     read<{ authorization_url: string }>('/v1/admin/mdm/oauth/start', {
       method: 'POST',
       headers: { 'x-csrf-token': csrf },
+    }),
+  mdmCustomers: () =>
+    read<{ customers: { customer_id: string; customer_name: string }[] }>(
+      '/v1/admin/mdm/oauth/customers',
+    ),
+  mdmChooseCustomer: (customerId: string, csrf: string) =>
+    read<{ connected: true }>('/v1/admin/mdm/oauth/customers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ customer_id: customerId }),
     }),
   mdmDisconnect: (csrf: string) =>
     read<{ local_disconnected: boolean; remote_revoked: boolean }>('/v1/admin/mdm/disconnect', {

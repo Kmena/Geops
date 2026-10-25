@@ -425,13 +425,48 @@ function Inventory() {
 function Status() {
   const { profile } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const state = useLoad(api.mdmStatus);
   const [busy, setBusy] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
+  const [customers, setCustomers] = useState<
+    { customer_id: string; customer_name: string }[] | null
+  >(null);
   const authorized = Boolean(state.data?.authorized);
   const callbackResult = new URLSearchParams(location.search).get('mdm_oauth');
+  useEffect(() => {
+    if (callbackResult !== 'select') return;
+    let active = true;
+    void api
+      .mdmCustomers()
+      .then((result) => {
+        if (active) setCustomers(result.customers);
+      })
+      .catch((error) => {
+        if (active) setActionError(mdmErrorMessage(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [callbackResult]);
+  async function chooseCustomer(customerId: string) {
+    if (!profile || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      await api.mdmChooseCustomer(customerId, profile.csrf_token);
+      setCustomers(null);
+      state.refresh();
+      navigate('/status', { replace: true });
+      setNotice('Cuenta ManageEngine conectada.');
+    } catch (error) {
+      setActionError(mdmErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function connect() {
     if (!profile || busy) return;
     setBusy(true);
@@ -483,6 +518,24 @@ function Status() {
         {callbackResult === 'connected' && authorized && (
           <p role="status">Cuenta ManageEngine conectada.</p>
         )}
+        {callbackResult === 'select' && (
+          <div className="mdm-customer-selection">
+            <p>Selecciona la organización de ManageEngine que conectarás con GEOPS.</p>
+            {customers === null && !actionError && (
+              <p role="status">Consultando organizaciones autorizadas…</p>
+            )}
+            {customers?.map((customer) => (
+              <button
+                key={customer.customer_id}
+                type="button"
+                disabled={busy}
+                onClick={() => void chooseCustomer(customer.customer_id)}
+              >
+                {customer.customer_name}
+              </button>
+            ))}
+          </div>
+        )}
         {notice && <p role="status">{notice}</p>}
         {actionError && <p role="alert">{actionError}</p>}
         {state.loading ? (
@@ -516,15 +569,36 @@ function Status() {
               </div>
             )}
             <div>
-              <dt>Edición configurada</dt>
-              <dd>{state.data.configured_edition ?? 'Sin configurar'}</dd>
+              <dt>Región</dt>
+              <dd>{state.data.region ?? 'Por confirmar'}</dd>
             </div>
             <div>
-              <dt>Evidencia de edición</dt>
+              <dt>Cliente conectado</dt>
+              <dd>
+                {state.data.customer_name ??
+                  (state.data.customer_id
+                    ? `Cliente ${state.data.customer_id}`
+                    : 'Sin seleccionar')}
+              </dd>
+            </div>
+            <div>
+              <dt>Edición</dt>
               <dd>
                 {state.data.edition_evidence === 'UNVERIFIED'
                   ? 'Pendiente de verificar'
                   : state.data.edition_evidence}
+              </dd>
+            </div>
+            <div>
+              <dt>Dispositivos sincronizados</dt>
+              <dd>{state.data.device_count ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Última sincronización</dt>
+              <dd>
+                {state.data.last_sync_at
+                  ? new Date(state.data.last_sync_at).toLocaleString('es-GT')
+                  : 'Sin sincronizar'}
               </dd>
             </div>
             <div>
@@ -543,11 +617,11 @@ function Status() {
               <button type="button" onClick={() => void disconnect()} disabled={busy || !profile}>
                 {busy ? 'Reintentando…' : 'Reintentar desconexión'}
               </button>
-            ) : !authorized ? (
+            ) : !authorized && callbackResult !== 'select' ? (
               <button type="button" onClick={() => void connect()} disabled={busy || !profile}>
-                {busy ? 'Preparando autorización…' : 'Conectar o reconectar ManageEngine'}
+                {busy ? 'Preparando autorización…' : 'Conectar ManageEngine'}
               </button>
-            ) : confirmDisconnect ? (
+            ) : !authorized ? null : confirmDisconnect ? (
               <>
                 <p>Se bloqueará el acceso MDM y se solicitará revocar el grant remoto.</p>
                 <button type="button" onClick={() => void disconnect()} disabled={busy}>

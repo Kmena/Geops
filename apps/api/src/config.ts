@@ -15,12 +15,12 @@ export interface AppConfig {
   adminCookiePath: '/';
   mdm: {
     region: string;
-    customerId: string;
+    customerId?: string;
     clientId: string;
     clientSecret: string;
     refreshToken?: string;
     webOrigin: string;
-    configuredEdition: 'TRIAL' | 'FREE' | 'LICENSED';
+    configuredEdition?: 'TRIAL' | 'FREE' | 'LICENSED';
   } | null;
 }
 
@@ -113,8 +113,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     const edition = env.GEOPS_MDM_EDITION ?? '';
     if (
       !['com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'].includes(region) ||
-      !/^[0-9]{1,30}$/.test(customerId) ||
-      !['TRIAL', 'FREE', 'LICENSED'].includes(edition) ||
+      (customerId !== '' && !/^[0-9]{1,30}$/.test(customerId)) ||
+      (edition !== '' && !['TRIAL', 'FREE', 'LICENSED'].includes(edition)) ||
+      (Boolean(env.GEOPS_MDM_REFRESH_TOKEN) && !customerId) ||
       !env.GEOPS_MDM_CLIENT_ID ||
       !env.GEOPS_MDM_CLIENT_SECRET ||
       env.GEOPS_MDM_TEST_TENANT !== '1' ||
@@ -123,8 +124,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
       throw new Error('Real MDM requires explicit staging test-tenant configuration');
     mdm = {
       region,
-      customerId,
-      configuredEdition: edition as 'TRIAL' | 'FREE' | 'LICENSED',
+      ...(customerId ? { customerId } : {}),
+      ...(edition ? { configuredEdition: edition as 'TRIAL' | 'FREE' | 'LICENSED' } : {}),
       clientId: env.GEOPS_MDM_CLIENT_ID,
       clientSecret: env.GEOPS_MDM_CLIENT_SECRET,
       ...(env.GEOPS_MDM_REFRESH_TOKEN ? { refreshToken: env.GEOPS_MDM_REFRESH_TOKEN } : {}),

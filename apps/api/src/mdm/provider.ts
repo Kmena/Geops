@@ -112,7 +112,7 @@ export interface RealClientOptions {
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PAGE_RECORDS = 100;
 
-async function boundedJson(response: Response): Promise<unknown> {
+export async function boundedJson(response: Response): Promise<unknown> {
   const declared = response.headers.get('content-length');
   if (declared && /^\d+$/.test(declared) && Number(declared) > MAX_RESPONSE_BYTES) {
     await response.body?.cancel().catch(() => {});
@@ -146,7 +146,9 @@ async function boundedJson(response: Response): Promise<unknown> {
       reviver: (key: string, value: unknown, context: { source: string }) => unknown,
     ) => unknown;
     return parseLossless(body, (key, value, context) =>
-      key === 'device_id' && typeof value === 'number' ? context.source : value,
+      (key === 'device_id' || key === 'customer_id') && typeof value === 'number'
+        ? context.source
+        : value,
     );
   } catch {
     throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');

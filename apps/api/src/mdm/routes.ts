@@ -10,6 +10,7 @@ import type { MdmInventoryService } from './inventory.js';
 import type { MdmOAuthRuntime } from './oauth-runtime.js';
 import type { MdmConnectionControl } from './connection-control.js';
 import type { MdmWebOAuth } from './web-oauth.js';
+import type { MdmTenantRuntime } from './tenant-runtime.js';
 
 interface PageQuery {
   cursor?: string;
@@ -56,6 +57,7 @@ export function registerInventoryRoutes(
   oauth?: MdmOAuthRuntime,
   control?: MdmConnectionControl,
   webOAuth?: MdmWebOAuth,
+  tenant?: MdmTenantRuntime,
 ): void {
   const guarded = <T>(operation: () => Promise<T>): Promise<T> =>
     control ? control.withConnected(operation) : operation();
@@ -128,7 +130,7 @@ export function registerInventoryRoutes(
     },
   );
 
-  if (!mdm) {
+  if (!mdm && !tenant) {
     const disabled = async (request: FastifyRequest): Promise<never> => {
       await requireAdmin(request, auth);
       throw new ApiError(503, 'mdm_disabled', 'MDM disabled');
@@ -142,6 +144,12 @@ export function registerInventoryRoutes(
     app.post('/v1/admin/mdm/disconnect', disabled);
     return;
   }
+
+  if (tenant && webOAuth) {
+    registerDiscoveredTenantRoutes(app, auth, devices, tenant, webOAuth);
+    return;
+  }
+  if (!mdm) throw new Error('MDM OAuth routes are unavailable');
 
   app.get('/v1/admin/mdm/status', async (request) => {
     const admin = await requireAdmin(request, auth);
@@ -357,4 +365,180 @@ export function registerInventoryRoutes(
         },
       );
   }
+}
+
+function cookieValue(request: FastifyRequest, name: string): string | undefined {
+  return request.headers.cookie
+    ?.split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+}
+
+function registerDiscoveredTenantRoutes(
+  app: FastifyInstance,
+  auth: AdminAuthService,
+  devices: DeviceRepository,
+  tenant: MdmTenantRuntime,
+  oauth: MdmWebOAuth,
+): void {
+  app.get('/v1/admin/mdm/status', async (request) => {
+    const admin = await requireAdmin(request, auth);
+    await requireInstallationCapability(devices, admin.id, request.id, 'mdm.status.read');
+    return tenant.status();
+  });
+
+  app.post('/v1/admin/mdm/oauth/start', async (request, reply) => {
+    const admin = await requireAdmin(request, auth, true);
+    const flow = await oauth.start(admin.id, admin.sessionId, request.id);
+    reply.header('Cache-Control', 'no-store');
+    reply.header(
+      'Set-Cookie',
+      `${oauth.cookieName}=${flow.nonce}; Path=${oauth.callbackPath}; Max-Age=300; HttpOnly; SameSite=Lax${oauth.secureCookie ? '; Secure' : ''}`,
+    );
+    return { authorization_url: flow.url };
+  });
+
+  app.get<{ Querystring: { state?: string; code?: string; error?: string; location?: string } }>(
+    oauth.callbackPath,
+    async (request, reply) => {
+      reply.header('Cache-Control', 'no-store');
+      reply.header('Referrer-Policy', 'no-referrer');
+      const cookies = [
+        `${oauth.cookieName}=; Path=${oauth.callbackPath}; Max-Age=0; HttpOnly; SameSite=Lax${oauth.secureCookie ? '; Secure' : ''}`,
+      ];
+      let outcome = 'failed';
+      try {
+        const completed = await oauth.complete({
+          state: request.query.state,
+          code: request.query.code,
+          error: request.query.error,
+          location: request.query.location ?? null,
+          nonce: cookieValue(request, oauth.cookieName),
+          correlationId: request.id,
+        });
+        outcome = completed.kind === 'selection' ? 'select' : 'connected';
+        if (completed.kind === 'selection')
+          cookies.push(
+            `${oauth.selectionCookieName}=${completed.selectionToken}; Path=${oauth.selectionPath}; Max-Age=300; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
+          );
+      } catch (error) {
+        await appendAudit(devices.pool, {
+          actorType: 'SYSTEM',
+          action: 'mdm.oauth.callback',
+          outcome: 'rejected',
+          correlationId: request.id,
+          metadata: { code: error instanceof ApiError ? error.code : 'mdm_oauth_failed' },
+        }).catch(() => {});
+      }
+      reply.header('Set-Cookie', cookies);
+      return reply.code(303).header('Location', `/status?mdm_oauth=${outcome}`).send();
+    },
+  );
+
+  app.get(oauth.selectionPath, async (request, reply) => {
+    const admin = await requireAdmin(request, auth);
+    reply.header('Cache-Control', 'no-store');
+    return {
+      customers: await oauth.customers(
+        cookieValue(request, oauth.selectionCookieName) ?? '',
+        admin.id,
+        admin.sessionId,
+      ),
+    };
+  });
+  app.post<{ Body: { customer_id: string } }>(
+    oauth.selectionPath,
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['customer_id'],
+          properties: { customer_id: { type: 'string', pattern: '^[0-9]{1,30}$' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const admin = await requireAdmin(request, auth, true);
+      await oauth.choose(
+        cookieValue(request, oauth.selectionCookieName) ?? '',
+        request.body.customer_id,
+        admin.id,
+        admin.sessionId,
+        request.id,
+      );
+      reply.header('Cache-Control', 'no-store');
+      reply.header(
+        'Set-Cookie',
+        `${oauth.selectionCookieName}=; Path=${oauth.selectionPath}; Max-Age=0; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
+      );
+      return { connected: true };
+    },
+  );
+
+  app.get<{ Querystring: PageQuery }>('/v1/admin/mdm/devices', async (request) => {
+    const admin = await requireAdmin(request, auth);
+    await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.read');
+    const args = page(request.query);
+    return tenant.devices(args.cursor, args.limit);
+  });
+  app.get<{ Querystring: { limit?: string; after?: string } }>(
+    '/v1/admin/mdm/inventory',
+    async (request) => {
+      const admin = await requireAdmin(request, auth);
+      await requireInstallationCapability(
+        devices,
+        admin.id,
+        request.id,
+        'mdm.inventory.cache.read',
+      );
+      return tenant.inventory(
+        request.query.limit === undefined ? 25 : Number(request.query.limit),
+        request.query.after,
+      );
+    },
+  );
+  app.post('/v1/admin/mdm/sync', async (request) => {
+    const admin = await requireAdmin(request, auth, true);
+    await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.sync');
+    return tenant.sync(admin.id, request.id);
+  });
+  app.put<{ Params: { device_id: string }; Body: { mdm_device_id: string } }>(
+    '/v1/admin/devices/:device_id/mdm-link',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['mdm_device_id'],
+          properties: { mdm_device_id: { type: 'string', pattern: '^[0-9]{1,30}$' } },
+        },
+      },
+    },
+    async (request) => {
+      const admin = await requireAdmin(request, auth, true);
+      await tenant.link(request.params.device_id, request.body.mdm_device_id, admin.id, request.id);
+      return { linked: true };
+    },
+  );
+  app.delete<{ Params: { device_id: string } }>(
+    '/v1/admin/devices/:device_id/mdm-link',
+    async (request) => {
+      const admin = await requireAdmin(request, auth, true);
+      await tenant.unlink(request.params.device_id, admin.id, request.id);
+      return { linked: false };
+    },
+  );
+  app.post('/v1/admin/mdm/disconnect', async (request) => {
+    const admin = await requireAdmin(request, auth, true);
+    await requireInstallationCapability(devices, admin.id, request.id, 'mdm.disconnect');
+    const permission = await devices.pool.query(
+      `SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.tenant.grant'
+       AND revoked_at IS NULL`,
+      [admin.id],
+    );
+    if (!permission.rowCount) throw new ApiError(403, 'mdm_forbidden', 'Forbidden');
+    return tenant.disconnect(admin.id, request.id);
+  });
 }

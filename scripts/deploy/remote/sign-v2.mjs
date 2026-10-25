@@ -30,7 +30,10 @@ const policy = JSON.parse(policyBytes.toString());
 if (
   policy.schemaVersion !== 2 ||
   policy.environment !== 'geops-spec02-staging' ||
-  JSON.stringify(policy.profiles) !== JSON.stringify(profiles)
+  JSON.stringify(policy.profiles) !== JSON.stringify(profiles) ||
+  !policy.mdm ||
+  Object.keys(policy.mdm).sort().join(',') !== 'region' ||
+  !['com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'].includes(policy.mdm.region)
 )
   throw Error('V2 policy required');
 const policySha256 = sha(policyBytes);

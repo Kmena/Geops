@@ -54,6 +54,7 @@ export class RealMdmGrantStore {
     token: string,
     actorId: string,
     correlationId: string,
+    scopes: string[] = ['MDMOnDemand.MDMInventory.READ'],
   ): Promise<void> {
     const current = await db.query<{ state: string; remote_revoked: boolean }>(
       `SELECT state,remote_revoked FROM mdm_connection_control
@@ -78,7 +79,7 @@ export class RealMdmGrantStore {
         encrypted.ciphertext,
         encrypted.iv,
         encrypted.tag,
-        ['MDMOnDemand.MDMInventory.READ'],
+        scopes,
       ],
     );
     await db.query(
@@ -115,6 +116,11 @@ export class RealMdmGrantStore {
         !control.rows[0].credential_digest.equals(digest(oldToken))
       )
         throw new ApiError(503, 'mdm_grant_rotated', 'MDM unavailable');
+      const recorded = await db.query<{ scopes: string[] }>(
+        `SELECT scopes FROM mdm_integration WHERE provider='manageengine'
+         AND region=$1 AND customer_id=$2 FOR UPDATE`,
+        [this.region, this.customerId],
+      );
       const encrypted = this.encrypt(newToken);
       await db.query(
         `INSERT INTO mdm_integration
@@ -130,7 +136,7 @@ export class RealMdmGrantStore {
           encrypted.ciphertext,
           encrypted.iv,
           encrypted.tag,
-          ['MDMOnDemand.MDMInventory.READ'],
+          recorded.rows[0]?.scopes ?? ['MDMOnDemand.MDMInventory.READ'],
         ],
       );
       await db.query(

@@ -106,11 +106,10 @@ class ControllerV2(v1.Controller):
                 policy['profiles'] != PROFILES):
             raise v1.Blocked('Invalid v2 policy or SQL profiles')
         mdm = policy['mdm']
-        v1.exact_keys(mdm, ('region', 'edition', 'customerId'))
-        if (mdm['region'] not in ('com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk') or
-                mdm['edition'] not in ('TRIAL', 'FREE', 'LICENSED') or
-                not isinstance(mdm['customerId'], str) or
-                not re.fullmatch(r'[0-9]{1,30}', mdm['customerId'])):
+        if not isinstance(mdm, dict):
+            raise v1.Blocked('Invalid isolated MDM tenant configuration')
+        v1.exact_keys(mdm, ('region',))
+        if mdm['region'] not in ('com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'):
             raise v1.Blocked('Invalid isolated MDM tenant configuration')
         if not isinstance(policy['files'], dict) or set(policy['files']) != set(BUNDLE_FILES):
             raise v1.Blocked('V2 bundle inventory changed')
@@ -301,9 +300,7 @@ class ControllerV2(v1.Controller):
         }
         if profile == 'B22-mdm':
             mdm = self.policy['mdm']
-            env |= {'GEOPS_MDM_REGION': mdm['region'],
-                    'GEOPS_MDM_EDITION': mdm['edition'],
-                    'GEOPS_MDM_CUSTOMER_ID': mdm['customerId']}
+            env['GEOPS_MDM_REGION'] = mdm['region']
         if maintenance_epoch is not None:
             env['GEOPS_MAINTENANCE_EPOCH'] = maintenance_epoch
         return env
@@ -342,8 +339,7 @@ class ControllerV2(v1.Controller):
             mdm = api_service.get('environment', {})
             if (mdm.get('GEOPS_MDM_TEST_TENANT') != '1' or
                     mdm.get('GEOPS_MDM_REGION') != self.policy['mdm']['region'] or
-                    mdm.get('GEOPS_MDM_EDITION') != self.policy['mdm']['edition'] or
-                    mdm.get('GEOPS_MDM_CUSTOMER_ID') != self.policy['mdm']['customerId'] or
+                    'GEOPS_MDM_EDITION' in mdm or 'GEOPS_MDM_CUSTOMER_ID' in mdm or
                     'stage_egress' not in api_service.get('networks', {})):
                 raise v1.Blocked('MDM tenant or egress configuration changed')
         elif any(name in api_service.get('environment', {}) for name in

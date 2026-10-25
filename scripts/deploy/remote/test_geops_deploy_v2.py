@@ -42,7 +42,7 @@ class FakeController(v2.ControllerV2):
         self.policy_bytes = b'synthetic-policy'
         self.policy = {'secretGid': '24001', 'imageTag': A_COMMIT,
                        'origin': 'https://geops-staging.duckdns.org',
-                       'mdm': {'region': 'com', 'edition': 'TRIAL', 'customerId': '12345'}}
+                       'mdm': {'region': 'com'}}
         self.env = {}
         self.docker = 'docker'
         self.saved = {'schemaVersion': 2, 'active': version(active),
@@ -448,7 +448,7 @@ class V2TransitionTests(unittest.TestCase):
                   'origin': 'https://geops-staging.duckdns.org', 'secretGid': '24001',
                   'imageTag': A_COMMIT, 'backupMaxAgeSeconds': 86400,
                   'profiles': copy.deepcopy(v2.PROFILES),
-                  'mdm': {'region': 'com', 'edition': 'TRIAL', 'customerId': '12345'},
+                  'mdm': {'region': 'com'},
                   'files': {name: v1.digest(b'bundle') for name in v2.BUNDLE_FILES},
                   'controllers': {name: v1.digest(b'bundle') for name in
                                   ('geops_deploy.py', 'geops_deploy_v2.py')}}
@@ -466,6 +466,35 @@ class V2TransitionTests(unittest.TestCase):
             policy['files'][v2.MDM_OVERLAY] = '0' * 64
             with self.assertRaisesRegex(v1.Blocked, 'bundle checksum'):
                 controller.load_policy()
+
+    def test_mdm_tenant_identity_is_discovered_by_oauth_not_policy(self):
+        controller = FakeController('A21')
+        controller.policy['mdm'] = {'region': 'com'}
+        for profile in ('A21', 'B22-safe'):
+            env = controller.profile_env(profile, 'api', 'web')
+            self.assertNotIn('GEOPS_MDM_EDITION', env)
+            self.assertNotIn('GEOPS_MDM_CUSTOMER_ID', env)
+        mdm_env = controller.profile_env('B22-mdm', MDM_API, MDM_WEB)
+        self.assertEqual(mdm_env['GEOPS_MDM_REGION'], 'com')
+        self.assertNotIn('GEOPS_MDM_EDITION', mdm_env)
+        self.assertNotIn('GEOPS_MDM_CUSTOMER_ID', mdm_env)
+
+        policy = {'schemaVersion': 2, 'environment': v1.ENVIRONMENT,
+                  'origin': 'https://geops-staging.duckdns.org', 'secretGid': '24001',
+                  'imageTag': A_COMMIT, 'backupMaxAgeSeconds': 86400,
+                  'profiles': copy.deepcopy(v2.PROFILES), 'mdm': controller.policy['mdm'],
+                  'files': {name: v1.digest(b'bundle') for name in v2.BUNDLE_FILES},
+                  'controllers': {name: v1.digest(b'bundle') for name in
+                                  ('geops_deploy.py', 'geops_deploy_v2.py')}}
+        checked = v2.ControllerV2(root=Path('synthetic-root'),
+                                  state_dir=Path('synthetic-state'), enforce_root=False)
+        def contents(path, *args, **kwargs):
+            return json.dumps(policy).encode() if path == checked.root / 'policy.json' else b'bundle'
+        with patch.object(v1, 'regular_bytes', side_effect=contents):
+            self.assertEqual(checked.load_policy()['mdm'], controller.policy['mdm'])
+            policy['mdm']['customerId'] = '12345'
+            with self.assertRaisesRegex(v1.Blocked, 'Unexpected document fields'):
+                checked.load_policy()
 
     def test_approval_binds_profiles_digests_and_backup_proof(self):
         controller = FakeController('A21')
