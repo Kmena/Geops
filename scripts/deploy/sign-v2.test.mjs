@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, verify } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -139,6 +139,95 @@ test('v2 release signature binds exact policy, catalog and profile', () => {
       { encoding: 'utf8' },
     );
     assert.notEqual(mislabeled.status, 0);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('rollback approval accepts an accredited safe release under a prior policy', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'geops-v2-rollback-sign-'));
+  try {
+    const key = generateKeyPairSync('ed25519');
+    const keyPath = join(folder, 'private.pem');
+    const policyPath = join(folder, 'policy.json');
+    const previousPolicyPath = join(folder, 'previous-policy.json');
+    const releasePath = join(folder, 'safe.release.json');
+    const signaturePath = join(folder, 'safe.release.sig');
+    writeFileSync(keyPath, key.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+    writeFileSync(policyPath, `${JSON.stringify(policy)}\n`);
+    writeFileSync(
+      previousPolicyPath,
+      `${JSON.stringify({ ...policy, mdm: { region: 'com', edition: null, customerId: null } })}\n`,
+    );
+    const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+    const safeRelease = {
+      schemaVersion: 2,
+      profile: 'B22-safe',
+      commit: 'a'.repeat(40),
+      api: `ghcr.io/kmena/geops-api@sha256:${'1'.repeat(64)}`,
+      web: `ghcr.io/kmena/geops-web@sha256:${'2'.repeat(64)}`,
+      policySha256: digest(readFileSync(previousPolicyPath)),
+    };
+    const releaseBytes = Buffer.from(`${JSON.stringify(safeRelease)}\n`);
+    writeFileSync(releasePath, releaseBytes);
+    writeFileSync(signaturePath, sign(null, releaseBytes, key.privateKey));
+    const args = [
+      signer,
+      'approval',
+      '--id',
+      'synthetic_rollback_001',
+      '--key',
+      keyPath,
+      '--out',
+      join(folder, 'rollback'),
+      '--policy',
+      policyPath,
+      '--action',
+      'rollback',
+      '--source-profile',
+      'B22-mdm',
+      '--target-profile',
+      'B22-safe',
+      '--source-api-id',
+      `sha256:${'3'.repeat(64)}`,
+      '--source-web-id',
+      `sha256:${'4'.repeat(64)}`,
+      '--target-api-id',
+      `sha256:${'5'.repeat(64)}`,
+      '--target-web-id',
+      `sha256:${'6'.repeat(64)}`,
+      '--release-document',
+      releasePath,
+      '--release-sha',
+      digest(releaseBytes),
+      '--previous-policy',
+      previousPolicyPath,
+      '--release-signature',
+      signaturePath,
+    ];
+    const accepted = spawnSync(process.execPath, args, { encoding: 'utf8' });
+    assert.equal(accepted.status, 0, accepted.stderr);
+    const approval = readFileSync(join(folder, 'rollback.approval.json'));
+    assert.equal(
+      verify(null, approval, key.publicKey, readFileSync(join(folder, 'rollback.approval.sig'))),
+      true,
+    );
+    assert.equal(JSON.parse(approval).releaseSha256, digest(releaseBytes));
+    assert.equal(JSON.parse(approval).policySha256, digest(readFileSync(policyPath)));
+
+    const missingSignature = spawnSync(
+      process.execPath,
+      [...args.slice(0, 7), join(folder, 'missing-signature'), ...args.slice(8, -2)],
+      { encoding: 'utf8' },
+    );
+    assert.notEqual(missingSignature.status, 0);
+    writeFileSync(signaturePath, Buffer.alloc(64));
+    const badSignature = spawnSync(
+      process.execPath,
+      [...args.slice(0, 7), join(folder, 'bad-signature'), ...args.slice(8)],
+      { encoding: 'utf8' },
+    );
+    assert.notEqual(badSignature.status, 0);
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }

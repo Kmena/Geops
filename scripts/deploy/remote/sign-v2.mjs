@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Offline approver only. Private Ed25519 key never goes to Staging.
-import { createHash, createPrivateKey, sign } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const [kind, ...rest] = process.argv.slice(2);
@@ -157,12 +157,27 @@ if (kind === 'release') {
     releaseSha256 = sha(releaseBytes);
     if (releaseSha256 !== options['release-sha']) throw Error('Release SHA mismatch');
     release = JSON.parse(releaseBytes.toString());
-    if (
-      release.schemaVersion !== 2 ||
-      release.policySha256 !== policySha256 ||
-      release.profile !== options['target-profile']
-    )
+    if (release.schemaVersion !== 2 || release.profile !== options['target-profile'])
       throw Error('Release profile mismatch');
+    if (release.policySha256 !== policySha256) {
+      if (action !== 'rollback' || !options['previous-policy'] || !options['release-signature'])
+        throw Error('Release policy mismatch');
+      const previousPolicyBytes = Buffer.from(
+        readFileSync(options['previous-policy'], 'utf8').replace(/\r\n/g, '\n'),
+      );
+      const previousPolicy = JSON.parse(previousPolicyBytes.toString());
+      if (
+        sha(previousPolicyBytes) !== release.policySha256 ||
+        previousPolicy.schemaVersion !== 2 ||
+        previousPolicy.environment !== policy.environment ||
+        JSON.stringify(previousPolicy.profiles) !== JSON.stringify(profiles) ||
+        previousPolicy.origin !== policy.origin
+      )
+        throw Error('Previous release policy mismatch');
+      const releaseSigner = createPublicKey(createPrivateKey(readFileSync(options.key)));
+      if (!verify(null, releaseBytes, releaseSigner, readFileSync(options['release-signature'])))
+        throw Error('Previous release signature mismatch');
+    }
   } else {
     release = {
       commit: options['target-commit'],
