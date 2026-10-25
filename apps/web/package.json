@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port 3501",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test src/activation.test.ts src/api/base.test.ts src/api/client.test.ts src/gps/gps.test.tsx src/gps/remote.test.ts src/gps/load.test.ts src/gps/tracking-model.test.ts src/gps/continuity-model.test.ts src/AdminUsers.test.tsx src/DeviceManagement.test.ts src/MdmAvailability.test.tsx"
+    "test": "node --import tsx --test src/activation.test.ts src/api/base.test.ts src/api/client.test.ts src/gps/gps.test.tsx src/gps/remote.test.ts src/gps/load.test.ts src/gps/tracking-model.test.ts src/gps/continuity-model.test.ts src/AdminUsers.test.tsx src/DeviceManagement.test.ts src/MdmAvailability.test.tsx src/MdmInventoryAvailability.test.ts"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

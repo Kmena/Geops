@@ -129,6 +129,60 @@ class UpdateTest(unittest.TestCase):
                          (self.fx.layout.state / 'state.json').read_bytes())
         self.assertGreaterEqual(self.fx.validations, 3)
 
+    def test_oauth_client_provisioning_is_protected_and_idempotent(self):
+        self.fx.run()
+        for name in ('secrets', 'runtime-secrets'):
+            path = self.fx.layout.new / name
+            path.mkdir(mode=0o700)
+            os.chmod(path, 0o700)
+        values = iter(('synthetic-client-id', 'synthetic-client-secret'))
+        result = installer.provision_oauth(
+            self.fx.layout, self.fx.archive, self.fx.signature,
+            preflight=lambda: None, observe=self.fx.observe,
+            prompt=lambda _: next(values))
+        self.assertEqual(result, {'result': 'OAUTH_CLIENT_PROVISIONED'})
+        for name, expected in (('mdm_client_id', b'synthetic-client-id'),
+                               ('mdm_client_secret', b'synthetic-client-secret')):
+            master = self.fx.layout.new / 'secrets' / name
+            runtime = self.fx.layout.new / 'runtime-secrets' / name
+            self.assertEqual(master.read_bytes(), expected)
+            self.assertEqual(runtime.read_bytes(), expected)
+            self.assertEqual(master.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(runtime.stat().st_mode & 0o777, 0o640)
+            self.assertEqual(runtime.stat().st_gid, 24001)
+        self.assertEqual(installer.provision_oauth(
+            self.fx.layout, self.fx.archive, self.fx.signature,
+            preflight=lambda: None, observe=self.fx.observe,
+            prompt=lambda _: self.fail('Idempotent run must not prompt')),
+            {'result': 'OAUTH_CLIENT_ALREADY_PROVISIONED'})
+        self.assertEqual(self.fx.state_body,
+                         (self.fx.layout.state / 'state.json').read_bytes())
+
+    def test_oauth_provisioning_rejects_invalid_signature_before_prompt(self):
+        self.fx.run()
+        self.fx.signature.write_bytes(b'not-an-ed25519-signature')
+        with self.assertRaises(installer.Blocked):
+            installer.provision_oauth(
+                self.fx.layout, self.fx.archive, self.fx.signature,
+                preflight=lambda: None, observe=self.fx.observe,
+                prompt=lambda _: self.fail('Invalid signature must not prompt'))
+        self.assertFalse((self.fx.layout.new / 'secrets' / 'mdm_client_id').exists())
+
+    def test_oauth_provisioning_rejects_conflicting_existing_copy(self):
+        self.fx.run()
+        for name in ('secrets', 'runtime-secrets'):
+            path = self.fx.layout.new / name
+            path.mkdir(mode=0o700)
+            os.chmod(path, 0o700)
+        write(self.fx.layout.new / 'secrets' / 'mdm_client_id', b'different-client', 0o600)
+        values = iter(('synthetic-client-id', 'synthetic-client-secret'))
+        with self.assertRaisesRegex(installer.Blocked, 'Existing OAuth client credential differs'):
+            installer.provision_oauth(
+                self.fx.layout, self.fx.archive, self.fx.signature,
+                preflight=lambda: None, observe=self.fx.observe,
+                prompt=lambda _: next(values))
+        self.assertFalse((self.fx.layout.new / 'runtime-secrets' / 'mdm_client_id').exists())
+
     def test_second_update_reuses_journal_and_keeps_current_recovery_copy(self):
         self.fx.seed_active_previous_update()
         self.assertEqual(self.fx.run()['result'], 'V2_UPDATED_B22_SAFE')

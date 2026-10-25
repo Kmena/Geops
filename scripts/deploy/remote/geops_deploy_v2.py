@@ -55,6 +55,7 @@ PROFILES = {
 MDM_OVERLAY = 'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml'
 MIGRATE_OVERLAY = 'infrastructure/compose/compose.staging.migrate.digest.override.yaml'
 BUNDLE_FILES = v1.BUNDLE_FILES + (MDM_OVERLAY, MIGRATE_OVERLAY)
+OAUTH_SECRET_NAMES = ('mdm_client_id', 'mdm_client_secret')
 V2_ROOT = Path('/etc/geops-deploy-v2')
 STATE_KEYS = ('schemaVersion', 'active', 'previous', 'phase', 'pending')
 SWITCH_OPERATIONS = ('webStop', 'apiStart', 'webStart', 'commit')
@@ -334,6 +335,7 @@ class ControllerV2(v1.Controller):
                        for item in api_service.get('secrets', [])}
         required = set(v1.SECRET_NAMES)
         if profile == 'B22-mdm':
+            required.update(OAUTH_SECRET_NAMES)
             mdm = api_service.get('environment', {})
             if (mdm.get('GEOPS_MDM_TEST_TENANT') != '1' or
                     mdm.get('GEOPS_MDM_REGION') != self.policy['mdm']['region'] or
@@ -384,7 +386,7 @@ class ControllerV2(v1.Controller):
         return result
 
     def verify_secrets(self, profile, mounted=False):
-        names = v1.SECRET_NAMES
+        names = v1.SECRET_NAMES + (OAUTH_SECRET_NAMES if profile == 'B22-mdm' else ())
         for name in names:
             master = self.root / 'secrets' / name
             runtime = self.root / 'runtime-secrets' / name
@@ -396,7 +398,12 @@ class ControllerV2(v1.Controller):
                         b.st_uid != 0 or b.st_gid != int(self.policy['secretGid']) or
                         stat.S_IMODE(b.st_mode) != 0o640):
                     raise v1.Blocked('MDM secret ownership changed')
-            expected = v1.digest(v1.regular_bytes(master, 4096, self.enforce_root))
+            source = v1.regular_bytes(master, 4096, self.enforce_root)
+            if name in OAUTH_SECRET_NAMES and (
+                    not source or len(source) > 2048 or source.strip() != source or
+                    any(byte < 32 or byte == 127 for byte in source)):
+                raise v1.Blocked('Invalid protected OAuth client secret')
+            expected = v1.digest(source)
             if expected != v1.digest(v1.regular_bytes(runtime, 4096, self.enforce_root)):
                 raise v1.Blocked('Protected secret copies differ')
             if mounted:

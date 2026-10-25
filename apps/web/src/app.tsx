@@ -22,6 +22,7 @@ import { EnrollmentPanel } from './EnrollmentPanel.js';
 import { DeviceManagement } from './DeviceManagement.js';
 import { ActivateAdmin, AdminUsers } from './AdminUsers.js';
 import { MdmOnly, mdmEnabled } from './MdmAvailability.js';
+import { mdmInventoryAvailability } from './MdmInventoryAvailability.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -260,7 +261,9 @@ function useLoad<T>(load: () => Promise<T>, enabled = true) {
 function Inventory() {
   const geops = useLoad(api.geopsDevices);
   const enrollment = useLoad(api.enrollmentDevices);
-  const mdm = useLoad(api.mdmDevices, mdmEnabled);
+  const mdmStatus = useLoad(api.mdmStatus, mdmEnabled);
+  const mdmAvailability = mdmInventoryAvailability(mdmStatus.data);
+  const mdm = useLoad(api.mdmDevices, mdmEnabled && mdmAvailability.loadDevices);
   const gpsAccess = useLoad(api.gpsCapabilities);
   const [additionalDevices, setAdditionalDevices] = useState<Device[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null | undefined>();
@@ -391,8 +394,29 @@ function Inventory() {
               <h2 id="mdm-title">Inventario MDM</h2>
               <span className="badge fake">Fuente: {mdm.data?.source ?? 'pendiente'}</span>
             </div>
-            {mdm.loading ? (
+            {mdmStatus.loading ? (
+              <p role="status">Comprobando conexión MDM…</p>
+            ) : mdmStatus.error ? (
+              <>
+                <ErrorText error={mdmStatus.error} />
+                <button type="button" onClick={mdmStatus.refresh}>
+                  Reintentar
+                </button>
+              </>
+            ) : mdmAvailability.message ? (
+              <p className="empty">{mdmAvailability.message}</p>
+            ) : mdm.loading ? (
               <p role="status">Cargando inventario MDM…</p>
+            ) : mdm.error instanceof ApiClientError &&
+              mdm.error.code === 'mdm_oauth_unconfigured' ? (
+              <p className="empty">
+                Configuración OAuth pendiente. El inventario MDM estará disponible después de
+                conectar ManageEngine.
+              </p>
+            ) : mdm.error instanceof ApiClientError && mdm.error.code === 'mdm_disconnected' ? (
+              <p className="empty">
+                ManageEngine no conectado. Conecta la cuenta para consultar el inventario MDM.
+              </p>
             ) : mdm.error ? (
               <>
                 <ErrorText error={mdm.error} />

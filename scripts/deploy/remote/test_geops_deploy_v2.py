@@ -205,8 +205,17 @@ class V2TransitionTests(unittest.TestCase):
 
             controller.call = mounted_hash
             v2.ControllerV2.verify_secrets(controller, 'B22-mdm', mounted=True)
-        self.assertEqual(len(calls), len(v1.SECRET_NAMES))
+        self.assertEqual(len(calls), len(v1.SECRET_NAMES) + len(v2.OAUTH_SECRET_NAMES))
         self.assertTrue(all(item[2] == v1.SERVICES['api'] for item in calls))
+
+    def test_mdm_requires_both_nonempty_oauth_client_secrets(self):
+        controller = FakeController()
+        controller.enforce_root = False
+        with patch.object(v1, 'regular_bytes', side_effect=lambda path, *_: (
+                b'' if path.name == 'mdm_client_secret' else b'synthetic-secret')):
+            with self.assertRaisesRegex(v1.Blocked, 'Invalid protected OAuth client secret'):
+                v2.ControllerV2.verify_secrets(controller, 'B22-mdm')
+            v2.ControllerV2.verify_secrets(controller, 'B22-safe')
 
     def test_safe_to_mdm_and_return_to_safe(self):
         controller = FakeController()

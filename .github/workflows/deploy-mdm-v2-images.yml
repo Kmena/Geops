@@ -11,6 +11,12 @@ on:
       approved_sha:
         type: string
         required: false
+      safe_api_digest:
+        type: string
+        required: true
+      safe_web_digest:
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -58,19 +64,27 @@ jobs:
         if: inputs.publish && github.ref == 'refs/heads/main'
         shell: bash
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - id: api_safe
-        uses: docker/build-push-action@v7
+      - id: safe_images
+        name: Verify retained B22-safe images
         if: inputs.publish && github.ref == 'refs/heads/main'
-        with:
-          context: .
-          file: infrastructure/docker/api.Dockerfile
-          push: true
-          tags: ${{ steps.repository.outputs.name }}-api:${{ github.sha }}-b22-safe
-          build-args: GEOPS_API_VARIANT=B22-safe
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.geops.api.variant=B22-safe
+        env:
+          SAFE_API: ${{ inputs.safe_api_digest }}
+          SAFE_WEB: ${{ inputs.safe_web_digest }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.name }}
+        shell: bash
+        run: |
+          [[ "$IMAGE_REPOSITORY" = 'ghcr.io/kmena/geops' ]]
+          [[ "$SAFE_API" =~ ^ghcr\.io/kmena/geops-api@sha256:[a-f0-9]{64}$ ]]
+          [[ "$SAFE_WEB" =~ ^ghcr\.io/kmena/geops-web@sha256:[a-f0-9]{64}$ ]]
+          docker pull "$SAFE_API"
+          docker pull "$SAFE_WEB"
+          test "$(docker image inspect "$SAFE_API" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = '56afe74773f084b751fe97dc036e18460b797433'
+          test "$(docker image inspect "$SAFE_API" --format '{{index .Config.Labels "org.geops.api.variant"}}')" = 'B22-safe'
+          test "$(docker image inspect "$SAFE_WEB" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = '56afe74773f084b751fe97dc036e18460b797433'
+          test "$(docker image inspect "$SAFE_WEB" --format '{{index .Config.Labels "org.geops.web.variant"}}')" = 'gps-base'
+          test "$(docker image inspect "$SAFE_WEB" --format '{{index .Config.Labels "org.geops.web.mdm_enabled"}}')" = 'false'
+          echo "api=$SAFE_API" >> "$GITHUB_OUTPUT"
+          echo "web=$SAFE_WEB" >> "$GITHUB_OUTPUT"
       - id: api_mdm
         uses: docker/build-push-action@v7
         if: inputs.publish && github.ref == 'refs/heads/main'
@@ -84,26 +98,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.geops.api.variant=B22-mdm
-      - id: web_gps
-        uses: docker/build-push-action@v7
-        if: inputs.publish && github.ref == 'refs/heads/main'
-        with:
-          context: .
-          file: infrastructure/docker/web.Dockerfile
-          push: true
-          tags: ${{ steps.repository.outputs.name }}-web:${{ github.sha }}-gps-base
-          build-args: |
-            GEOPS_WEB_BASE=/
-            MDM_ENABLED=false
-            VITE_GPS_TIME_ZONE=America/Costa_Rica
-            VITE_GPS_TILE_URL=
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.geops.web.base=/
-            org.geops.web.variant=gps-base
-            org.geops.web.mdm_enabled=false
-            org.geops.web.gps_time_zone=America/Costa_Rica
       - id: web_mdm
         uses: docker/build-push-action@v7
         if: inputs.publish && github.ref == 'refs/heads/main'
@@ -127,18 +121,18 @@ jobs:
       - name: Create signed-release input manifest
         if: inputs.publish && github.ref == 'refs/heads/main'
         env:
-          API_SAFE: ${{ steps.api_safe.outputs.digest }}
+          API_SAFE: ${{ steps.safe_images.outputs.api }}
           API_MDM: ${{ steps.api_mdm.outputs.digest }}
-          WEB_GPS: ${{ steps.web_gps.outputs.digest }}
+          WEB_GPS: ${{ steps.safe_images.outputs.web }}
           WEB_MDM: ${{ steps.web_mdm.outputs.digest }}
           CI_RUN: ${{ steps.source_ci.outputs.ci_run }}
           PUBLICATION_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           IMAGE_REPOSITORY: ${{ steps.repository.outputs.name }}
         run: |
           node scripts/deploy/create-manifest-v2.mjs release-manifest-v2.json "${GITHUB_SHA}" \
-            "${IMAGE_REPOSITORY}-api@${API_SAFE}" \
+            "${API_SAFE}" \
             "${IMAGE_REPOSITORY}-api@${API_MDM}" \
-            "${IMAGE_REPOSITORY}-web@${WEB_GPS}" \
+            "${WEB_GPS}" \
             "${IMAGE_REPOSITORY}-web@${WEB_MDM}" \
             "${CI_RUN}" "${PUBLICATION_RUN}"
       - uses: actions/upload-artifact@v4

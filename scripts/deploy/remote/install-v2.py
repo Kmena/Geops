@@ -2,6 +2,7 @@
 """Root-only, resumable v1→v2 installation and v2 point update. Never changes services."""
 
 import fcntl
+import getpass
 import hashlib
 import importlib.util
 from importlib.machinery import SourceFileLoader
@@ -19,7 +20,7 @@ from pathlib import Path
 
 A21_HASH = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e'
 B22_HASH = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2'
-INSTALLED_V2_POLICY_SHA = 'c733cdd30eace4c464bcc1490290566a9bc8f7631be6d5ab8a7e771061cc2987'
+INSTALLED_V2_POLICY_SHA = 'c439e50912842d339d32705426dd028eaa23c3390d4a6c6d29a1ac14b4fc4951'
 HEX64 = re.compile(r'^[a-f0-9]{64}$')
 SQL_LINE = re.compile(r'^\d{4}_[a-z0-9_]+\.sql\|[a-f0-9]{64}$')
 SECRETS = ('db_password', 'admin_session_key', 'admin_csrf_key',
@@ -35,6 +36,7 @@ BUNDLE = (
 )
 MDM_OVERLAY = 'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml'
 API_ENTRYPOINT = 'infrastructure/staging/api-entrypoint.sh'
+OAUTH_SECRETS = ('mdm_client_id', 'mdm_client_secret')
 FILES = {'policy.json', 'lib/geops_deploy.py', 'controller/geops_deploy_v2.py',
          'geops-deploy-v2.sudoers'} | {'bundle/' + name for name in BUNDLE}
 UPDATE_INSTALLER = 'operator/install-v2.py'
@@ -337,6 +339,11 @@ def replace_once(body, old, new):
     return body.replace(old, new)
 
 
+def valid_oauth_value(value):
+    return bool(value) and len(value) <= 2048 and value.strip() == value and all(
+        byte >= 32 and byte != 127 for byte in value)
+
+
 def validate_update_policy(items, old_items):
     if sha(old_items['policy.json']) != INSTALLED_V2_POLICY_SHA:
         raise Blocked('Installed B22-safe policy differs from reviewed v2 source')
@@ -369,24 +376,16 @@ def validate_update_policy(items, old_items):
     old_overlay = old_items['bundle/' + MDM_OVERLAY]
     expected_overlay = replace_once(
         old_overlay,
-        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key, mdm_client_id, mdm_client_secret]\n',
-        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]\n')
+        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]\n',
+        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key, mdm_client_id, mdm_client_secret]\n')
     expected_overlay = replace_once(
         expected_overlay,
-        b'secrets:\n  mdm_client_id:\n    file: ./.local/staging/secrets/mdm_client_id\n  mdm_client_secret:\n    file: ./.local/staging/secrets/mdm_client_secret\n', b'')
+        b'networks:\n  stage_egress:\n    name: geops_spec02_mdm_stage_egress\n',
+        b'networks:\n  stage_egress:\n    name: geops_spec02_mdm_stage_egress\nsecrets:\n  mdm_client_id:\n    file: ./.local/staging/secrets/mdm_client_id\n  mdm_client_secret:\n    file: ./.local/staging/secrets/mdm_client_secret\n')
     if items['bundle/' + MDM_OVERLAY] != expected_overlay:
         raise Blocked('MDM overlay differs beyond optional OAuth client secrets')
-    old_entrypoint = old_items['bundle/' + API_ENTRYPOINT]
-    expected_entrypoint = replace_once(
-        old_entrypoint,
-        b'  export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)\n  export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)\n',
-        b'  if [ -s /run/secrets/mdm_client_id ] && [ -s /run/secrets/mdm_client_secret ]; then\n    export GEOPS_MDM_CLIENT_ID=$(read_secret mdm_client_id)\n    export GEOPS_MDM_CLIENT_SECRET=$(read_secret mdm_client_secret)\n  fi\n')
-    expected_entrypoint = replace_once(
-        expected_entrypoint,
-        b'  if [ -e /run/secrets/mdm_refresh_token ]; then\n',
-        b'  if [ -n "${GEOPS_MDM_CLIENT_ID:-}" ] && [ -n "${GEOPS_MDM_CLIENT_SECRET:-}" ] && [ -e /run/secrets/mdm_refresh_token ]; then\n')
-    if items['bundle/' + API_ENTRYPOINT] != expected_entrypoint:
-        raise Blocked('API entrypoint differs beyond optional OAuth client secrets')
+    if items['bundle/' + API_ENTRYPOINT] != old_items['bundle/' + API_ENTRYPOINT]:
+        raise Blocked('API entrypoint changed during OAuth secret mount update')
     for name, body in old_items.items():
         if name == 'policy.json':
             continue
@@ -730,6 +729,66 @@ def update_v2(layout, archive_path, signature_path, *,
         os.close(lock)
 
 
+def provision_oauth(layout, archive_path, signature_path, *,
+                    preflight=None, observe=observe_b22_live, prompt=None):
+    """Add only the two OAuth client values to the existing protected secret store."""
+    if os.geteuid() != 0:
+        raise Blocked('Root on Linux required')
+    archive = read_file(archive_path)
+    signature = read_file(signature_path, 4096)
+    package_sha = sha(archive)
+    verify_signature(layout, archive, package_sha, signature)
+    items = archive_items(archive, update=True)
+    if items[UPDATE_INSTALLER] != read_file(Path(__file__).absolute()):
+        raise Blocked('Running installer is not the signed installer')
+    if preflight is None:
+        preflight = lambda: checked([str(layout.new_wrapper), 'verify'], limit=120)
+    preflight()
+    lock = lock_state(layout)
+    try:
+        journal = json.loads(read_file(layout.update_journal, 32768, mode=0o600))
+        if journal.get('phase') != 'active' or journal.get('packageSha256') != package_sha:
+            raise Blocked('Signed OAuth package is not the installed v2 update')
+        for name, path in update_targets(layout).items():
+            if read_file(path, mode=0o755 if path == layout.new_wrapper else 0o444) != items[name]:
+                raise Blocked('Installed v2 differs from signed OAuth package')
+        state = json.loads(read_file(layout.state / 'state.json', mode=0o600))
+        observe(layout, state)
+        protected(layout.new / 'secrets', mode=0o700)
+        protected(layout.new / 'runtime-secrets', mode=0o700)
+        paths = [(layout.new / directory / name, mode, gid)
+                 for name in OAUTH_SECRETS
+                 for directory, mode, gid in (('secrets', 0o600, 0),
+                                              ('runtime-secrets', 0o640, 24001))]
+        if all(os.path.lexists(path) for path, _, _ in paths):
+            for name in OAUTH_SECRETS:
+                master = read_file(layout.new / 'secrets' / name, 2048, mode=0o600)
+                runtime = read_file(layout.new / 'runtime-secrets' / name, 2048, mode=0o640)
+                if (not valid_oauth_value(master) or master != runtime or
+                        os.stat(layout.new / 'runtime-secrets' / name).st_gid != 24001):
+                    raise Blocked('Protected OAuth client copies differ')
+            return {'result': 'OAUTH_CLIENT_ALREADY_PROVISIONED'}
+        if prompt is None:
+            prompt = getpass.getpass
+        values = {}
+        for name, label in (('mdm_client_id', 'ManageEngine Client ID: '),
+                            ('mdm_client_secret', 'ManageEngine Client Secret: ')):
+            value = prompt(label).encode('utf-8')
+            if not valid_oauth_value(value):
+                raise Blocked('Invalid OAuth client credential format')
+            values[name] = value
+        for path, mode, gid in paths:
+            value = values[path.name]
+            if os.path.lexists(path):
+                if os.stat(path).st_gid != gid or read_file(path, 2048, mode=mode) != value:
+                    raise Blocked('Existing OAuth client credential differs')
+        for path, mode, gid in paths:
+            write_exact(path, values[path.name], mode, gid)
+        return {'result': 'OAUTH_CLIENT_PROVISIONED'}
+    finally:
+        os.close(lock)
+
+
 def install(layout, archive_path, expected, signature_path, v1_wrapper_sha,
             v1_policy_sha, *, observe=observe_live, validate=validate_installed_v2,
             preflight=None, visudo=None, fault=lambda _: None):
@@ -890,8 +949,10 @@ def main(argv):
         result = return_v1(layout, argv[1])
     elif len(argv) == 3 and argv[0] == 'update-v2':
         result = update_v2(layout, Path(argv[1]), Path(argv[2]))
+    elif len(argv) == 3 and argv[0] == 'provision-oauth':
+        result = provision_oauth(layout, Path(argv[1]), Path(argv[2]))
     else:
-        raise Blocked('Allowed: install PACKAGE SHA256 SIG V1_WRAPPER_SHA V1_POLICY_SHA; return-v1 PACKAGE_SHA; update-v2 PACKAGE SIG')
+        raise Blocked('Allowed: install PACKAGE SHA256 SIG V1_WRAPPER_SHA V1_POLICY_SHA; return-v1 PACKAGE_SHA; update-v2 PACKAGE SIG; provision-oauth PACKAGE SIG')
     print(json.dumps(result, sort_keys=True))
 
 
