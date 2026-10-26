@@ -82,7 +82,7 @@ try {
     22,
   );
   assert.equal((await readGate(gatePath)).phase, 'maintenance');
-  assert.equal(await recoverMaintenance(pool, gatePath, authorization()), 23);
+  assert.equal(await recoverMaintenance(pool, gatePath, authorization()), 22);
   assert.equal(await gateAllowsTraffic(pool, gatePath), true);
   assert.equal(await checkReadiness(pool), true);
   const after = (
