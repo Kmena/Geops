@@ -2,7 +2,7 @@
 
 **Corte local:** 2026-10-26 (America/Guatemala). **Estado:** `B30_PACKAGING_READINESS_PARTIAL`.
 
-`GATE_A_PRIVILEGED_LAB = PARTIAL` · `GATE_B_VERIFIABLE_PUBLICATION = PARTIAL` · `STAGING_READY = NO`
+`GATE_A_PRIVILEGED_LAB = PASS` · `GATE_B_VERIFIABLE_PUBLICATION = PARTIAL` · `STAGING_READY = NO`
 
 `STAGING_CHANGED = NO` · `GHCR_PUBLISHED = NO` · `PUSHED = NO` · `MERGED = NO`
 
@@ -14,13 +14,13 @@ La cadena remota existente sigue siendo v2/B23: política de perfiles hasta 23, 
 
 ## 2. Puerta A — laboratorio privilegiado
 
-Se implementó un empaquetador determinista de 151 archivos: controlador B30 del laboratorio, supervisor, Compose, manifiesto fuente, instalador, lanzador privilegiado, reglas sudo y cierre local de 14 paquetes Node necesarios para `pg`. La política incluye hashes de cada archivo, fuente `15f77a0d1904b77833972d8e2fd628a6cb97678f`, prefijo B23 de 23 migraciones y destino B30 de 30. El constructor rechaza cambios comprometidos o pendientes en API/Web/contratos/Dockerfiles respecto del commit revisado.
+Se implementó un empaquetador determinista de 215 archivos: controlador B30 del laboratorio, supervisor, Compose, manifiesto fuente, instalador, lanzador privilegiado, reglas sudo y dependencias Node necesarias para `pg` y `argon2`. La política incluye hashes de cada archivo, fuente `15f77a0d1904b77833972d8e2fd628a6cb97678f`, prefijo B23 de 23 migraciones y destino B30 de 30. El constructor rechaza cambios comprometidos o pendientes en API/Web/contratos/Dockerfiles respecto del commit revisado. La primera prueba real detectó la falta de `argon2`; se corrigió el inventario y se reconstruyó antes del cierre.
 
 `install.py` exige root Linux, paquete y clave pública en rutas protegidas, SHA-256 revisado y firma Ed25519. Comprueba inventario tar, tipos de archivo, hashes y su propio código firmado. Copia archivos a `/opt/geops-b30-lab` con propiedad root, fija el hash de la política, instala `/usr/local/sbin/geops-b30-lab`, valida `visudo` y activa `/etc/sudoers.d/geops-b30-lab` **al final**. El journal permite repetir la misma instalación después de un corte. En modo `from-b23` contrasta hashes revisados del controlador/política v2, estado B23 steady, regla sudo v2 exacta y `verify` del controlador anterior; preserva los archivos y permisos v2. Este modo se probó con una fixture sintética que ejecutó un verificador B23 controlado.
 
 `privileged.py` acepta únicamente `doctor`, `init`, `status`, `verify`, `upgrade` y `recover`, con directorio de laboratorio fijo. Antes de delegar valida propiedad root, modos, ausencia de symlinks, hash fijado de la política y todos los archivos del bundle. `init` queda reservado al operador root; `sudoers` permite al usuario `abi` solamente `doctor`, `status`, `verify`, `upgrade` y `recover`. Usa argumentos fijos y entorno saneado.
 
-El paquete final `artifacts/b30-packaging/controller-b30-lab.tar.gz` mide **175 037 bytes**, SHA-256 `2e3f3cd8d3f7bf104bf44693564975365bd70593b7b1a72c7cc09fb69987bc4b`. Una segunda construcción produjo bytes idénticos. La firma Ed25519 de laboratorio tiene SHA-256 `03926d80087506c23cdb74b3e4da047f0593ca392ef2758a03c977b578efd54e`; la clave pública tiene SHA-256 `301b62f0424b2bb47842a96d38f649e10f667b598208189fa94473009c236c05`. La firma se volvió a verificar después de eliminar la clave privada efímera.
+El paquete final `artifacts/b30-packaging/controller-b30-lab.tar.gz` mide **560 449 bytes**, SHA-256 `895c12fa18045027cf1a876bca931a84ec7deb576740e98a3d6f59b5e8895468`. Una segunda construcción produjo bytes idénticos. Se verificó su firma Ed25519 después de eliminar la clave privada efímera. La firma y clave pública de esta construcción están en el directorio local ignorado `artifacts/b30-packaging/`.
 
 Prueba real en contenedor Linux descartable, `--network none`, con root, `visudo` y `sudo`:
 
@@ -34,9 +34,26 @@ Prueba real en contenedor Linux descartable, `--network none`, con root, `visudo
 | Bundle instalado alterado rechazado | 1/1 PASS |
 | Fuente B23 preservada; cambio de su sudoers rechazado | 2/2 PASS |
 
-**Total nuevo: 14/14 PASS.** La suite Linux preexistente del instalador v2 pasó 14 pruebas y omitió 1 caso condicionado por su harness; la suite Python del controlador v2 pasó 26/26 y el supervisor B23→B30 pasó 20/20. El laboratorio B30 anterior había ejecutado B23→B30 y recuperación en contenedores, pero ese resultado **no** se reutiliza para declarar que el nuevo lanzador privilegiado hizo dicha transición.
+**Suite de instalación: 14/14 PASS** con el paquete corregido. La suite Linux preexistente del instalador v2 pasó 14 pruebas y omitió 1 caso condicionado por su harness; la suite Python del controlador v2 pasó 26/26 y el supervisor B23→B30 pasó 20/20 en la ejecución anterior. Esas suites previas no se cuentan como regresiones repetidas en este corte.
 
-**Pendiente para cerrar A:** ejecutar B23→B30 y sus fallos inducidos a través del controlador instalado por sudo contra un Docker/PostGIS Linux aislado; luego adaptar el controlador y el instalador **de staging** para B30 y comprobar su compatibilidad con el v2 instalado. La prueba actual de `from-b23` usa un verificador sintético; no observa un servidor real ni demuestra un cambio de controlador remoto. Por ello A permanece `PARTIAL`.
+### Ejecución privilegiada real en Linux aislado
+
+Se inició `docker:27-dind` con `--network none`, sin socket Docker del host ni listener TCP. Un runner Linux con `sudo`, Node y Docker CLI compartió únicamente el socket Unix y `/opt` con ese daemon. Se cargaron cinco imágenes locales: API/Web B23 y B30 y PostGIS. Se instaló el paquete firmado como root, `visudo -c` pasó y el usuario `abi` ejecutó `doctor`, `status`, `verify`, `upgrade` y `recover` por la regla sudoers exacta. `abi` no pudo ejecutar `init` por sudo.
+
+La primera inicialización detectó un segundo defecto: el gate creado con modo `0600` impedía a la API Linux leerlo y readiness devolvía 503. Cambiar temporalmente el modo a `0644` produjo HTTP 200. La prueba adicional con `umask 077` detectó que el directorio gate también necesitaba modo `0755`. El controlador fija ambos modos explícitamente; con `umask 077`, API/Web pasaron salud y se repitieron actualización y recuperación con el paquete final.
+
+| Prueba | Evidencia observada | Resultado |
+| --- | --- | --- |
+| Instalación limpia y firma | Paquete SHA-256 `895c12fa…895468`; `visudo -c` y `doctor` | PASS |
+| Permisos con umask restrictivo | `umask 077`; gate directorio `0755`, archivo `0644`; API/Web saludables | PASS |
+| Línea base B23 | 23 migraciones, hash `90ae7681…9022d`, API/Web B23, gate abierto | PASS |
+| `abi` → `sudo upgrade` | Journal `complete`, 30 migraciones, hash `64e38eec…dfa7f6`, API/Web B30, gate abierto | PASS |
+| Reintento de `upgrade` | Segundo `UPGRADE_PASS` con journal y estado B30 idénticos | PASS |
+| Fallo `before-migrate` | `INJECTED_FAILURE`; `abi` → `sudo recover` devolvió `RESTORE_B23`, esquema 23 y API/Web B23 | PASS |
+| Fallo `after-migrate` | `INJECTED_FAILURE`; `abi` → `sudo recover` devolvió `FORWARD_B30`, esquema 30 y API/Web B30 | PASS |
+| Permisos | `abi` → `sudo init` pidió contraseña; comando no autorizado | PASS |
+
+La inyección de fallos fue realizada por root directamente sobre el controlador de laboratorio; **la recuperación** se ejecutó por el wrapper instalado y autorizado en sudoers. `from-b23` del instalador se validó con un estado y verificador v2 sintéticos en la suite 14/14, preservando sus archivos. La compatibilidad con un controlador v2 real en un servidor seguirá pendiente de una inspección autorizada del servidor; no forma parte del PASS **del laboratorio aislado**. La Puerta A acredita la ejecución privilegiada local B23→B30 y sus dos rutas de recuperación.
 
 ## 3. Puerta B — paquete e imágenes
 
@@ -49,10 +66,24 @@ Se construyeron imágenes locales desde la aplicación sin cambios del commit `1
 
 `verify-image-archive.py` verificó tag, arquitectura `amd64`, SHA-256 del JSON de configuración contra el ID inspeccionado y SHA-256 de **cada capa** contra `rootfs.diff_ids`. Un ID incorrecto se rechazó. `verify-publication.mjs` vuelve a contrastar archivos tar, etiquetas OCI, esquema, SQL, assets y hashes. El borrador público tiene SHA-256 `ad8d2f2f073644b2ceba4cd874c34c657529afcac92b33ebc779b419b82b098e`; `publishable` lo rechaza, como corresponde, porque el controlador es `LAB_ONLY`, `RepoDigests` está vacío y no hay digests GHCR.
 
-Se intentó usar un registro Docker descartable limitado a `127.0.0.1` para comprobar también un pull por digest de registro. La API HTTP local respondió 200 desde Windows, pero el daemon de Docker Desktop no pudo llegar a ese loopback y rechazó el push. La revisión automática rechazó cambiarlo a `--network host` por riesgo de exponer el registro en otras interfaces; **no se intentó eludir ese rechazo**. El contenedor de registro se retiró de forma acotada. La verificación de ID de configuración y capas sí pasó, pero no equivale a un digest de GHCR ni a un pull por digest desde un registro.
+En el primer corte se intentó un registro temporal sobre el loopback de Windows; el daemon de Docker Desktop no pudo alcanzarlo. La revisión automática rechazó exponerlo con `--network host`; esa alternativa no se utilizó. En este corte se creó un registro **dentro del daemon Docker aislado, cuyo contenedor exterior no tiene red externa ni puertos publicados en el host**. Se subieron allí las imágenes API/Web del laboratorio y se retiraron sus tags temporales; después se descargaron por digest desde el registro local. Los IDs recuperados coincidieron exactamente con los originales:
 
-**Pendiente para cerrar B:** terminar y probar el paquete del controlador de staging, obtener digests reales de API/Web en un registro autorizado, cotejar ambos mediante pull por digest y firmar un manifiesto publicable. Publicar en GHCR requiere autorización específica; no se solicitó ni efectuó en esta etapa. Por ello B permanece `PARTIAL`.
+| Imagen | Digest del registro local | ID tras pull por digest |
+| --- | --- | --- |
+| API | `sha256:aaa74ab639c57f8f579de91b688518335cca903437097463aebfd824f94e1a6f` | `sha256:76747ce96729cc8c37eea2b3075cc88a0ee0597877421098c9a5542132cc7922` |
+| Web | `sha256:b082028d6573cfb00413ba16af089ab24f5ee1df7f30c7b7fa058c87e6dc68f3` | `sha256:39528488d65a148b23126686910283bf147884262930503cea020813bb6df436` |
+
+Se repitió el push, retiro de tag y pull por digest con las **imágenes candidatas de publicación** de los archivos `api-b30.tar` y `web-b30.tar`:
+
+| Candidato | Digest del registro local | ID tras pull por digest |
+| --- | --- | --- |
+| API | `sha256:ac47790a71778dbff640edfc189d7cbd942a1ad1d22aa44f628f14cb702ce03b` | `sha256:de7b3f5ed3203f1e17b5b885f9ecee48fcc16347cee0e1547118c52dd1077d8e` |
+| Web | `sha256:b57aaeb6a14a3d21aba62b28390f58dff45807cb5ecf2292df726f2c9081fe6e` | `sha256:d9e6d51e49946f1fd71710d22a0e0bb3487b791ec6a8d33dda9da0a70c1df432` |
+
+Todos estos son **digests del registro local efímero**, no digests GHCR. La prueba valida la mecánica de push/pull por digest y coteja procedencia local sin publicar remotamente.
+
+**Pendiente para cerrar B:** terminar y probar el paquete del controlador de staging, obtener digests reales de las imágenes candidatas API/Web en el registro de destino, cotejarlos mediante pull por digest y firmar un manifiesto publicable. El paquete actual es `LAB_ONLY` y el digest local de laboratorio no se puede sustituir por uno GHCR. Publicar en GHCR requiere autorización específica; no se solicitó ni efectuó en esta etapa. Por ello B permanece `PARTIAL`.
 
 ## 4. Resultado y recomendación
 
-`B30_PACKAGING_READINESS_PARTIAL`. La instalación y seguridad de un controlador **privilegiado de laboratorio** y la integridad offline de las imágenes están demostradas. No hay evidencia de actualización B23→B30 ejecutada por ese controlador privilegiado, instalación de un controlador remoto compatible con B30, ni digests GHCR. No se autoriza staging con estos resultados. La siguiente ejecución debe concentrarse en esos tres puntos, sin repetir el desarrollo de SPEC-03. Después de pasar A y B, corresponde inspeccionar el estado real del servidor y preparar una actualización supervisada con autorización separada.
+`GATE_A_PRIVILEGED_LAB = PASS`; `GATE_B_VERIFIABLE_PUBLICATION = PARTIAL`; estado global `B30_PACKAGING_READINESS_PARTIAL`. La actualización B23→B30 y la recuperación ya se ejecutaron mediante el controlador privilegiado en laboratorio Linux aislado. No hay instalación de controlador en staging ni digests GHCR. La Puerta B debe preparar el bundle publicable y cotejar digests del registro; la publicación en GHCR requiere autorización específica. Después de ambas puertas, la inspección y futura instalación en staging requieren autorización independiente.

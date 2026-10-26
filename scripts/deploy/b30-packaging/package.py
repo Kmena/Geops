@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import tarfile
@@ -50,7 +51,7 @@ def package_names():
     def visit(name):
         if name in seen:
             return
-        if '/' in name or name.startswith('.'):
+        if not re.fullmatch(r'(?:@[a-z0-9-]+/)?[a-z0-9-]+', name):
             raise ValueError(f'Unexpected Node package: {name}')
         seen.add(name)
         metadata = json.loads(regular(ROOT / 'node_modules' / name / 'package.json'))
@@ -59,6 +60,7 @@ def package_names():
             visit(dependency)
 
     visit('pg')
+    visit('argon2')
     return sorted(seen)
 
 

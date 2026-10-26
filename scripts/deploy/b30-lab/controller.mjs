@@ -12,6 +12,7 @@ import {
 import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -62,9 +63,10 @@ function contextPath(dir) {
     throw new Error('Only a direct artifacts/b30-lab-* directory is allowed');
   return target;
 }
-function atomic(file, data) {
+function atomic(file, data, mode = 0o600) {
   const tmp = `${file}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, data, { flag: 'wx', mode: 0o600 });
+  writeFileSync(tmp, data, { flag: 'wx', mode });
+  chmodSync(tmp, mode);
   renameSync(tmp, file);
 }
 function context(dir) {
@@ -275,14 +277,14 @@ async function openGate(dir) {
   } finally {
     await db.end();
   }
-  atomic(path, `${JSON.stringify({ version: 1, phase: 'open', epoch: gate.epoch })}\n`);
+  atomic(path, `${JSON.stringify({ version: 1, phase: 'open', epoch: gate.epoch })}\n`, 0o644);
 }
 function closeGate(dir) {
   const path = join(dir, 'gate/security-gate.json');
   const gate = json(path);
   if (gate.phase === 'closed') return;
   if (gate.phase !== 'open') throw new Error('Invalid gate');
-  atomic(path, `${JSON.stringify({ version: 1, phase: 'closed', epoch: randomUUID() })}\n`);
+  atomic(path, `${JSON.stringify({ version: 1, phase: 'closed', epoch: randomUUID() })}\n`, 0o644);
 }
 function healthy(dir, serviceName) {
   const id = compose(dir, ['ps', '-q', serviceName]).trim();
@@ -485,6 +487,7 @@ function adapter(dir, fault) {
 async function initialize(dir, restoreFrom = null) {
   if (existsSync(dir)) throw new Error('Lab directory already exists');
   mkdirSync(join(dir, 'gate'), { recursive: true });
+  chmodSync(join(dir, 'gate'), 0o755);
   const project = `geops-b30lab-${randomBytes(4).toString('hex')}`;
   const ids = Object.fromEntries(Object.entries(images).map(([key, ref]) => [key, imageId(ref)]));
   const ctx = { project, root: dir, sourceCommit: source, imageIds: ids, seed: null };
@@ -576,6 +579,7 @@ async function initialize(dir, restoreFrom = null) {
     atomic(
       join(dir, 'gate/security-gate.json'),
       `${JSON.stringify({ version: 1, phase: 'open', epoch })}\n`,
+      0o644,
     );
     if (!restoreFrom) ctx.seed = await seedB23(db);
     else await assertSeed(db, ctx.seed);
