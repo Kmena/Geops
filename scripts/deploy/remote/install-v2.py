@@ -22,6 +22,9 @@ A21_HASH = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e'
 B22_HASH = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2'
 B23_HASH = '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d'
 INSTALLED_V2_POLICY_SHA = 'c439e50912842d339d32705426dd028eaa23c3390d4a6c6d29a1ac14b4fc4951'
+INSTALLED_B23_POLICY_SHA = '5848fe813dd267065701ab2690e8a3bf5930c78b0be16c8a4c1001f19ab80b64'
+B23_OLD_ENTRYPOINT_SHA = '80cd1d782f17e67da09fb6a905a704d1405e9d46caf4f1c5c9c845f51b4e99ad'
+B23_OAUTH_ENTRYPOINT_SHA = '7d6d46206cf9ee635d4da0623119c9f666bccbe5e214fed1ca617d0d7ae123a7'
 HEX64 = re.compile(r'^[a-f0-9]{64}$')
 SQL_LINE = re.compile(r'^\d{4}_[a-z0-9_]+\.sql\|[a-f0-9]{64}$')
 SECRETS = ('db_password', 'admin_session_key', 'admin_csrf_key',
@@ -353,6 +356,45 @@ def valid_oauth_value(value):
 
 
 def validate_update_policy(items, old_items):
+    if sha(old_items['policy.json']) == INSTALLED_B23_POLICY_SHA:
+        old_policy = json.loads(old_items['policy.json'])
+        policy = json.loads(items['policy.json'])
+        if (set(old_policy) != set(policy) or
+                old_policy['profiles'] != PROFILES or policy['profiles'] != PROFILES or
+                old_policy['mdm'] != {'region': 'com'} or policy['mdm'] != {'region': 'com'} or
+                set(old_policy['files']) != set(BUNDLE) or
+                set(policy['files']) != set(BUNDLE) or
+                old_policy['files'][API_ENTRYPOINT] != B23_OLD_ENTRYPOINT_SHA or
+                policy['files'][API_ENTRYPOINT] != B23_OAUTH_ENTRYPOINT_SHA or
+                any(old_policy[key] != policy[key] for key in old_policy
+                    if key != 'files') or
+                any(old_policy['files'][name] != policy['files'][name]
+                    for name in BUNDLE if name != API_ENTRYPOINT) or
+                items['bundle/' + API_ENTRYPOINT] == old_items['bundle/' + API_ENTRYPOINT]):
+            raise Blocked('B23 OAuth update must change only the reviewed API entrypoint')
+        for name, body in old_items.items():
+            if name == 'policy.json':
+                continue
+            expected = (old_policy['controllers']['geops_deploy_v2.py'] if
+                        name == 'controller/geops_deploy_v2.py' else
+                        old_policy['controllers']['geops_deploy.py'] if
+                        name == 'lib/geops_deploy.py' else
+                        old_policy['files'][name.removeprefix('bundle/')])
+            if sha(body) != expected:
+                raise Blocked('Installed B23 file differs from active policy')
+        for name, body in items.items():
+            if name in (UPDATE_INSTALLER, 'geops-deploy-v2.sudoers', 'policy.json'):
+                continue
+            expected = (policy['controllers']['geops_deploy_v2.py'] if
+                        name == 'controller/geops_deploy_v2.py' else
+                        policy['controllers']['geops_deploy.py'] if
+                        name == 'lib/geops_deploy.py' else
+                        policy['files'][name.removeprefix('bundle/')])
+            if sha(body) != expected:
+                raise Blocked('Signed B23 update file differs from policy')
+        if items['geops-deploy-v2.sudoers'] != V2_SUDOERS:
+            raise Blocked('B23 update changed sudo privileges')
+        return policy
     if sha(old_items['policy.json']) != INSTALLED_V2_POLICY_SHA:
         raise Blocked('Installed B22 policy differs from reviewed v2 source')
     old_policy = json.loads(old_items['policy.json'])
@@ -420,15 +462,15 @@ def validate_update_policy(items, old_items):
     return policy
 
 
-def observe_b22_live(layout, state):
+def observe_b2x_live(layout, state, version, sql_count, sql_hash):
     if (state.get('schemaVersion') != 2 or state.get('phase') != 'steady' or
             state.get('pending') is not None or
-            state.get('active', {}).get('profile') not in ('B22-safe', 'B22-mdm') or
-            (state['active']['profile'] == 'B22-safe' and state.get('previous') is not None) or
-            (state['active']['profile'] == 'B22-mdm' and
+            state.get('active', {}).get('profile') not in (version + '-safe', version + '-mdm') or
+            (state['active']['profile'] == version + '-safe' and state.get('previous') is not None) or
+            (state['active']['profile'] == version + '-mdm' and
              (not isinstance(state.get('previous'), dict) or
-              state['previous'].get('profile') != 'B22-safe'))):
-        raise Blocked('Steady B22 profile required for controller update')
+              state['previous'].get('profile') != version + '-safe'))):
+        raise Blocked('Steady compatible profile required for controller update')
     endpoint = checked(['/usr/bin/docker', 'context', 'inspect', '--format',
                         '{{.Endpoints.docker.Host}}'])
     if endpoint not in ('unix:///var/run/docker.sock', 'unix:///run/docker.sock'):
@@ -444,7 +486,7 @@ def observe_b22_live(layout, state):
                 value['State'].get('Health', {}).get('Status') != 'healthy'):
             raise Blocked('Staging service identity or health changed')
         if kind in ('api', 'web') and value['Image'] != state['active'][kind + 'Id']:
-            raise Blocked('B22 image differs from protected state')
+            raise Blocked('Image differs from protected state')
         result[kind] = {'containerId': value['Id'], 'imageId': value['Image'],
                         'health': 'healthy'}
     rows = checked(['/usr/bin/docker', 'exec', 'geops-spec02-staging-geops-db-1',
@@ -452,16 +494,33 @@ def observe_b22_live(layout, state):
                     '-d', 'geops_dev', '-Atq', '-c',
                     'SELECT version,checksum FROM geops_schema_migrations ORDER BY version'])
     lines = [line for line in rows.splitlines() if line]
-    if len(lines) != 22 or any(not SQL_LINE.fullmatch(line) for line in lines) or \
-            sha('\n'.join(lines).encode()) != B22_HASH:
-        raise Blocked('Exact B22 PostgreSQL ledger required')
+    if len(lines) != sql_count or any(not SQL_LINE.fullmatch(line) for line in lines) or \
+            sha('\n'.join(lines).encode()) != sql_hash:
+        raise Blocked('Exact PostgreSQL ledger required')
     gate_bytes = layout.gate.read_bytes()
     if json.loads(gate_bytes).get('phase') != 'open':
         raise Blocked('External gate must be open')
-    result['ledger'] = {'count': 22, 'sha256': B22_HASH}
+    result['ledger'] = {'count': sql_count, 'sha256': sql_hash}
     result['gateSha256'] = sha(gate_bytes)
     result['stateSha256'] = sha(read_file(layout.state / 'state.json', mode=0o600))
     return result
+
+
+def observe_b22_live(layout, state):
+    return observe_b2x_live(layout, state, 'B22', 22, B22_HASH)
+
+
+def observe_b23_live(layout, state):
+    return observe_b2x_live(layout, state, 'B23', 23, B23_HASH)
+
+
+def observe_v2_live(layout, state):
+    profile = state.get('active', {}).get('profile')
+    if profile in ('B22-safe', 'B22-mdm'):
+        return observe_b22_live(layout, state)
+    if profile in ('B23-safe', 'B23-mdm'):
+        return observe_b23_live(layout, state)
+    raise Blocked('Unsupported active profile for controller update')
 
 
 def validate_updated_v2(layout):
@@ -473,8 +532,8 @@ def validate_updated_v2(layout):
     spec.loader.exec_module(module)
     control = module.ControllerV2()
     state = control.preflight()
-    if state['active']['profile'] not in ('B22-safe', 'B22-mdm'):
-        raise Blocked('Updated v2 preflight did not retain B22')
+    if state['active']['profile'] not in ('B22-safe', 'B22-mdm', 'B23-safe', 'B23-mdm'):
+        raise Blocked('Updated v2 preflight did not retain compatible profile')
     control.smoke()
 
 
@@ -575,7 +634,7 @@ def lock_state(layout):
 
 
 def update_v2(layout, archive_path, signature_path, *,
-              observe=observe_b22_live, validate=validate_updated_v2,
+              observe=observe_v2_live, validate=validate_updated_v2,
               preflight=None, visudo=None, fault=lambda _: None):
     if os.geteuid() != 0:
         raise Blocked('Root on Linux required')
@@ -737,14 +796,14 @@ def update_v2(layout, archive_path, signature_path, *,
         journal['phase'] = 'active'
         atomic_replace(layout.update_journal,
                        (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
-        return {'result': 'V2_UPDATED_B22_' + state['active']['profile'].split('-')[1].upper(),
+        return {'result': 'V2_UPDATED_' + state['active']['profile'].replace('-', '_').upper(),
                 'packageSha256': digest}
     finally:
         os.close(lock)
 
 
 def provision_oauth(layout, archive_path, signature_path, *,
-                    preflight=None, observe=observe_b22_live, prompt=None):
+                    preflight=None, observe=observe_v2_live, prompt=None):
     """Add only the two OAuth client values to the existing protected secret store."""
     if os.geteuid() != 0:
         raise Blocked('Root on Linux required')

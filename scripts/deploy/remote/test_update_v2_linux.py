@@ -1,4 +1,4 @@
-"""Root-only disposable Linux test of the signed B22 v2 point update."""
+"""Root-only disposable Linux test of signed B22/B23 v2 point updates."""
 
 import importlib.util
 import io
@@ -17,6 +17,14 @@ installer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(installer)
 OLD = Path(os.environ['GEOPS_V2_OLD_PACKAGE'])
 NEW = Path(os.environ['GEOPS_V2_UPDATE_PACKAGE'])
+VERSION = os.environ.get('GEOPS_V2_UPDATE_VERSION', 'B22')
+if VERSION not in ('B22', 'B23'):
+    raise ValueError('Unsupported test version')
+SAFE = VERSION + '-safe'
+MDM = VERSION + '-mdm'
+LEDGER_HASH = installer.B22_HASH if VERSION == 'B22' else installer.B23_HASH
+UPDATED_SAFE = 'V2_UPDATED_' + VERSION.upper() + '_SAFE'
+UPDATED_MDM = 'V2_UPDATED_' + VERSION.upper() + '_MDM'
 
 
 def write(path, body, mode):
@@ -27,7 +35,7 @@ def write(path, body, mode):
 
 
 class Fixture:
-    def __init__(self, profile='B22-safe'):
+    def __init__(self, profile=SAFE):
         self.temp = tempfile.TemporaryDirectory(prefix='geops-v2-update-', dir='/opt')
         self.layout = installer.Layout(self.temp.name)
         for path in (self.layout.old, self.layout.new, self.layout.state,
@@ -59,7 +67,7 @@ class Fixture:
         os.chmod(self.signature, 0o600)
         self.state = {'schemaVersion': 2, 'active': {'profile': profile,
                       'apiId': 'sha256:' + 'a' * 64, 'webId': 'sha256:' + 'b' * 64},
-                      'previous': ({'profile': 'B22-safe'} if profile == 'B22-mdm' else None),
+                      'previous': ({'profile': SAFE} if profile == MDM else None),
                       'phase': 'steady', 'pending': None}
         self.state_body = (json.dumps(self.state) + '\n').encode()
         write(self.layout.state / 'state.json', self.state_body, 0o600)
@@ -94,7 +102,7 @@ class Fixture:
         self.observations += 1
         assert state == self.state
         assert (layout.state / 'state.json').read_bytes() == self.state_body
-        return {'profile': self.state['active']['profile'], 'ledger': installer.B22_HASH,
+        return {'profile': self.state['active']['profile'], 'ledger': LEDGER_HASH,
                 'api': self.state['active']['apiId'],
                 'web': self.state['active']['webId'], 'db': 'healthy', 'gate': 'open'}
 
@@ -123,17 +131,17 @@ class UpdateTest(unittest.TestCase):
         self.fx.close()
 
     def test_complete_and_idempotent(self):
-        self.assertEqual(self.fx.run()['result'], 'V2_UPDATED_B22_SAFE')
+        self.assertEqual(self.fx.run()['result'], UPDATED_SAFE)
         self.assertEqual(self.fx.run()['result'], 'ALREADY_UPDATED')
         self.assertEqual(self.fx.layout.sudoers.read_bytes(), installer.V2_SUDOERS)
         self.assertEqual(self.fx.state_body,
                          (self.fx.layout.state / 'state.json').read_bytes())
         self.assertGreaterEqual(self.fx.validations, 3)
 
-    def test_b22_mdm_point_update_preserves_running_profile(self):
+    def test_mdm_point_update_preserves_running_profile(self):
         self.fx.close()
-        self.fx = Fixture('B22-mdm')
-        self.assertEqual(self.fx.run()['result'], 'V2_UPDATED_B22_MDM')
+        self.fx = Fixture(MDM)
+        self.assertEqual(self.fx.run()['result'], UPDATED_MDM)
         self.assertEqual(self.fx.run()['result'], 'ALREADY_UPDATED')
         self.assertEqual(json.loads((self.fx.layout.state / 'state.json').read_bytes()),
                          self.fx.state)
@@ -194,7 +202,7 @@ class UpdateTest(unittest.TestCase):
 
     def test_second_update_reuses_journal_and_keeps_current_recovery_copy(self):
         self.fx.seed_active_previous_update()
-        self.assertEqual(self.fx.run()['result'], 'V2_UPDATED_B22_SAFE')
+        self.assertEqual(self.fx.run()['result'], UPDATED_SAFE)
         self.assertEqual(self.fx.run()['result'], 'ALREADY_UPDATED')
         journal = json.loads(self.fx.layout.update_journal.read_bytes())
         self.assertEqual(journal['phase'], 'active')
@@ -212,7 +220,7 @@ class UpdateTest(unittest.TestCase):
                     with self.assertRaises(RuntimeError):
                         fx.run(lambda phase: (_ for _ in ()).throw(RuntimeError(phase))
                                if phase == point else None)
-                    self.assertEqual(fx.run()['result'], 'V2_UPDATED_B22_SAFE')
+                    self.assertEqual(fx.run()['result'], UPDATED_SAFE)
                     self.assertEqual(fx.layout.sudoers.read_bytes(), installer.V2_SUDOERS)
                     self.assertEqual(fx.state_body, (fx.layout.state / 'state.json').read_bytes())
                 finally:
@@ -231,7 +239,7 @@ class UpdateTest(unittest.TestCase):
                         os._exit(0)
                     _, status = os.waitpid(pid, 0)
                     self.assertEqual(os.waitstatus_to_exitcode(status), 42)
-                    self.assertEqual(fx.run()['result'], 'V2_UPDATED_B22_SAFE')
+                    self.assertEqual(fx.run()['result'], UPDATED_SAFE)
                     self.assertEqual(fx.run()['result'], 'ALREADY_UPDATED')
                     self.assertEqual(fx.layout.sudoers.read_bytes(), installer.V2_SUDOERS)
                 finally:
@@ -259,7 +267,7 @@ class UpdateTest(unittest.TestCase):
             visudo=lambda path: subprocess.run(
                 ['/usr/sbin/visudo', '-cf', str(path)],
                 check=True, capture_output=True))
-        self.assertEqual(result['result'], 'V2_UPDATED_B22_SAFE')
+        self.assertEqual(result['result'], UPDATED_SAFE)
         self.assertEqual(calls, ['verified'])
 
     def test_recovery_after_each_switch(self):
@@ -278,7 +286,7 @@ class UpdateTest(unittest.TestCase):
                         self.assertEqual(fx.layout.sudoers.read_bytes(),
                                          installer.UPDATE_SUDOERS if point != 'after-update-enable'
                                          else installer.V2_SUDOERS)
-                    self.assertEqual(fx.run()['result'], 'V2_UPDATED_B22_SAFE')
+                    self.assertEqual(fx.run()['result'], UPDATED_SAFE)
                     self.assertEqual(fx.layout.sudoers.read_bytes(), installer.V2_SUDOERS)
                     self.assertEqual((fx.layout.state / 'state.json').read_bytes(), fx.state_body)
                 finally:
@@ -305,7 +313,7 @@ class UpdateTest(unittest.TestCase):
                         os._exit(0)
                     _, status = os.waitpid(pid, 0)
                     self.assertEqual(os.waitstatus_to_exitcode(status), 42)
-                    self.assertEqual(fx.run()['result'], 'V2_UPDATED_B22_SAFE')
+                    self.assertEqual(fx.run()['result'], UPDATED_SAFE)
                     self.assertEqual(fx.run()['result'], 'ALREADY_UPDATED')
                     self.assertEqual(fx.layout.sudoers.read_bytes(), installer.V2_SUDOERS)
                 finally:
@@ -333,7 +341,7 @@ class UpdateTest(unittest.TestCase):
     def test_a21_is_not_an_update_source(self):
         invalid = self.fx.state | {'active': self.fx.state['active'] | {'profile': 'A21'}}
         with self.assertRaises(installer.Blocked):
-            installer.observe_b22_live(self.fx.layout, invalid)
+            installer.observe_v2_live(self.fx.layout, invalid)
 
 
 if __name__ == '__main__':
