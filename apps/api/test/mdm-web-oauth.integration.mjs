@@ -32,6 +32,27 @@ try {
     "INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES('synthetic',$1,$2)",
     [adminId, randomUUID()],
   );
+  const installerStore = new MdmOAuthClientStore(pool, Buffer.alloc(32, 21), 'com');
+  await installerStore.provisionInitialFromInstaller(
+    adminId, randomUUID(), 'synthetic-installed-id', 'synthetic-installed-secret',
+  );
+  assert.deepEqual(await installerStore.status(), {
+    configured: true, source: 'admin', region: 'com',
+  });
+  await assert.rejects(
+    installerStore.provisionInitialFromInstaller(
+      adminId, randomUUID(), 'replacement-id', 'replacement-secret',
+    ),
+    { code: 'mdm_oauth_client_already_configured' },
+  );
+  await assert.rejects(
+    installerStore.provisionInitialFromInstaller(
+      randomUUID(), randomUUID(), 'unauthorized-id', 'unauthorized-secret',
+    ),
+    { code: 'mdm_oauth_operator_unavailable' },
+  );
+  await pool.query('DELETE FROM mdm_oauth_client_config');
+  await pool.query('DELETE FROM mdm_oauth_config_rate');
   for (const permission of ['gps.installation.manage', 'gps.tenant.grant', 'mdm.oauth.configure'])
     await pool.query(
       'INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,$2,$1,$3)',
@@ -134,8 +155,23 @@ try {
     clientGeneration: configured.generation, clientStore: reloadedStore,
     webOrigin: 'http://localhost:3501', grantKey: Buffer.alloc(32, 21), fetchImpl: mockFetch,
   });
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='mdm.oauth.configure'",
+    [adminId],
+  );
   const configuredStart = await configuredOAuth.start(adminId, session.sessionId);
   assert.equal(new URL(configuredStart.url).searchParams.get('client_id'), 'synthetic-new-id');
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='gps.tenant.grant'",
+    [adminId],
+  );
+  await assert.rejects(configuredOAuth.start(adminId, session.sessionId), {
+    code: 'mdm_oauth_forbidden',
+  });
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=NULL WHERE admin_id=$1 AND permission IN ('gps.tenant.grant','mdm.oauth.configure')",
+    [adminId],
+  );
   await pool.query('DELETE FROM mdm_oauth_pending');
   const staleOAuth = new MdmWebOAuth(pool, {
     region: 'com', clientId: 'synthetic-config-id', clientSecret: 'synthetic-config-secret',

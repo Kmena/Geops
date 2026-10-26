@@ -179,7 +179,11 @@ export class MdmWebOAuth {
       [adminId],
     );
     if (!permission.rowCount) throw new ApiError(403, 'mdm_oauth_forbidden', 'Forbidden');
-    await this.config.clientStore?.requireAdmin(adminId, db);
+    // The client identity is installed by the protected operator workflow.
+    // Connecting it requires the active GEOPS session, installation access,
+    // and gps.tenant.grant above; client configuration permission is separate.
+    if (this.config.clientStore && !(await this.config.clientStore.status()).configured)
+      throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
   }
 
   private async assertDisconnected(db: Pool | PoolClient) {

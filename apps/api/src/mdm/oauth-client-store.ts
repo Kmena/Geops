@@ -131,6 +131,27 @@ export class MdmOAuthClientStore {
     clientSecret: string,
     onlyIfMissing = false,
   ): Promise<void> {
+    return this.write(adminId, correlationId, clientId, clientSecret, onlyIfMissing, false);
+  }
+
+  /** Initial installation only; the caller must supply the protected mounted client pair. */
+  async provisionInitialFromInstaller(
+    adminId: string,
+    correlationId: string,
+    clientId: string,
+    clientSecret: string,
+  ): Promise<void> {
+    return this.write(adminId, correlationId, clientId, clientSecret, true, true);
+  }
+
+  private async write(
+    adminId: string,
+    correlationId: string,
+    clientId: string,
+    clientSecret: string,
+    onlyIfMissing: boolean,
+    installer: boolean,
+  ): Promise<void> {
     if (!validOAuthClientValue(clientId) || !validOAuthClientValue(clientSecret))
       throw new ApiError(400, 'mdm_oauth_client_invalid', 'Invalid request');
     const db = await this.pool.connect();
@@ -138,7 +159,16 @@ export class MdmOAuthClientStore {
       await db.query('BEGIN');
       await db.query('SELECT pg_advisory_xact_lock($1)', [LOCK]);
       await this.tenant(db);
-      await this.requireAdmin(adminId, db);
+      if (installer) {
+        const operator = await db.query(
+          "SELECT 1 FROM admin_user WHERE id=$1 AND state='ACTIVE' FOR SHARE",
+          [adminId],
+        );
+        if (!operator.rowCount)
+          throw new ApiError(403, 'mdm_oauth_operator_unavailable', 'Forbidden');
+      } else {
+        await this.requireAdmin(adminId, db);
+      }
       if (onlyIfMissing) {
         const existing = await db.query(
           `SELECT 1 FROM mdm_oauth_client_config WHERE tenant_id=$1 AND region=$2 FOR UPDATE`,
@@ -194,20 +224,24 @@ export class MdmOAuthClientStore {
         [this.region],
       );
       await appendAudit(db, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        action: 'mdm.oauth.client.configure',
+        actorType: installer ? 'SYSTEM' : 'ADMIN',
+        ...(!installer ? { actorId: adminId } : {}),
+        action: installer ? 'mdm.oauth.client.provision' : 'mdm.oauth.client.configure',
         outcome: 'success',
         correlationId,
-        metadata: { provider: 'manageengine', region: this.region },
+        metadata: {
+          provider: 'manageengine',
+          region: this.region,
+          ...(installer ? { source: 'protected_installer' } : {}),
+        },
       });
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
       await appendAudit(this.pool, {
-        actorType: 'ADMIN',
-        actorId: adminId,
-        action: 'mdm.oauth.client.configure',
+        actorType: installer ? 'SYSTEM' : 'ADMIN',
+        ...(!installer ? { actorId: adminId } : {}),
+        action: installer ? 'mdm.oauth.client.provision' : 'mdm.oauth.client.configure',
         outcome: 'rejected',
         correlationId,
         metadata: { code: error instanceof ApiError ? error.code : 'mdm_oauth_config_failed' },

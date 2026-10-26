@@ -56,7 +56,6 @@ async function main(): Promise<void> {
         : undefined,
       config.mdm.webOrigin,
     );
-    await store.requireAdmin(operatorId);
     const status = await store.status();
     if (status.source === 'admin') {
       stdout.write('GEOPS OAuth application identity already provisioned.\n');
@@ -67,7 +66,7 @@ async function main(): Promise<void> {
       config.mdm.clientSecret ?? (await readHidden('Registered Client Secret: '));
     if (!validOAuthClientValue(clientId) || !validOAuthClientValue(clientSecret))
       throw new Error('Invalid OAuth client');
-    await store.save(operatorId, randomUUID(), clientId, clientSecret, true);
+    await store.provisionInitialFromInstaller(operatorId, randomUUID(), clientId, clientSecret);
     stdout.write('GEOPS OAuth application identity encrypted and provisioned.\n');
   } finally {
     await pool.end();
