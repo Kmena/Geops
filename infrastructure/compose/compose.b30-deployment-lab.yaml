@@ -1,0 +1,79 @@
+services:
+  db:
+    image: postgis/postgis:18-3.6
+    environment:
+      POSTGRES_DB: geops_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${GEOPS_LAB_DB_PASSWORD:?synthetic password required}
+    ports:
+      - "127.0.0.1::5432"
+    volumes:
+      - db_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d geops_dev"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+
+  api:
+    image: ${GEOPS_LAB_API_IMAGE:?local API image required}
+    networks:
+      default:
+        aliases: [geops-api]
+    environment:
+      GEOPS_DATA_MODE: synthetic
+      DATABASE_URL: postgresql://postgres:${GEOPS_LAB_DB_PASSWORD}@db:5432/geops_dev
+      GEOPS_SECURITY_GATE_PATH: /geops-security/security-gate.json
+      GEOPS_ADMIN_SESSION_KEY: ${GEOPS_LAB_ADMIN_SESSION_KEY}
+      GEOPS_ADMIN_CSRF_KEY: ${GEOPS_LAB_ADMIN_CSRF_KEY}
+      GEOPS_INVITATION_HMAC_KEY: ${GEOPS_LAB_INVITATION_HMAC_KEY}
+      GEOPS_MDM_GRANT_KEY: ${GEOPS_LAB_MDM_GRANT_KEY}
+      GEOPS_GPS_QUARANTINE_KEY: ${GEOPS_LAB_GPS_QUARANTINE_KEY}
+      GEOPS_INSECURE_LOCAL_COOKIE: "1"
+      GEOPS_ALLOWED_ORIGINS: http://127.0.0.1:3501
+      HOST: 0.0.0.0
+      PORT: "3500"
+      LOG_LEVEL: silent
+    volumes:
+      - ${GEOPS_LAB_GATE_DIR:?isolated gate required}:/geops-security:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3500/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+
+  web:
+    image: ${GEOPS_LAB_WEB_IMAGE:?local Web image required}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+
+volumes:
+  db_data:

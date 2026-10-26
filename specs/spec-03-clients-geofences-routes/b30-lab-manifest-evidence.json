@@ -1,0 +1,28 @@
+{
+  "kind": "B30_LOCAL_LAB_MANIFEST_EVIDENCE",
+  "status": "LAB_ONLY_NOT_PUBLISHABLE",
+  "manifest": {
+    "schemaVersion": 3,
+    "environment": "synthetic-b30-local",
+    "project": "geops-b30lab-892d5a74",
+    "sourceCommit": "15f77a0d1904b77833972d8e2fd628a6cb97678f",
+    "candidateSha256": "02c83a5293db7a5e6452342c5b1649bcd85d3b9ac334647b5489564257200a5f",
+    "targetSchema": 30,
+    "sql": {
+      "b23": "90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d",
+      "b30": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6"
+    },
+    "imageIds": {
+      "b23Api": "sha256:27b9b28a1ee98e6ca1eb6dfc1a276827c10f42972bbd7ababdd3c06eee187932",
+      "b23Web": "sha256:3d542d9571faa7bd60865f8675f48aeb48c339920157d7f51bc98de545a84db6",
+      "b30Api": "sha256:76747ce96729cc8c37eea2b3075cc88a0ee0597877421098c9a5542132cc7922",
+      "b30Web": "sha256:39528488d65a148b23126686910283bf147884262930503cea020813bb6df436"
+    },
+    "issuedAt": "2026-10-26T22:00:13.613Z",
+    "expiresAt": "2026-10-27T22:00:13.616Z"
+  },
+  "manifestSha256": "827aad52dad5cdb34e26778b9dada56e667cc994768c31f03fb8833fbd207aef",
+  "signatureBase64": "o7rAhamytBL9d76IJ+NZBUtZJ+ZytvsLgbpVb6gtXrK14gc1qwjQFDD3bxmgpPWXg5D69ddFhIgJ+14jXLgQCg==",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA3HQjEluhuLv6lLXUw+cNLqxYlLEgtRnKnrdrh8nX0c0=\n-----END PUBLIC KEY-----\n",
+  "publicKeySha256": "f3b15c58120d39be28c3e545953ab6b53201f2dabbc65bd20c98421dd95d9e5d"
+}

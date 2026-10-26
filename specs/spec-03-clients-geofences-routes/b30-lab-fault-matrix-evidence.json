@@ -1,0 +1,146 @@
+{
+  "kind": "B30_LOCAL_DEPLOYMENT_EVIDENCE",
+  "sourceCommit": "15f77a0d1904b77833972d8e2fd628a6cb97678f",
+  "controllerInstallManifestSha256": "8bf10a82b5729115e8393c996f9b05033a02b98c5518de4195eea5c9c06352d1",
+  "signedLabManifestSha256": "827aad52dad5cdb34e26778b9dada56e667cc994768c31f03fb8833fbd207aef",
+  "matrix11": [
+    {
+      "case": "preflight",
+      "fault": "before-preflight",
+      "schema": 23,
+      "result": "PASS",
+      "durationMs": 85702,
+      "project": "geops-b30lab-5c85cfd2"
+    },
+    {
+      "case": "bundle",
+      "fault": "before-prepare",
+      "schema": 23,
+      "result": "PASS",
+      "durationMs": 97660,
+      "project": "geops-b30lab-1f05618b"
+    },
+    {
+      "case": "backup",
+      "fault": "after-backup",
+      "schema": 23,
+      "result": "PASS",
+      "durationMs": 82547,
+      "project": "geops-b30lab-0b179d15"
+    },
+    {
+      "case": "before-api",
+      "fault": "before-api",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 75663,
+      "project": "geops-b30lab-9aec0f36"
+    },
+    {
+      "case": "after-api",
+      "fault": "after-api",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 75100,
+      "project": "geops-b30lab-08f9b5ea"
+    },
+    {
+      "case": "before-web",
+      "fault": "before-web",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 80004,
+      "project": "geops-b30lab-6c6c12b3"
+    },
+    {
+      "case": "after-web",
+      "fault": "after-web",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 79301,
+      "project": "geops-b30lab-acc2a03e"
+    },
+    {
+      "case": "during-health",
+      "fault": "before-health",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 95323,
+      "project": "geops-b30lab-a80815a0"
+    },
+    {
+      "case": "after-health",
+      "fault": "after-health",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 88598,
+      "project": "geops-b30lab-7b222ccb"
+    },
+    {
+      "case": "before-ledger",
+      "fault": "before-confirm",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 104528,
+      "project": "geops-b30lab-26d811cb"
+    },
+    {
+      "case": "during-recovery",
+      "fault": "before-api",
+      "schema": 30,
+      "result": "PASS",
+      "durationMs": 89251,
+      "project": "geops-b30lab-242a8575"
+    }
+  ],
+  "additionalHealthProbe": {
+    "fault": "during-health",
+    "schemaAtFailure": 30,
+    "recovery": "FORWARD_B30",
+    "result": "PASS",
+    "project": "geops-b30lab-5b7cd144"
+  },
+  "measuredRun": {
+    "result": "B30_LAB_METRICS",
+    "project": "geops-b30lab-31d3d9b1",
+    "totalMs": 32267,
+    "downtimeWindowMs": 26931,
+    "phaseMs": {
+      "preflight": 4382,
+      "drain": 2057,
+      "backup": 1428,
+      "prepare": 1067,
+      "migrate": 3137,
+      "api": 3260,
+      "web": 3150,
+      "health": 2072
+    },
+    "health": {
+      "apiMs": [
+        72.765123,
+        19.872861999999998,
+        44.62826100000001,
+        22.094769000000014,
+        17.216534000000024,
+        66.87133700000001,
+        23.99256200000002,
+        18.002871999999968,
+        15.323342000000025,
+        17.655455000000018
+      ],
+      "webMs": [
+        9.462658000000005,
+        1.7383839999999964,
+        1.084953000000013,
+        1.3267639999999972,
+        2.145103000000006,
+        1.4775720000000092,
+        0.578928000000019,
+        0.8197400000000243,
+        1.7751860000000192,
+        0.7496360000000095
+      ]
+    },
+    "sampleCount": 10
+  }
+}
