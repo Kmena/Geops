@@ -14,6 +14,7 @@ import { appendAudit } from '../audit/index.js';
 import { ApiError } from '../errors.js';
 import { RealMdmGrantStore } from './real-grants.js';
 import { ManageEngineReadOnly, boundedJson } from './provider.js';
+import type { MdmOAuthClientStore } from './oauth-client-store.js';
 
 const hash = (value: string): Buffer => createHash('sha256').update(value).digest();
 const random = (length: number): string => randomBytes(length).toString('base64url');
@@ -43,6 +44,8 @@ export interface WebOAuthConfig {
   webOrigin: string;
   grantKey: Buffer;
   mountedGrantPresent?: boolean;
+  clientGeneration?: string;
+  clientStore?: MdmOAuthClientStore;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
@@ -137,6 +140,10 @@ export class MdmWebOAuth {
     };
   }
 
+  private async assertClientGeneration(db: Pool | PoolClient): Promise<void> {
+    await this.config.clientStore?.assertGeneration(db, this.config.clientGeneration ?? 'legacy');
+  }
+
   private encrypt(stateDigest: Buffer, plaintext: string) {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.config.grantKey, iv);
@@ -172,6 +179,7 @@ export class MdmWebOAuth {
       [adminId],
     );
     if (!permission.rowCount) throw new ApiError(403, 'mdm_oauth_forbidden', 'Forbidden');
+    await this.config.clientStore?.requireAdmin(adminId, db);
   }
 
   private async assertDisconnected(db: Pool | PoolClient) {
@@ -198,6 +206,7 @@ export class MdmWebOAuth {
     try {
       await db.query('BEGIN');
       await db.query('SELECT pg_advisory_xact_lock(350019)');
+      await this.assertClientGeneration(db);
       await this.assertDisconnected(db);
       const expired = await db.query<Pending & { state_digest: Buffer }>(
         `SELECT state_digest,verifier_ciphertext,verifier_iv,verifier_tag
@@ -235,8 +244,8 @@ export class MdmWebOAuth {
       await db.query(
         `INSERT INTO mdm_oauth_pending
          (state_digest,nonce_digest,admin_id,session_id,region,customer_id,
-          verifier_ciphertext,verifier_iv,verifier_tag,expires_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          verifier_ciphertext,verifier_iv,verifier_tag,expires_at,client_generation)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           stateDigest,
           hash(nonce),
@@ -248,6 +257,7 @@ export class MdmWebOAuth {
           encrypted.iv,
           encrypted.tag,
           new Date(this.now() + FIVE_MINUTES),
+          this.config.clientGeneration ?? 'legacy',
         ],
       );
       await appendAudit(db, {
@@ -303,6 +313,7 @@ export class MdmWebOAuth {
     try {
       await db.query('BEGIN');
       await db.query('SELECT pg_advisory_xact_lock(350019)');
+      await this.assertClientGeneration(db);
       await this.authorize(db, adminId, sessionId);
       await this.assertDisconnected(db);
       await grants.activate(db, refreshToken, adminId, correlationId, [
@@ -338,9 +349,15 @@ export class MdmWebOAuth {
     const claimed = await this.pool.query<Pending>(
       `UPDATE mdm_oauth_pending SET consumed_at=now()
        WHERE state_digest=$1 AND nonce_digest=$2 AND consumed_at IS NULL
-       AND expires_at>now() AND region=$3 AND customer_id=$4
+       AND expires_at>now() AND region=$3 AND customer_id=$4 AND client_generation=$5
        RETURNING admin_id,session_id,verifier_ciphertext,verifier_iv,verifier_tag`,
-      [stateDigest, hash(input.nonce), this.config.region, DISCOVERY],
+      [
+        stateDigest,
+        hash(input.nonce),
+        this.config.region,
+        DISCOVERY,
+        this.config.clientGeneration ?? 'legacy',
+      ],
     );
     const pending = claimed.rows[0];
     if (!pending) throw new ApiError(400, 'mdm_oauth_state_invalid', 'Invalid authorization');
@@ -389,8 +406,8 @@ export class MdmWebOAuth {
       await this.pool.query(
         `INSERT INTO mdm_oauth_pending
          (state_digest,nonce_digest,admin_id,session_id,region,customer_id,
-          verifier_ciphertext,verifier_iv,verifier_tag,expires_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          verifier_ciphertext,verifier_iv,verifier_tag,expires_at,client_generation)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           selectionDigest,
           hash(selectionToken),
@@ -402,6 +419,7 @@ export class MdmWebOAuth {
           encrypted.iv,
           encrypted.tag,
           new Date(this.now() + FIVE_MINUTES),
+          this.config.clientGeneration ?? 'legacy',
         ],
       );
       issuedRefresh = null; // Stored encrypted for the short selection window.
@@ -422,11 +440,12 @@ export class MdmWebOAuth {
     const sql = consume
       ? `UPDATE mdm_oauth_pending SET consumed_at=now() WHERE state_digest=$1
          AND nonce_digest=$2 AND admin_id=$3 AND session_id=$4 AND region=$5
-         AND customer_id=$6 AND consumed_at IS NULL AND expires_at>now()
+         AND customer_id=$6 AND client_generation=$7 AND consumed_at IS NULL AND expires_at>now()
          RETURNING verifier_ciphertext,verifier_iv,verifier_tag`
       : `SELECT verifier_ciphertext,verifier_iv,verifier_tag FROM mdm_oauth_pending
          WHERE state_digest=$1 AND nonce_digest=$2 AND admin_id=$3 AND session_id=$4
-         AND region=$5 AND customer_id=$6 AND consumed_at IS NULL AND expires_at>now()`;
+         AND region=$5 AND customer_id=$6 AND client_generation=$7
+         AND consumed_at IS NULL AND expires_at>now()`;
     const result = await this.pool.query<Pending>(sql, [
       digest,
       digest,
@@ -434,6 +453,7 @@ export class MdmWebOAuth {
       sessionId,
       this.config.region,
       DISCOVERY,
+      this.config.clientGeneration ?? 'legacy',
     ]);
     if (!result.rows[0]) throw new ApiError(400, 'mdm_selection_expired', 'Invalid authorization');
     let escrow: Escrow;

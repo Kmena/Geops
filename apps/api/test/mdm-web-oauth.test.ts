@@ -8,6 +8,74 @@ import { ApiError } from '../src/errors.js';
 import { MdmWebOAuth } from '../src/mdm/web-oauth.js';
 import { FakeMdmProvider } from '../src/mdm/provider.js';
 import { MdmTenantRuntime } from '../src/mdm/tenant-runtime.js';
+import type { MdmOAuthClientStore } from '../src/mdm/oauth-client-store.js';
+
+test('OAuth client configuration requires admin Origin and CSRF and never returns secrets', async () => {
+  const pool = { query: async () => ({ rowCount: 1, rows: [{ one: 1 }] }) } as unknown as Pool;
+  let saved = false;
+  const store = {
+    webOrigin: 'https://example.invalid',
+    status: async () => ({ configured: saved, source: saved ? 'admin' : 'none', region: 'com' }),
+    save: async (_admin: string, _request: string, clientId: string, secret: string) => {
+      assert.equal(clientId, 'synthetic-client');
+      assert.equal(secret, 'synthetic-secret');
+      saved = true;
+    },
+  } as unknown as MdmOAuthClientStore;
+  const auth = {
+    cookieName: 'geops_admin',
+    authenticate: async (token: string | undefined) => {
+      if (token !== 'session') throw new ApiError(401, 'unauthorized', 'Unauthorized');
+      return {
+        id: '00000000-0000-4000-8000-000000000001',
+        sessionId: 'session',
+        csrfToken: 'csrf',
+      };
+    },
+    isAllowedOrigin: (origin: string | undefined) => origin === 'https://example.invalid',
+    assertCsrf: (_identity: unknown, token: string | undefined) => {
+      if (token !== 'csrf') throw new ApiError(403, 'csrf_rejected', 'Forbidden');
+    },
+  } as unknown as AdminAuthService;
+  const app = createApp({
+    readinessProbe: async () => true,
+    logLevel: 'silent',
+    adminAuth: auth,
+    devices: { pool } as DeviceRepository,
+    mdmTenant: new MdmTenantRuntime(pool, { region: 'com', grantKey: Buffer.alloc(32) }),
+    mdmOAuthClientStore: store,
+  });
+  try {
+    await app.ready();
+    const body = { client_id: 'synthetic-client', client_secret: 'synthetic-secret' };
+    const base = { cookie: 'geops_admin=session', origin: 'https://example.invalid' };
+    const put = (headers: Record<string, string>) =>
+      app.inject({
+        method: 'PUT',
+        url: '/v1/admin/mdm/oauth/config',
+        headers,
+        payload: body,
+      });
+    assert.equal((await put(base)).statusCode, 403);
+    assert.equal(
+      (await put({ ...base, origin: 'https://evil.invalid', 'x-csrf-token': 'csrf' })).statusCode,
+      403,
+    );
+    assert.equal((await put({ ...base, 'x-csrf-token': 'csrf' })).statusCode, 200);
+    const read = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/mdm/oauth/config',
+      headers: base,
+    });
+    assert.equal(read.statusCode, 200);
+    assert.equal(read.json().configured, true);
+    assert.equal(read.json().callback_url, 'https://example.invalid/v1/admin/mdm/oauth/callback');
+    assert.equal(read.body.includes('synthetic-secret'), false);
+    assert.equal(read.headers['cache-control'], 'no-store');
+  } finally {
+    await app.close();
+  }
+});
 
 test('MDM interface remains available without OAuth credentials and cannot start OAuth', async () => {
   const pool = { query: async () => ({ rowCount: 1, rows: [{ one: 1 }] }) } as unknown as Pool;

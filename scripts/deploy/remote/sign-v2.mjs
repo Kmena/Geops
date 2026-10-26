@@ -18,10 +18,13 @@ const registry = (service) => new RegExp(`^ghcr\\.io/kmena/geops-${service}@sha2
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 const A21 = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e';
 const B22 = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2';
+const B23 = '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d';
 const profiles = {
   A21: { sqlCount: 21, sqlListSha256: A21, variant: 'gps-base', mdmEnabled: false },
   'B22-safe': { sqlCount: 22, sqlListSha256: B22, variant: 'gps-base', mdmEnabled: false },
   'B22-mdm': { sqlCount: 22, sqlListSha256: B22, variant: 'mdm-qa', mdmEnabled: true },
+  'B23-safe': { sqlCount: 23, sqlListSha256: B23, variant: 'gps-base', mdmEnabled: false },
+  'B23-mdm': { sqlCount: 23, sqlListSha256: B23, variant: 'mdm-qa', mdmEnabled: true },
 };
 if (!idPattern.test(options.id ?? '') || !options.key || !options.out || !options.policy)
   throw Error('id, key, out and policy required');
@@ -48,17 +51,23 @@ const common = {
 };
 let document;
 if (kind === 'release') {
-  if (!['B22-safe', 'B22-mdm'].includes(options.profile) || !options.manifest)
-    throw Error('B22 profile and published manifest required');
+  if (!['B23-safe', 'B23-mdm'].includes(options.profile) || !options.manifest)
+    throw Error('B23 profile and published manifest required');
   const manifest = JSON.parse(readFileSync(options.manifest, 'utf8'));
   const entries = manifest.migrations;
   if (
     !Array.isArray(entries) ||
-    entries.length !== 22 ||
+    entries.length !== 23 ||
     entries.some(
       (entry) => !/^\d{4}_[a-z0-9_]+\.sql$/.test(entry.version) || !hex64.test(entry.sha256),
     ) ||
-    sha(entries.map((entry) => `${entry.version}|${entry.sha256}`).join('\n')) !== B22 ||
+    sha(entries.map((entry) => `${entry.version}|${entry.sha256}`).join('\n')) !== B23 ||
+    sha(
+      entries
+        .slice(0, 22)
+        .map((entry) => `${entry.version}|${entry.sha256}`)
+        .join('\n'),
+    ) !== B22 ||
     sha(
       entries
         .slice(0, 21)
@@ -75,7 +84,7 @@ if (kind === 'release') {
     !/^[a-f0-9]{40}$/.test(manifest.commit)
   )
     throw Error('Manifest provenance or SQL mismatch');
-  const key = options.profile === 'B22-safe' ? 'safe' : 'mdm';
+  const key = options.profile === 'B23-safe' ? 'safe' : 'mdm';
   const api = manifest.images?.api?.[key];
   const web = manifest.images?.web?.[key === 'safe' ? 'gpsBase' : 'mdmQa'];
   if (
@@ -97,8 +106,8 @@ if (kind === 'release') {
     api,
     web,
     profile: options.profile,
-    sqlCount: 22,
-    sqlListSha256: B22,
+    sqlCount: 23,
+    sqlListSha256: B23,
     policySha256,
   };
 } else if (kind === 'restore') {
@@ -108,8 +117,8 @@ if (kind === 'release') {
   if (
     evidence.result !== 'PASS' ||
     !hex64.test(evidence.backupSha256 ?? '') ||
-    evidence.sqlCount !== 21 ||
-    evidence.sqlListSha256 !== A21 ||
+    ![21, 22].includes(evidence.sqlCount) ||
+    evidence.sqlListSha256 !== (evidence.sqlCount === 21 ? A21 : B22) ||
     !Number.isFinite(Date.parse(evidence.restoredAt ?? '')) ||
     !evidence.isolatedDatabase ||
     !/^geops_verify_[0-9]+_restore$/.test(evidence.isolatedDatabase)
@@ -118,8 +127,8 @@ if (kind === 'release') {
   document = {
     ...common,
     backupSha256: evidence.backupSha256,
-    sqlCount: 21,
-    sqlListSha256: A21,
+    sqlCount: evidence.sqlCount,
+    sqlListSha256: evidence.sqlListSha256,
     restoredAt: evidence.restoredAt,
     result: 'PASS',
     evidenceSha256: sha(evidenceBytes),
@@ -128,17 +137,29 @@ if (kind === 'release') {
 } else if (kind === 'approval') {
   const action = options.action;
   const transitions = {
-    deploy: ['B22-safe', 'B22-mdm'],
-    rollback: ['B22-mdm', 'B22-safe'],
-    'promote22-begin': ['A21', 'B22-safe'],
-    'promote22-resume': ['A21', 'B22-safe'],
-    'promote22-complete': ['A21', 'B22-safe'],
-    'promote22-abort21': ['A21', 'A21'],
+    deploy: [
+      ['B22-safe', 'B22-mdm'],
+      ['B23-safe', 'B23-mdm'],
+    ],
+    rollback: [
+      ['B22-mdm', 'B22-safe'],
+      ['B23-mdm', 'B23-safe'],
+    ],
+    'promote22-begin': [['A21', 'B22-safe']],
+    'promote22-resume': [['A21', 'B22-safe']],
+    'promote22-complete': [['A21', 'B22-safe']],
+    'promote22-abort21': [['A21', 'A21']],
+    'promote23-begin': [['B22-mdm', 'B23-safe']],
+    'promote23-resume': [['B22-mdm', 'B23-safe']],
+    'promote23-complete': [['B22-mdm', 'B23-safe']],
+    'promote23-abort22': [['B22-mdm', 'B22-mdm']],
   };
   if (
     !Object.hasOwn(transitions, action) ||
-    transitions[action][0] !== options['source-profile'] ||
-    transitions[action][1] !== options['target-profile'] ||
+    !transitions[action].some(
+      ([source, target]) =>
+        source === options['source-profile'] && target === options['target-profile'],
+    ) ||
     ![
       options['source-api-id'],
       options['source-web-id'],
@@ -147,7 +168,7 @@ if (kind === 'release') {
     ].every((value) => imageId.test(value ?? ''))
   )
     throw Error('Invalid action, profile transition or image IDs');
-  const promotion = action.startsWith('promote22-');
+  const promotion = action.startsWith('promote22-') || action.startsWith('promote23-');
   let releaseSha256 = null;
   let release;
   if (action !== 'promote22-abort21') {
@@ -160,7 +181,11 @@ if (kind === 'release') {
     if (release.schemaVersion !== 2 || release.profile !== options['target-profile'])
       throw Error('Release profile mismatch');
     if (release.policySha256 !== policySha256) {
-      if (action !== 'rollback' || !options['previous-policy'] || !options['release-signature'])
+      if (
+        !['rollback', 'promote23-abort22'].includes(action) ||
+        !options['previous-policy'] ||
+        !options['release-signature']
+      )
         throw Error('Release policy mismatch');
       const previousPolicyBytes = Buffer.from(
         readFileSync(options['previous-policy'], 'utf8').replace(/\r\n/g, '\n'),
@@ -170,7 +195,10 @@ if (kind === 'release') {
         sha(previousPolicyBytes) !== release.policySha256 ||
         previousPolicy.schemaVersion !== 2 ||
         previousPolicy.environment !== policy.environment ||
-        JSON.stringify(previousPolicy.profiles) !== JSON.stringify(profiles) ||
+        !['B22-safe', 'B22-mdm'].every(
+          (name) =>
+            JSON.stringify(previousPolicy.profiles?.[name]) === JSON.stringify(profiles[name]),
+        ) ||
         previousPolicy.origin !== policy.origin
       )
         throw Error('Previous release policy mismatch');

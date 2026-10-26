@@ -44,6 +44,7 @@ except ImportError:  # local Windows tests never enter the privileged CLI
 
 A21_HASH = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e'
 B22_HASH = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2'
+B23_HASH = '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d'
 PROFILES = {
     'A21': {'sqlCount': 21, 'sqlListSha256': A21_HASH,
             'variant': 'gps-base', 'mdmEnabled': False},
@@ -51,11 +52,14 @@ PROFILES = {
                  'variant': 'gps-base', 'mdmEnabled': False},
     'B22-mdm': {'sqlCount': 22, 'sqlListSha256': B22_HASH,
                 'variant': 'mdm-qa', 'mdmEnabled': True},
+    'B23-safe': {'sqlCount': 23, 'sqlListSha256': B23_HASH,
+                 'variant': 'gps-base', 'mdmEnabled': False},
+    'B23-mdm': {'sqlCount': 23, 'sqlListSha256': B23_HASH,
+                'variant': 'mdm-qa', 'mdmEnabled': True},
 }
 MDM_OVERLAY = 'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml'
 MIGRATE_OVERLAY = 'infrastructure/compose/compose.staging.migrate.digest.override.yaml'
 BUNDLE_FILES = v1.BUNDLE_FILES + (MDM_OVERLAY, MIGRATE_OVERLAY)
-OAUTH_SECRET_NAMES = ('mdm_client_id', 'mdm_client_secret')
 V2_ROOT = Path('/etc/geops-deploy-v2')
 STATE_KEYS = ('schemaVersion', 'active', 'previous', 'phase', 'pending')
 SWITCH_OPERATIONS = ('webStop', 'apiStart', 'webStart', 'commit')
@@ -74,6 +78,10 @@ def profile_of(version):
     if profile not in PROFILES:
         raise v1.Blocked('Unknown release profile')
     return profile
+
+
+def ledger_profile_for(profile):
+    return profile.split('-')[0] if profile != 'A21' else 'A21'
 
 
 class ControllerV2(v1.Controller):
@@ -170,19 +178,23 @@ class ControllerV2(v1.Controller):
             if value['active']['profile'] == 'A21' and value['previous'] is not None:
                 raise v1.Blocked('A21 rollback target forbidden')
             if value['previous'] is not None and (
-                    value['active']['profile'] != 'B22-mdm' or
-                    value['previous']['profile'] != 'B22-safe'):
+                    (value['active']['profile'], value['previous']['profile']) not in
+                    (('B22-mdm', 'B22-safe'), ('B23-mdm', 'B23-safe'))):
                 raise v1.Blocked('Unsafe previous release')
         elif value['phase'] in ('stopping', 'stopped'):
-            if value['active']['profile'] != 'A21' or value['previous'] is not None:
+            if not (value['active']['profile'] == 'A21' and value['previous'] is None or
+                    value['active']['profile'] == 'B22-mdm' and
+                    value['previous'] is not None and
+                    value['previous']['profile'] == 'B22-safe'):
                 raise v1.Blocked('Invalid promotion source')
             pending = value['pending']
             v1.exact_keys(pending, ('target', 'backupSha256', 'restoreSha256', 'epoch'))
             v1.Controller.check_version({key: pending['target'][key] for key in
                                          ('commit', 'apiRef', 'webRef', 'apiId', 'webId',
                                           'releaseSha256')})
-            if profile_of(pending['target']) != 'B22-safe':
-                raise v1.Blocked('Promotion target must be B22-safe')
+            if (value['active']['profile'], profile_of(pending['target'])) not in (
+                    ('A21', 'B22-safe'), ('B22-mdm', 'B23-safe')):
+                raise v1.Blocked('Invalid promotion source or target')
             if (not v1.HEX64.fullmatch(pending['backupSha256']) or
                     not v1.HEX64.fullmatch(pending['restoreSha256']) or
                     not re.fullmatch(r'[a-f0-9-]{36}', pending['epoch'])):
@@ -199,13 +211,16 @@ class ControllerV2(v1.Controller):
                                          ('commit', 'apiRef', 'webRef', 'apiId', 'webId',
                                           'releaseSha256')})
             pair = (value['active']['profile'], profile_of(target))
-            if pair not in (('B22-safe', 'B22-mdm'), ('B22-mdm', 'B22-safe')) or (
-                    pending['action'] == 'deploy') != (pair[0] == 'B22-safe'):
+            if pair not in (('B22-safe', 'B22-mdm'), ('B22-mdm', 'B22-safe'),
+                            ('B23-safe', 'B23-mdm'), ('B23-mdm', 'B23-safe')) or (
+                    pending['action'] == 'deploy') != pair[0].endswith('-safe'):
                 raise v1.Blocked('Invalid transition profiles')
             if pending['action'] == 'rollback' and value['previous'] != target:
                 raise v1.Blocked('Rollback target differs from accredited safe release')
-            if (pending['ledger'] != {'profile': 'B22', 'sqlCount': 22,
-                                     'sqlListSha256': B22_HASH} or
+            ledger_name = ledger_profile_for(pair[0])
+            if (pending['ledger'] != {'profile': ledger_name,
+                                     'sqlCount': PROFILES[pair[0]]['sqlCount'],
+                                     'sqlListSha256': PROFILES[pair[0]]['sqlListSha256']} or
                     not isinstance(pending['policySha256'], str) or
                     not v1.HEX64.fullmatch(pending['policySha256']) or
                     not re.fullmatch(r'[a-f0-9-]{36}', pending['gateEpoch']) or
@@ -248,6 +263,8 @@ class ControllerV2(v1.Controller):
             return 'A21', observed
         if observed == {key: PROFILES['B22-safe'][key] for key in observed}:
             return 'B22', observed
+        if observed == {key: PROFILES['B23-safe'][key] for key in observed}:
+            return 'B23', observed
         raise v1.Blocked('Migration ledger differs from approved profiles')
 
     def gate(self, expected_phase=None):
@@ -298,7 +315,7 @@ class ControllerV2(v1.Controller):
             'GEOPS_STAGE_API_IMAGE_REF': api,
             'GEOPS_STAGE_WEB_IMAGE_REF': web,
         }
-        if profile == 'B22-mdm':
+        if profile in ('B22-mdm', 'B23-mdm'):
             mdm = self.policy['mdm']
             env['GEOPS_MDM_REGION'] = mdm['region']
         if maintenance_epoch is not None:
@@ -307,7 +324,7 @@ class ControllerV2(v1.Controller):
 
     def compose_args(self, profile, migration=False):
         files = [v1.BUNDLE_FILES[0]]
-        if profile == 'B22-mdm':
+        if profile in ('B22-mdm', 'B23-mdm'):
             files.append(MDM_OVERLAY)
         files.append(v1.BUNDLE_FILES[1])
         if migration:
@@ -334,8 +351,8 @@ class ControllerV2(v1.Controller):
         api_secrets = {item.get('source') if isinstance(item, dict) else item
                        for item in api_service.get('secrets', [])}
         required = set(v1.SECRET_NAMES)
-        if profile == 'B22-mdm':
-            required.update(OAUTH_SECRET_NAMES)
+        if profile in ('B22-mdm', 'B23-mdm'):
+            # OAuth client credentials are managed by the application after deploy.
             mdm = api_service.get('environment', {})
             if (mdm.get('GEOPS_MDM_TEST_TENANT') != '1' or
                     mdm.get('GEOPS_MDM_REGION') != self.policy['mdm']['region'] or
@@ -386,7 +403,7 @@ class ControllerV2(v1.Controller):
         return result
 
     def verify_secrets(self, profile, mounted=False):
-        names = v1.SECRET_NAMES + (OAUTH_SECRET_NAMES if profile == 'B22-mdm' else ())
+        names = v1.SECRET_NAMES
         for name in names:
             master = self.root / 'secrets' / name
             runtime = self.root / 'runtime-secrets' / name
@@ -399,10 +416,6 @@ class ControllerV2(v1.Controller):
                         stat.S_IMODE(b.st_mode) != 0o640):
                     raise v1.Blocked('MDM secret ownership changed')
             source = v1.regular_bytes(master, 4096, self.enforce_root)
-            if name in OAUTH_SECRET_NAMES and (
-                    not source or len(source) > 2048 or source.strip() != source or
-                    any(byte < 32 or byte == 127 for byte in source)):
-                raise v1.Blocked('Invalid protected OAuth client secret')
             expected = v1.digest(source)
             if expected != v1.digest(v1.regular_bytes(runtime, 4096, self.enforce_root)):
                 raise v1.Blocked('Protected secret copies differ')
@@ -419,13 +432,14 @@ class ControllerV2(v1.Controller):
                               'commit', 'api', 'web', 'profile', 'sqlCount',
                               'sqlListSha256', 'policySha256'))
         profile = value['profile']
-        if (value['schemaVersion'] != 2 or profile not in ('B22-safe', 'B22-mdm') or
+        if (value['schemaVersion'] != 2 or profile not in PROFILES or profile == 'A21' or
                 not isinstance(value['commit'], str) or
                 not v1.SHA.fullmatch(value['commit']) or
                 not v1.image_ref(value['api'], 'api') or
                 not v1.image_ref(value['web'], 'web') or
                 '@sha256:' not in value['api'] or '@sha256:' not in value['web'] or
-                value['sqlCount'] != 22 or value['sqlListSha256'] != B22_HASH or
+                value['sqlCount'] != PROFILES[profile]['sqlCount'] or
+                value['sqlListSha256'] != PROFILES[profile]['sqlListSha256'] or
                 value['policySha256'] != v1.digest(self.policy_bytes)):
             raise v1.Blocked('Release differs from v2 policy')
         return value, sha
@@ -465,13 +479,14 @@ class ControllerV2(v1.Controller):
                 (self.state_dir / 'used' / identity).exists()):
             raise v1.Blocked('Approval not bound to exact v2 transition')
 
-    def restore_proof(self, identity, backup_sha):
+    def restore_proof(self, identity, backup_sha, source_profile='A21'):
         value, sha = self.signed('restore', identity)
         v1.exact_keys(value, ('schemaVersion', 'id', 'environment', 'notBefore', 'expiresAt',
                               'backupSha256', 'sqlCount', 'sqlListSha256',
                               'restoredAt', 'result', 'evidenceSha256', 'policySha256'))
         if (value['schemaVersion'] != 2 or value['backupSha256'] != backup_sha or
-                value['sqlCount'] != 21 or value['sqlListSha256'] != A21_HASH or
+                value['sqlCount'] != PROFILES[source_profile]['sqlCount'] or
+                value['sqlListSha256'] != PROFILES[source_profile]['sqlListSha256'] or
                 value['result'] != 'PASS' or
                 not isinstance(value['evidenceSha256'], str) or
                 not v1.HEX64.fullmatch(value['evidenceSha256']) or
@@ -520,7 +535,7 @@ class ControllerV2(v1.Controller):
             raise v1.Blocked('Transition pending; only evidence or recovery allowed')
         self.current(state['active'])
         ledger_profile, _ = self.ledger()
-        if ledger_profile != ('A21' if state['active']['profile'] == 'A21' else 'B22'):
+        if ledger_profile != ledger_profile_for(state['active']['profile']):
             raise v1.Blocked('Active API and database schema differ')
         self.gate('open')
         self.backup()
@@ -542,9 +557,10 @@ class ControllerV2(v1.Controller):
 
     def transition_journal(self, state, action, target, approval_id, before):
         ledger_profile, ledger = self.ledger()
-        if ledger_profile != 'B22' or ledger != {
-                'sqlCount': 22, 'sqlListSha256': B22_HASH}:
-            raise v1.Blocked('B22 ledger required for profile transition')
+        profile = state['active']['profile']
+        if ledger_profile != ledger_profile_for(profile) or ledger != {
+                key: PROFILES[profile][key] for key in ('sqlCount', 'sqlListSha256')}:
+            raise v1.Blocked('Matching ledger required for profile transition')
         return {'action': action, 'source': state['active'], 'target': target,
                 'ledger': {'profile': ledger_profile, **ledger},
                 'policySha256': v1.digest(self.policy_bytes),
@@ -555,7 +571,7 @@ class ControllerV2(v1.Controller):
     def switch(self, target, progress=None, require_web_closed=False):
         profile = profile_of(target)
         ledger_profile, _ = self.ledger()
-        if ledger_profile != ('A21' if profile == 'A21' else 'B22'):
+        if ledger_profile != ledger_profile_for(profile):
             raise v1.Blocked('Target API migration set differs from live database')
         self.image_info(target['apiRef'], target['commit'], profile, 'api', target['apiId'])
         self.image_info(target['webRef'], target['commit'], profile, 'web', target['webId'])
@@ -572,7 +588,7 @@ class ControllerV2(v1.Controller):
             if progress:
                 progress(operation, 'started')
             current_ledger, _ = self.ledger()
-            if current_ledger != ('A21' if profile == 'A21' else 'B22'):
+            if current_ledger != ledger_profile_for(profile):
                 raise v1.Blocked('Database schema changed before service start')
             self.timed('activate-' + service, lambda service=service: self.call(
                 [*self.compose_args(profile), 'up', '-d', '--no-deps', '--no-build',
@@ -649,7 +665,7 @@ class ControllerV2(v1.Controller):
                 self.stop_web_gate()
             try:
                 ledger_profile, _ = self.ledger()
-                expected = 'A21' if state['active']['profile'] == 'A21' else 'B22'
+                expected = ledger_profile_for(state['active']['profile'])
                 if ledger_profile != expected:
                     raise v1.Blocked('Active API and database schema differ')
                 self.gate('open')
@@ -688,6 +704,10 @@ class ControllerV2(v1.Controller):
             release, sha = self.release(release_id)
             if (state['active']['profile'] == 'A21' and release['profile'] != 'B22-safe'):
                 raise v1.Blocked('Only B22-safe may be prepared from A21')
+            if release['profile'].startswith('B23-') and (
+                    state['active']['profile'], release['profile']) not in (
+                    ('B22-mdm', 'B23-safe'), ('B23-safe', 'B23-mdm')):
+                raise v1.Blocked('B23 preparation source differs from approved path')
             for ref in (release['api'], release['web']):
                 self.timed('pull-image', lambda ref=ref: self.call(
                     [self.docker, 'pull', ref], timeout=180))
@@ -718,7 +738,8 @@ class ControllerV2(v1.Controller):
             return self.stop_for_promotion(state)
         if command == 'promote22-resume':
             state = self.state()
-            if state['phase'] not in ('stopping', 'stopped'):
+            if (state['phase'] not in ('stopping', 'stopped') or
+                    state['active']['profile'] != 'A21'):
                 raise v1.Blocked('No pending promotion')
             self.approval(approval_id, 'promote22-resume',
                           state['pending']['target']['releaseSha256'], state['active'],
@@ -734,7 +755,7 @@ class ControllerV2(v1.Controller):
                     'ledgerProfile': self.ledger()[0], 'gatePhase': self.gate()['phase']}
         if command in ('promote22-complete', 'promote22-abort21'):
             state = self.state()
-            if state['phase'] != 'stopped':
+            if state['phase'] != 'stopped' or state['active']['profile'] != 'A21':
                 raise v1.Blocked('Services have not been stopped for promotion')
             pending, source = state['pending'], state['active']
             target = pending['target'] if command == 'promote22-complete' else source
@@ -761,20 +782,90 @@ class ControllerV2(v1.Controller):
             self.save_state(state)
             return {'result': 'PROMOTED' if wanted == 'B22' else 'ABORTED_TO_A21',
                     'profile': target['profile']}
+        if command == 'promote23-begin':
+            state = self.state()
+            if state['phase'] != 'steady' or state['active']['profile'] != 'B22-mdm':
+                raise v1.Blocked('B22-mdm steady source required')
+            self.current(state['active'])
+            if self.ledger()[0] != 'B22':
+                raise v1.Blocked('B22 ledger required')
+            gate = self.gate('open')
+            backup = self.backup()
+            release, sha = self.release(release_id)
+            if release['profile'] != 'B23-safe':
+                raise v1.Blocked('B23-safe promotion target required')
+            target = self.version_from_release(release, sha)
+            restore_sha = self.restore_proof(restore_id, backup['sha256'], 'B22-mdm')
+            self.approval(approval_id, 'promote23-begin', sha, state['active'], target,
+                          backup['sha256'], restore_sha, gate['epoch'])
+            self.consume(approval_id)
+            state |= {'phase': 'stopping', 'pending': {
+                'target': target, 'backupSha256': backup['sha256'],
+                'restoreSha256': restore_sha, 'epoch': gate['epoch']}}
+            self.save_state(state)
+            return self.stop_for_promotion(state)
+        if command == 'promote23-resume':
+            state = self.state()
+            if (state['phase'] not in ('stopping', 'stopped') or
+                    state['active']['profile'] != 'B22-mdm' or
+                    state['pending']['target']['profile'] != 'B23-safe'):
+                raise v1.Blocked('No pending B23 promotion')
+            self.approval(approval_id, 'promote23-resume',
+                          state['pending']['target']['releaseSha256'], state['active'],
+                          state['pending']['target'], state['pending']['backupSha256'],
+                          state['pending']['restoreSha256'], state['pending']['epoch'])
+            self.consume(approval_id)
+            if state['phase'] == 'stopping':
+                return self.stop_for_promotion(state)
+            if any(self.container(service)['status'] != 'exited'
+                   for service in ('api', 'web')):
+                self.stop_app_services(state['active'])
+            return {'result': 'AWAITING_SUPERVISED_RECOVERY',
+                    'ledgerProfile': self.ledger()[0], 'gatePhase': self.gate()['phase']}
+        if command in ('promote23-complete', 'promote23-abort22'):
+            state = self.state()
+            if (state['phase'] != 'stopped' or state['active']['profile'] != 'B22-mdm' or
+                    state['pending']['target']['profile'] != 'B23-safe'):
+                raise v1.Blocked('B23 promotion services have not been stopped')
+            pending, source = state['pending'], state['active']
+            complete = command == 'promote23-complete'
+            target = pending['target'] if complete else source
+            wanted = 'B23' if complete else 'B22'
+            if self.ledger()[0] != wanted or self.gate('open')['epoch'] != pending['epoch']:
+                raise v1.Blocked('Gate or ledger unsuitable for B23 recovery')
+            if any(self.container(service)['status'] != 'exited'
+                   for service in ('api', 'web')):
+                raise v1.Blocked('Old application services must remain stopped')
+            self.approval(approval_id, command, target['releaseSha256'], source, target,
+                          pending['backupSha256'], pending['restoreSha256'], pending['epoch'])
+            self.consume(approval_id)
+            try:
+                self.switch(target)
+            except Exception:
+                try:
+                    self.stop_app_services(source)
+                except Exception:
+                    raise v1.Blocked('B23 promotion failure requires supervised recovery')
+                raise v1.Blocked('B23 promotion failed; stopped for supervised retry')
+            self.save_state({'schemaVersion': 2, 'active': target,
+                             'previous': None if complete else state['previous'],
+                             'phase': 'steady', 'pending': None})
+            return {'result': 'PROMOTED' if complete else 'ABORTED_TO_B22',
+                    'profile': target['profile']}
         if command in ('deploy', 'rollback'):
             state = self.preflight()
             source = state['active']
             if command == 'deploy':
-                if source['profile'] != 'B22-safe':
-                    raise v1.Blocked('Only B22-safe can deploy B22-mdm')
+                if source['profile'] not in ('B22-safe', 'B23-safe'):
+                    raise v1.Blocked('A safe profile is required for MDM deploy')
                 release, sha = self.release(release_id)
-                if release['profile'] != 'B22-mdm':
-                    raise v1.Blocked('B22-mdm release required')
+                if release['profile'] != source['profile'].replace('-safe', '-mdm'):
+                    raise v1.Blocked('Matching MDM release required')
                 target = self.version_from_release(release, sha)
                 action = 'deploy'
             else:
-                if source['profile'] != 'B22-mdm' or state['previous'] is None:
-                    raise v1.Blocked('Only B22-mdm can return to B22-safe')
+                if source['profile'] not in ('B22-mdm', 'B23-mdm') or state['previous'] is None:
+                    raise v1.Blocked('Only MDM can return to accredited safe profile')
                 target = state['previous']
                 sha = target['releaseSha256']
                 action = 'rollback'
@@ -812,27 +903,34 @@ class ControllerV2(v1.Controller):
     def stop_for_promotion(self, state):
         pending = state['pending']
         observed = self.ledger()[0]
+        source = state['active']['profile']
+        target = pending['target']['profile']
+        expected = {('A21', 'B22-safe'): ('A21', 'B22'),
+                    ('B22-mdm', 'B23-safe'): ('B22', 'B23')}.get((source, target))
+        if expected is None:
+            raise v1.Blocked('Unapproved promotion path')
         if self.gate()['epoch'] != pending['epoch']:
             raise v1.Blocked('Promotion epoch changed')
-        if observed == 'B22':
+        if observed == expected[1]:
             if any(self.container(service)['status'] != 'exited' for service in ('api', 'web')):
                 self.stop_app_services(state['active'])
             state['phase'] = 'stopped'
             self.save_state(state)
-            return {'result': 'AWAITING_SUPERVISED_RECOVERY', 'ledgerProfile': 'B22'}
-        if observed != 'A21':
-            raise v1.Blocked('A21 ledger required to stop services')
+            return {'result': 'AWAITING_SUPERVISED_RECOVERY', 'ledgerProfile': expected[1]}
+        if observed != expected[0]:
+            raise v1.Blocked('Source ledger required to stop services')
         self.stop_app_services(state['active'])
         state['phase'] = 'stopped'
         self.save_state(state)
-        return {'result': 'AWAITING_SUPERVISED_RECOVERY', 'ledgerProfile': 'A21'}
+        return {'result': 'AWAITING_SUPERVISED_RECOVERY', 'ledgerProfile': expected[0]}
 
     def stop_app_services(self, source):
-        env = self.profile_env('A21', source['apiRef'], source['webRef'])
-        self.check_compose('A21', source['apiRef'], source['webRef'])
+        profile = source['profile']
+        env = self.profile_env(profile, source['apiRef'], source['webRef'])
+        self.check_compose(profile, source['apiRef'], source['webRef'])
         for service in ('geops-web', 'geops-api'):
             self.timed('stop-' + service, lambda service=service: self.call(
-                [*self.compose_args('A21'), 'stop', service], timeout=120, env=env))
+                [*self.compose_args(profile), 'stop', service], timeout=120, env=env))
         if any(self.container(service)['status'] != 'exited' for service in ('api', 'web')):
             raise v1.Blocked('Application services did not stop')
 
@@ -843,7 +941,9 @@ def main(argv):
     expected = {'status': 0, 'inspect-evidence': 0, 'verify': 0, 'recover': 0,
                 'prepare': 1, 'deploy': 2, 'rollback': 1,
                 'promote22-begin': 3, 'promote22-resume': 1,
-                'promote22-complete': 1, 'promote22-abort21': 1}
+                'promote22-complete': 1, 'promote22-abort21': 1,
+                'promote23-begin': 3, 'promote23-resume': 1,
+                'promote23-complete': 1, 'promote23-abort22': 1}
     if (not argv or argv[0] not in expected or len(argv) - 1 != expected[argv[0]] or
             not all(v1.IDENT.fullmatch(item) for item in argv[1:])):
         raise v1.Blocked('Invalid v2 operation or arguments')
@@ -858,12 +958,15 @@ def main(argv):
             raise v1.Blocked('Lock is not root-protected')
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         control.audit('requested-' + command, 'START')
-        release_id = argv[1] if command in ('prepare', 'deploy', 'promote22-begin') else None
+        release_id = argv[1] if command in ('prepare', 'deploy', 'promote22-begin',
+                                            'promote23-begin') else None
         approval_id = (argv[2] if command == 'deploy' else
-                       argv[2] if command == 'promote22-begin' else
+                       argv[2] if command in ('promote22-begin', 'promote23-begin') else
                        argv[1] if command in ('rollback', 'promote22-resume',
-                                              'promote22-complete', 'promote22-abort21') else None)
-        restore_id = argv[3] if command == 'promote22-begin' else None
+                                              'promote22-complete', 'promote22-abort21',
+                                              'promote23-resume', 'promote23-complete',
+                                              'promote23-abort22') else None)
+        restore_id = argv[3] if command in ('promote22-begin', 'promote23-begin') else None
         result = control.execute(command, release_id, approval_id, restore_id)
         control.audit('completed-' + command, 'PASS')
         print(json.dumps(result, sort_keys=True))

@@ -28,7 +28,7 @@ test('embedded API migrations must match the approved manifest', () => {
       encoding: 'utf8',
     }),
   );
-  assert.equal(actual.length, 22);
+  assert.equal(actual.length, 23);
   assert.throws(() => assertImageMigrations(actual, migrations));
 });
 

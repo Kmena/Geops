@@ -17,6 +17,10 @@ const operations = {
   'promote22-resume': 1,
   'promote22-complete': 1,
   'promote22-abort21': 1,
+  'promote23-begin': 3,
+  'promote23-resume': 1,
+  'promote23-complete': 1,
+  'promote23-abort22': 1,
 };
 const [operation, ...args] = process.argv.slice(2);
 function run(program, command, timeout) {
@@ -62,7 +66,10 @@ if (['stage-release', 'stage-approval', 'stage-restore'].includes(operation)) {
   run(
     'ssh',
     ['-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', 'geops-staging', remote],
-    operation === 'deploy' || operation === 'rollback' || operation.startsWith('promote22-')
+    operation === 'deploy' ||
+      operation === 'rollback' ||
+      operation.startsWith('promote22-') ||
+      operation.startsWith('promote23-')
       ? 20 * 60_000
       : operation === 'prepare'
         ? 8 * 60_000

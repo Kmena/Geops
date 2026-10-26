@@ -9,6 +9,7 @@ import { RealMdmGrantStore } from '../src/mdm/real-grants.ts';
 import { MdmOAuthRuntime } from '../src/mdm/oauth-runtime.ts';
 import { MdmConnectionControl } from '../src/mdm/connection-control.ts';
 import { MdmTenantRuntime } from '../src/mdm/tenant-runtime.ts';
+import { MdmOAuthClientStore } from '../src/mdm/oauth-client-store.ts';
 
 const url = process.env.DATABASE_URL;
 if (
@@ -20,7 +21,7 @@ if (
 
 const pool = new pg.Pool({ connectionString: url, max: 8 });
 try {
-  assert.equal((await applyMigrations(pool)).at(-1), '0022_mdm_web_oauth.sql');
+  assert.equal((await applyMigrations(pool)).at(-1), '0023_mdm_oauth_client.sql');
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
     csrfKey: Buffer.alloc(32, 12),
@@ -31,7 +32,7 @@ try {
     "INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES('synthetic',$1,$2)",
     [adminId, randomUUID()],
   );
-  for (const permission of ['gps.installation.manage', 'gps.tenant.grant'])
+  for (const permission of ['gps.installation.manage', 'gps.tenant.grant', 'mdm.oauth.configure'])
     await pool.query(
       'INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,$2,$1,$3)',
       [adminId, permission, 'Synthetic Web OAuth fixture'],
@@ -47,6 +48,37 @@ try {
     '192.0.2.10',
     randomUUID(),
   );
+  const clientStore = new MdmOAuthClientStore(pool, Buffer.alloc(32, 21), 'com', undefined,
+    'http://localhost:3501');
+  assert.deepEqual(await clientStore.status(), {
+    configured: false, source: 'none', region: 'com',
+  });
+  await clientStore.save(adminId, randomUUID(), 'synthetic-config-id', 'synthetic-config-secret');
+  await assert.rejects(
+    clientStore.save(adminId, randomUUID(), 'too-fast-id', 'too-fast-secret'),
+    { code: 'mdm_oauth_config_rate_limited' },
+  );
+  await assert.rejects(
+    clientStore.save(randomUUID(), randomUUID(), 'unauthorized-id', 'unauthorized-secret'),
+    { code: 'mdm_oauth_config_forbidden' },
+  );
+  const sealed = await pool.query('SELECT ciphertext,iv,tag FROM mdm_oauth_client_config');
+  assert.equal(sealed.rowCount, 1);
+  assert.equal(sealed.rows[0].ciphertext.includes(Buffer.from('synthetic-config-secret')), false);
+  assert.equal(sealed.rows[0].iv.length, 12);
+  assert.equal(sealed.rows[0].tag.length, 16);
+  const reloadedStore = new MdmOAuthClientStore(pool, Buffer.alloc(32, 21), 'com');
+  assert.equal((await reloadedStore.load()).clientId, 'synthetic-config-id');
+  assert.deepEqual(await reloadedStore.status(), {
+    configured: true, source: 'admin', region: 'com',
+  });
+  const oldGeneration = (await clientStore.load()).generation;
+  await pool.query("UPDATE mdm_oauth_config_rate SET next_allowed_at=now()-interval '1 second'");
+  await clientStore.save(adminId, randomUUID(), 'synthetic-new-id', 'synthetic-new-secret');
+  await assert.rejects(clientStore.assertGeneration(pool, oldGeneration), {
+    code: 'mdm_oauth_config_changed',
+  });
+  assert.equal((await reloadedStore.load()).clientId, 'synthetic-new-id');
   const grants = new RealMdmGrantStore(pool, Buffer.alloc(32, 21), 'com', '12345');
   let refreshes = 0;
   let customerMode = 'one';
@@ -91,6 +123,23 @@ try {
     assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), '12345');
     return Response.json({ devices: [], paging: {} });
   };
+  const configured = await reloadedStore.load();
+  const configuredOAuth = new MdmWebOAuth(pool, {
+    region: 'com', clientId: configured.clientId, clientSecret: configured.clientSecret,
+    clientGeneration: configured.generation, clientStore: reloadedStore,
+    webOrigin: 'http://localhost:3501', grantKey: Buffer.alloc(32, 21), fetchImpl: mockFetch,
+  });
+  const configuredStart = await configuredOAuth.start(adminId, session.sessionId);
+  assert.equal(new URL(configuredStart.url).searchParams.get('client_id'), 'synthetic-new-id');
+  await pool.query('DELETE FROM mdm_oauth_pending');
+  const staleOAuth = new MdmWebOAuth(pool, {
+    region: 'com', clientId: 'synthetic-config-id', clientSecret: 'synthetic-config-secret',
+    clientGeneration: oldGeneration, clientStore: reloadedStore,
+    webOrigin: 'http://localhost:3501', grantKey: Buffer.alloc(32, 21), fetchImpl: mockFetch,
+  });
+  await assert.rejects(staleOAuth.start(adminId, session.sessionId), {
+    code: 'mdm_oauth_config_changed',
+  });
   const browser = new MdmWebOAuth(pool, {
     region: 'com',
     clientId: 'synthetic-client',
@@ -159,6 +208,11 @@ try {
   });
   const control = new MdmConnectionControl(pool, 'com', '12345', () => runtime.refreshGrant());
   assert.equal(await control.isConnected(), true);
+  await pool.query("UPDATE mdm_oauth_config_rate SET next_allowed_at=now()-interval '1 second'");
+  await assert.rejects(
+    clientStore.save(adminId, randomUUID(), 'bad-replacement', 'bad-replacement'),
+    { code: 'mdm_disconnect_required' },
+  );
   assert.equal(await runtime.token(), 'synthetic-access-2');
   assert.equal(refreshes, 1);
   assert.equal(await grants.load(), 'synthetic-refresh-2');

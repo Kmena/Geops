@@ -10,6 +10,7 @@ const hash = (items) =>
     .digest('hex');
 const A21 = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e';
 const B22 = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2';
+const B23 = '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d';
 
 export function createManifestV2(input) {
   assert.match(input.commit ?? '', /^[a-f0-9]{40}$/, 'Full reviewed commit required');
@@ -23,9 +24,10 @@ export function createManifestV2(input) {
     /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+$/,
   );
   const migrations = input.migrations ?? migrationChecksums();
-  assert.equal(migrations.length, 22);
+  assert.equal(migrations.length, 23);
   assert.equal(hash(migrations.slice(0, 21)), A21, 'A21 SQL prefix changed');
-  assert.equal(hash(migrations), B22, 'B22 SQL changed');
+  assert.equal(hash(migrations.slice(0, 22)), B22, 'B22 SQL prefix changed');
+  assert.equal(hash(migrations), B23, 'B23 SQL changed');
   return {
     schemaVersion: 4,
     commit: input.commit,
@@ -35,8 +37,8 @@ export function createManifestV2(input) {
     migration: 'expand',
     migrations,
     apiBuild: {
-      safe: { variant: 'B22-safe', mdmEnabled: false },
-      mdm: { variant: 'B22-mdm', mdmEnabled: true },
+      safe: { variant: 'B23-safe', mdmEnabled: false },
+      mdm: { variant: 'B23-mdm', mdmEnabled: true },
     },
     webBuild: {
       gpsBase: { variant: 'gps-base', mdmEnabled: false },

@@ -11,6 +11,7 @@ import { DeviceSessionService } from './device-identity/session.js';
 import { DeviceLifecycleService } from './device-identity/lifecycle.js';
 import { MdmWebOAuth } from './mdm/web-oauth.js';
 import { MdmTenantRuntime } from './mdm/tenant-runtime.js';
+import { MdmOAuthClientStore } from './mdm/oauth-client-store.js';
 import { GpsPolicyService } from './gps-policy-service.js';
 import { GpsHealthService } from './gps-health-service.js';
 import { GpsDeviceConfigService } from './gps-device-config.js';
@@ -32,26 +33,46 @@ async function main(): Promise<void> {
     cookieName: config.adminCookieName,
   });
   const devices = new DeviceRepository(pool);
+  const mdmClientStore = config.mdm
+    ? new MdmOAuthClientStore(
+        pool,
+        config.mdmGrantKey,
+        config.mdm.region,
+        config.mdm.clientId && config.mdm.clientSecret
+          ? { clientId: config.mdm.clientId, clientSecret: config.mdm.clientSecret }
+          : undefined,
+        config.mdm.webOrigin,
+      )
+    : undefined;
   const mdmTenant = config.mdm
     ? new MdmTenantRuntime(pool, {
         region: config.mdm.region,
         ...(config.mdm.clientId ? { clientId: config.mdm.clientId } : {}),
         ...(config.mdm.clientSecret ? { clientSecret: config.mdm.clientSecret } : {}),
         grantKey: config.mdmGrantKey,
+        ...(mdmClientStore ? { clientStore: mdmClientStore } : {}),
         ...(config.mdm.customerId ? { mountedCustomerId: config.mdm.customerId } : {}),
         ...(config.mdm.refreshToken ? { mountedRefreshToken: config.mdm.refreshToken } : {}),
       })
     : undefined;
+  const mdmConfig = config.mdm;
   const mdmWebOAuth =
-    config.mdm?.clientId && config.mdm.clientSecret
-      ? new MdmWebOAuth(pool, {
-          region: config.mdm.region,
-          clientId: config.mdm.clientId,
-          clientSecret: config.mdm.clientSecret,
-          webOrigin: config.mdm.webOrigin,
-          grantKey: config.mdmGrantKey,
-          mountedGrantPresent: Boolean(config.mdm.refreshToken),
-        })
+    mdmConfig && mdmClientStore
+      ? async () => {
+          const client = await mdmClientStore.load();
+          return client
+            ? new MdmWebOAuth(pool, {
+                region: mdmConfig.region,
+                clientId: client.clientId,
+                clientSecret: client.clientSecret,
+                clientGeneration: client.generation,
+                clientStore: mdmClientStore,
+                webOrigin: mdmConfig.webOrigin,
+                grantKey: config.mdmGrantKey,
+                mountedGrantPresent: client.source === 'legacy' && Boolean(mdmConfig.refreshToken),
+              })
+            : undefined;
+        }
       : undefined;
   const gpsPolicies = new GpsPolicyService(pool);
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
@@ -76,6 +97,7 @@ async function main(): Promise<void> {
     deviceLifecycle: new DeviceLifecycleService(pool, devices),
     ...(mdmTenant ? { mdmTenant } : {}),
     ...(mdmWebOAuth ? { mdmWebOAuth } : {}),
+    ...(mdmClientStore ? { mdmOAuthClientStore: mdmClientStore } : {}),
     secureCookie: config.secureCookie,
     adminCookiePath: config.adminCookiePath,
   });

@@ -21,7 +21,7 @@ if (
 const pool = new pg.Pool({ connectionString: url, max: 8 });
 try {
   const applied = await applyMigrations(pool);
-  assert.equal(applied.at(-1), '0022_mdm_web_oauth.sql');
+  assert.equal(applied.at(-1), '0023_mdm_oauth_client.sql');
   assert.deepEqual(await applyMigrations(pool), [], 'migration replay is idempotent');
   const clock = { now: new Date('2026-10-21T12:00:00Z') };
   const settings = {

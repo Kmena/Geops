@@ -13,10 +13,10 @@ const input = {
   publicationRun: 'https://github.com/kmena/geops/actions/runs/124',
 };
 
-test('v2 manifest pins two API and two Web digests to the exact 22 SQL catalog', () => {
+test('v2 manifest pins two API and two Web digests to the exact 23 SQL catalog', () => {
   const manifest = createManifestV2(input);
   assert.equal(manifest.schemaVersion, 4);
-  assert.equal(manifest.migrations.length, 22);
+  assert.equal(manifest.migrations.length, 23);
   assert.deepEqual(manifest.migrations, migrationChecksums());
   assert.notEqual(manifest.images.api.safe, manifest.images.api.mdm);
   assert.equal(manifest.apiBuild.safe.mdmEnabled, false);

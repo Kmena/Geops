@@ -6,6 +6,7 @@ import { MdmConnectionControl } from './connection-control.js';
 import { ManageEngineReadOnly, type MdmStatus } from './provider.js';
 import { MdmInventoryService } from './inventory.js';
 import { discoverCustomers } from './web-oauth.js';
+import type { MdmOAuthClientStore, OAuthClient } from './oauth-client-store.js';
 
 interface Tenant {
   region: string;
@@ -16,6 +17,7 @@ export interface TenantRuntimeConfig {
   region: string;
   clientId?: string;
   clientSecret?: string;
+  clientStore?: MdmOAuthClientStore;
   grantKey: Buffer;
   mountedCustomerId?: string;
   mountedRefreshToken?: string;
@@ -45,7 +47,8 @@ export class MdmTenantRuntime {
   }
 
   private async context() {
-    if (!this.config.clientId || !this.config.clientSecret) return null;
+    const client = await this.credentials();
+    if (!client) return null;
     const tenant = await this.tenant();
     if (!tenant) return null;
     const grants = new RealMdmGrantStore(
@@ -55,11 +58,13 @@ export class MdmTenantRuntime {
       tenant.customer_id,
     );
     const oauth = new MdmOAuthRuntime({
-      clientId: this.config.clientId,
-      clientSecret: this.config.clientSecret,
+      clientId: client.clientId,
+      clientSecret: client.clientSecret,
       region: tenant.region,
       grantStore: grants,
-      ...(this.config.mountedCustomerId === tenant.customer_id && this.config.mountedRefreshToken
+      ...(client.source === 'legacy' &&
+      this.config.mountedCustomerId === tenant.customer_id &&
+      this.config.mountedRefreshToken
         ? { refreshToken: this.config.mountedRefreshToken }
         : {}),
       ...(this.config.fetchImpl ? { fetchImpl: this.config.fetchImpl } : {}),
@@ -87,14 +92,24 @@ export class MdmTenantRuntime {
     return { tenant, grants, oauth, control, provider, inventory };
   }
 
+  private async credentials(): Promise<OAuthClient | null> {
+    if (this.config.clientStore) return this.config.clientStore.load();
+    return this.config.clientId && this.config.clientSecret
+      ? {
+          clientId: this.config.clientId,
+          clientSecret: this.config.clientSecret,
+          generation: 'legacy',
+          source: 'legacy',
+        }
+      : null;
+  }
+
   private async required() {
     const context = await this.context();
     if (!context)
       throw new ApiError(
         503,
-        this.config.clientId && this.config.clientSecret
-          ? 'mdm_disconnected'
-          : 'mdm_oauth_unconfigured',
+        (await this.credentials()) ? 'mdm_disconnected' : 'mdm_oauth_unconfigured',
         'MDM unavailable',
       );
     return context;
@@ -109,21 +124,19 @@ export class MdmTenantRuntime {
     }
   > {
     const context = await this.context();
+    const configured = Boolean(await this.credentials());
     if (!context)
       return {
         provider: 'manageengine',
         connected: false,
         authorized: false,
-        oauth_configured: Boolean(this.config.clientId && this.config.clientSecret),
+        oauth_configured: configured,
         authorization_state: 'never',
         edition_evidence: 'UNVERIFIED',
         region: this.config.region,
         last_checked_at: null,
         last_http_status: null,
-        sanitized_error_code:
-          this.config.clientId && this.config.clientSecret
-            ? 'mdm_disconnected'
-            : 'mdm_oauth_unconfigured',
+        sanitized_error_code: configured ? 'mdm_disconnected' : 'mdm_oauth_unconfigured',
       };
     const status = await context.provider.integrationStatus();
     status.authorized = await context.control.isConnected();

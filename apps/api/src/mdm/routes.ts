@@ -11,6 +11,7 @@ import type { MdmOAuthRuntime } from './oauth-runtime.js';
 import type { MdmConnectionControl } from './connection-control.js';
 import type { MdmWebOAuth } from './web-oauth.js';
 import type { MdmTenantRuntime } from './tenant-runtime.js';
+import type { MdmOAuthClientStore } from './oauth-client-store.js';
 
 interface PageQuery {
   cursor?: string;
@@ -56,8 +57,9 @@ export function registerInventoryRoutes(
   inventory?: MdmInventoryService,
   oauth?: MdmOAuthRuntime,
   control?: MdmConnectionControl,
-  webOAuth?: MdmWebOAuth,
+  webOAuth?: MdmWebOAuth | (() => Promise<MdmWebOAuth | undefined>),
   tenant?: MdmTenantRuntime,
+  clientStore?: MdmOAuthClientStore,
 ): void {
   const guarded = <T>(operation: () => Promise<T>): Promise<T> =>
     control ? control.withConnected(operation) : operation();
@@ -146,7 +148,7 @@ export function registerInventoryRoutes(
   }
 
   if (tenant) {
-    registerDiscoveredTenantRoutes(app, auth, devices, tenant, webOAuth);
+    registerDiscoveredTenantRoutes(app, auth, devices, tenant, webOAuth, clientStore);
     return;
   }
   if (!mdm) throw new Error('MDM OAuth routes are unavailable');
@@ -172,7 +174,7 @@ export function registerInventoryRoutes(
     return status;
   });
 
-  if (webOAuth) {
+  if (webOAuth && typeof webOAuth !== 'function') {
     app.post('/v1/admin/mdm/oauth/start', async (request, reply) => {
       const admin = await requireAdmin(request, auth, true);
       const flow = await webOAuth.start(admin.id, admin.sessionId, request.id);
@@ -380,8 +382,57 @@ function registerDiscoveredTenantRoutes(
   auth: AdminAuthService,
   devices: DeviceRepository,
   tenant: MdmTenantRuntime,
-  oauth?: MdmWebOAuth,
+  oauth?: MdmWebOAuth | (() => Promise<MdmWebOAuth | undefined>),
+  clientStore?: MdmOAuthClientStore,
 ): void {
+  const resolveOAuth = async (): Promise<MdmWebOAuth | undefined> =>
+    typeof oauth === 'function' ? oauth() : oauth;
+  if (clientStore) {
+    app.get('/v1/admin/mdm/oauth/config', async (request, reply) => {
+      const admin = await requireAdmin(request, auth);
+      await requireInstallationCapability(devices, admin.id, request.id, 'mdm.oauth.config.read');
+      reply.header('Cache-Control', 'no-store');
+      return {
+        ...(await clientStore.status()),
+        callback_url: clientStore.webOrigin
+          ? `${clientStore.webOrigin}/v1/admin/mdm/oauth/callback`
+          : null,
+      };
+    });
+    app.put<{ Body: { client_id: string; client_secret: string } }>(
+      '/v1/admin/mdm/oauth/config',
+      {
+        schema: {
+          body: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['client_id', 'client_secret'],
+            properties: {
+              client_id: { type: 'string', minLength: 1, maxLength: 2048 },
+              client_secret: { type: 'string', minLength: 1, maxLength: 2048 },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const admin = await requireAdmin(request, auth, true);
+        await requireInstallationCapability(
+          devices,
+          admin.id,
+          request.id,
+          'mdm.oauth.config.write',
+        );
+        await clientStore.save(
+          admin.id,
+          request.id,
+          request.body.client_id,
+          request.body.client_secret,
+        );
+        reply.header('Cache-Control', 'no-store');
+        return { configured: true };
+      },
+    );
+  }
   app.get('/v1/admin/mdm/status', async (request) => {
     const admin = await requireAdmin(request, auth);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.status.read');
@@ -390,39 +441,42 @@ function registerDiscoveredTenantRoutes(
 
   app.post('/v1/admin/mdm/oauth/start', async (request, reply) => {
     const admin = await requireAdmin(request, auth, true);
-    if (!oauth) throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
-    const flow = await oauth.start(admin.id, admin.sessionId, request.id);
+    const activeOAuth = await resolveOAuth();
+    if (!activeOAuth) throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
+    const flow = await activeOAuth.start(admin.id, admin.sessionId, request.id);
     reply.header('Cache-Control', 'no-store');
     reply.header(
       'Set-Cookie',
-      `${oauth.cookieName}=${flow.nonce}; Path=${oauth.callbackPath}; Max-Age=300; HttpOnly; SameSite=Lax${oauth.secureCookie ? '; Secure' : ''}`,
+      `${activeOAuth.cookieName}=${flow.nonce}; Path=${activeOAuth.callbackPath}; Max-Age=300; HttpOnly; SameSite=Lax${activeOAuth.secureCookie ? '; Secure' : ''}`,
     );
     return { authorization_url: flow.url };
   });
 
   if (oauth) {
     app.get<{ Querystring: { state?: string; code?: string; error?: string; location?: string } }>(
-      oauth.callbackPath,
+      '/v1/admin/mdm/oauth/callback',
       async (request, reply) => {
+        const activeOAuth = await resolveOAuth();
         reply.header('Cache-Control', 'no-store');
         reply.header('Referrer-Policy', 'no-referrer');
         const cookies = [
-          `${oauth.cookieName}=; Path=${oauth.callbackPath}; Max-Age=0; HttpOnly; SameSite=Lax${oauth.secureCookie ? '; Secure' : ''}`,
+          `geops_mdm_oauth=; Path=/v1/admin/mdm/oauth/callback; Max-Age=0; HttpOnly; SameSite=Lax${activeOAuth?.secureCookie ? '; Secure' : ''}`,
         ];
         let outcome = 'failed';
         try {
-          const completed = await oauth.complete({
+          if (!activeOAuth) throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
+          const completed = await activeOAuth.complete({
             state: request.query.state,
             code: request.query.code,
             error: request.query.error,
             location: request.query.location ?? null,
-            nonce: cookieValue(request, oauth.cookieName),
+            nonce: cookieValue(request, activeOAuth.cookieName),
             correlationId: request.id,
           });
           outcome = completed.kind === 'selection' ? 'select' : 'connected';
           if (completed.kind === 'selection')
             cookies.push(
-              `${oauth.selectionCookieName}=${completed.selectionToken}; Path=${oauth.selectionPath}; Max-Age=300; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
+              `${activeOAuth.selectionCookieName}=${completed.selectionToken}; Path=${activeOAuth.selectionPath}; Max-Age=300; HttpOnly; SameSite=Strict${activeOAuth.secureCookie ? '; Secure' : ''}`,
             );
         } catch (error) {
           await appendAudit(devices.pool, {
@@ -438,19 +492,21 @@ function registerDiscoveredTenantRoutes(
       },
     );
 
-    app.get(oauth.selectionPath, async (request, reply) => {
+    app.get('/v1/admin/mdm/oauth/customers', async (request, reply) => {
       const admin = await requireAdmin(request, auth);
+      const activeOAuth = await resolveOAuth();
+      if (!activeOAuth) throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
       reply.header('Cache-Control', 'no-store');
       return {
-        customers: await oauth.customers(
-          cookieValue(request, oauth.selectionCookieName) ?? '',
+        customers: await activeOAuth.customers(
+          cookieValue(request, activeOAuth.selectionCookieName) ?? '',
           admin.id,
           admin.sessionId,
         ),
       };
     });
     app.post<{ Body: { customer_id: string } }>(
-      oauth.selectionPath,
+      '/v1/admin/mdm/oauth/customers',
       {
         schema: {
           body: {
@@ -463,8 +519,10 @@ function registerDiscoveredTenantRoutes(
       },
       async (request, reply) => {
         const admin = await requireAdmin(request, auth, true);
-        await oauth.choose(
-          cookieValue(request, oauth.selectionCookieName) ?? '',
+        const activeOAuth = await resolveOAuth();
+        if (!activeOAuth) throw new ApiError(503, 'mdm_oauth_unconfigured', 'MDM unavailable');
+        await activeOAuth.choose(
+          cookieValue(request, activeOAuth.selectionCookieName) ?? '',
           request.body.customer_id,
           admin.id,
           admin.sessionId,
@@ -473,7 +531,7 @@ function registerDiscoveredTenantRoutes(
         reply.header('Cache-Control', 'no-store');
         reply.header(
           'Set-Cookie',
-          `${oauth.selectionCookieName}=; Path=${oauth.selectionPath}; Max-Age=0; HttpOnly; SameSite=Strict${oauth.secureCookie ? '; Secure' : ''}`,
+          `${activeOAuth.selectionCookieName}=; Path=${activeOAuth.selectionPath}; Max-Age=0; HttpOnly; SameSite=Strict${activeOAuth.secureCookie ? '; Secure' : ''}`,
         );
         return { connected: true };
       },
@@ -504,6 +562,7 @@ function registerDiscoveredTenantRoutes(
   );
   app.post('/v1/admin/mdm/sync', async (request) => {
     const admin = await requireAdmin(request, auth, true);
+    await clientStore?.requireAdmin(admin.id);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.inventory.sync');
     return tenant.sync(admin.id, request.id);
   });
@@ -521,6 +580,7 @@ function registerDiscoveredTenantRoutes(
     },
     async (request) => {
       const admin = await requireAdmin(request, auth, true);
+      await clientStore?.requireAdmin(admin.id);
       await tenant.link(request.params.device_id, request.body.mdm_device_id, admin.id, request.id);
       return { linked: true };
     },
@@ -529,12 +589,14 @@ function registerDiscoveredTenantRoutes(
     '/v1/admin/devices/:device_id/mdm-link',
     async (request) => {
       const admin = await requireAdmin(request, auth, true);
+      await clientStore?.requireAdmin(admin.id);
       await tenant.unlink(request.params.device_id, admin.id, request.id);
       return { linked: false };
     },
   );
   app.post('/v1/admin/mdm/disconnect', async (request) => {
     const admin = await requireAdmin(request, auth, true);
+    await clientStore?.requireAdmin(admin.id);
     await requireInstallationCapability(devices, admin.id, request.id, 'mdm.disconnect');
     const permission = await devices.pool.query(
       `SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='gps.tenant.grant'

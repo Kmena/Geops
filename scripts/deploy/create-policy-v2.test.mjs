@@ -21,6 +21,8 @@ test('MDM customer and edition are discovered after OAuth, never required by pol
     assert.deepEqual(policy.mdm, { region: 'com' });
     assert.equal(policy.profiles['B22-safe'].sqlCount, 22);
     assert.equal(policy.profiles['B22-mdm'].sqlCount, 22);
+    assert.equal(policy.profiles['B23-safe'].sqlCount, 23);
+    assert.equal(policy.profiles['B23-mdm'].sqlCount, 23);
     const preloaded = spawnSync(
       process.execPath,
       [generator, join(folder, 'preloaded.json'), a21, 'com', 'TRIAL', '12345'],

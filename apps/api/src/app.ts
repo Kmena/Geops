@@ -20,6 +20,7 @@ import type { MdmInventoryService } from './mdm/inventory.js';
 import type { MdmOAuthRuntime } from './mdm/oauth-runtime.js';
 import type { MdmConnectionControl } from './mdm/connection-control.js';
 import type { MdmWebOAuth } from './mdm/web-oauth.js';
+import type { MdmOAuthClientStore } from './mdm/oauth-client-store.js';
 import type { MdmTenantRuntime } from './mdm/tenant-runtime.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
 import { registerGpsPolicyRoutes } from './gps-policy-routes.js';
@@ -47,7 +48,8 @@ export interface AppOptions {
   mdmInventory?: MdmInventoryService;
   mdmOAuth?: MdmOAuthRuntime;
   mdmControl?: MdmConnectionControl;
-  mdmWebOAuth?: MdmWebOAuth;
+  mdmWebOAuth?: MdmWebOAuth | (() => Promise<MdmWebOAuth | undefined>);
+  mdmOAuthClientStore?: MdmOAuthClientStore;
   mdmTenant?: MdmTenantRuntime;
   enrollment?: EnrollmentService;
   deviceSessions?: DeviceSessionService;
@@ -119,6 +121,7 @@ export function createApp(options: AppOptions): FastifyInstance {
         options.mdmControl,
         options.mdmWebOAuth,
         options.mdmTenant,
+        options.mdmOAuthClientStore,
       );
       if (options.enrollment && options.deviceSessions && options.deviceLifecycle) {
         registerIdentityRoutes(

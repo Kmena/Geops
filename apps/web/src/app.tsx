@@ -55,6 +55,10 @@ function mdmErrorMessage(error: unknown): string {
   if (error.status === 403) return 'No tienes permiso para administrar MDM.';
   if (error.code === 'mdm_disconnected') return 'ManageEngine está desconectado.';
   if (error.code === 'mdm_oauth_unconfigured') return 'Configuración OAuth pendiente.';
+  if (error.code === 'mdm_disconnect_required')
+    return 'Desconecta ManageEngine antes de reemplazar el cliente OAuth.';
+  if (error.code === 'mdm_oauth_config_rate_limited')
+    return 'Espera unos segundos antes de guardar otra configuración.';
   return 'No se pudo completar la operación MDM. Consulta el estado y vuelve a intentarlo.';
 }
 
@@ -452,7 +456,11 @@ function Status() {
   const location = useLocation();
   const navigate = useNavigate();
   const state = useLoad(api.mdmStatus);
+  const oauthConfig = useLoad(api.mdmOAuthConfig, mdmEnabled);
   const [busy, setBusy] = useState(false);
+  const [showOAuthForm, setShowOAuthForm] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
@@ -510,6 +518,25 @@ function Status() {
       setBusy(false);
     }
   }
+  async function saveOAuthConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile || busy) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      await api.mdmSaveOAuthConfig(clientId, clientSecret, profile.csrf_token);
+      setClientId('');
+      setClientSecret('');
+      setShowOAuthForm(false);
+      setNotice('Cliente OAuth guardado. Puedes conectar ManageEngine.');
+      oauthConfig.refresh();
+      state.refresh();
+    } catch (error) {
+      setActionError(mdmErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function disconnect() {
     if (!profile || busy) return;
     setBusy(true);
@@ -537,6 +564,63 @@ function Status() {
       </p>
       <section className="panel status-panel" aria-labelledby="status-title">
         <h2 id="status-title">Estado de la conexión</h2>
+        {state.data?.provider === 'manageengine' && !authorized && (
+          <div className="mdm-oauth-config">
+            <h3>
+              {state.data.oauth_configured
+                ? 'Cliente OAuth configurado'
+                : 'ManageEngine — Configuración pendiente'}
+            </h3>
+            {oauthConfig.data?.callback_url && (
+              <p>
+                URI de callback HTTPS: <code>{oauthConfig.data.callback_url}</code>
+              </p>
+            )}
+            {!showOAuthForm ? (
+              <button type="button" disabled={busy} onClick={() => setShowOAuthForm(true)}>
+                {state.data.oauth_configured ? 'Reemplazar credenciales' : 'Configurar OAuth'}
+              </button>
+            ) : (
+              <form onSubmit={(event) => void saveOAuthConfig(event)} autoComplete="off">
+                <label>
+                  Client ID
+                  <input
+                    value={clientId}
+                    onChange={(event) => setClientId(event.target.value)}
+                    required
+                    maxLength={2048}
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Client Secret
+                  <input
+                    type="password"
+                    value={clientSecret}
+                    onChange={(event) => setClientSecret(event.target.value)}
+                    required
+                    maxLength={2048}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <button type="submit" disabled={busy}>
+                  {busy ? 'Guardando…' : 'Guardar configuración'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setClientId('');
+                    setClientSecret('');
+                    setShowOAuthForm(false);
+                  }}
+                >
+                  Cancelar
+                </button>
+              </form>
+            )}
+          </div>
+        )}
         {callbackResult === 'failed' && (
           <p role="alert">No se completó la autorización de ManageEngine. Vuelve a intentarlo.</p>
         )}

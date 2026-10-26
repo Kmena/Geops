@@ -16,6 +16,7 @@ const ASSIGNABLE = new Set([
   'gps.audit.read',
   'gps.installation.manage',
   'gps.tenant.grant',
+  'mdm.oauth.configure',
 ]);
 const denied = () => new ApiError(403, 'gps_forbidden', 'Forbidden');
 const invalid = () => new ApiError(422, 'invalid_request', 'Invalid request');

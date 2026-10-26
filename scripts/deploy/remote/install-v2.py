@@ -20,6 +20,7 @@ from pathlib import Path
 
 A21_HASH = 'cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e'
 B22_HASH = 'aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2'
+B23_HASH = '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d'
 INSTALLED_V2_POLICY_SHA = 'c439e50912842d339d32705426dd028eaa23c3390d4a6c6d29a1ac14b4fc4951'
 HEX64 = re.compile(r'^[a-f0-9]{64}$')
 SQL_LINE = re.compile(r'^\d{4}_[a-z0-9_]+\.sql\|[a-f0-9]{64}$')
@@ -55,6 +56,13 @@ PROFILES = {
     'B22-mdm': {'sqlCount': 22, 'sqlListSha256': B22_HASH,
                 'variant': 'mdm-qa', 'mdmEnabled': True},
 }
+LEGACY_PROFILES = dict(PROFILES)
+PROFILES.update({
+    'B23-safe': {'sqlCount': 23, 'sqlListSha256': B23_HASH,
+                 'variant': 'gps-base', 'mdmEnabled': False},
+    'B23-mdm': {'sqlCount': 23, 'sqlListSha256': B23_HASH,
+                'variant': 'mdm-qa', 'mdmEnabled': True},
+})
 
 
 class Blocked(Exception):
@@ -228,7 +236,7 @@ def validate_policy(items, old_policy):
             policy['origin'] != old_policy['origin'] or
             policy['secretGid'] != old_policy['secretGid'] or
             policy['imageTag'] != old_policy['imageTag'] or
-            policy['profiles'] != PROFILES or
+            policy['profiles'] not in (LEGACY_PROFILES, PROFILES) or
             type(policy['backupMaxAgeSeconds']) is not int or
             not 0 < policy['backupMaxAgeSeconds'] <= 86400 or
             set(policy['files']) != set(BUNDLE) or
@@ -346,7 +354,7 @@ def valid_oauth_value(value):
 
 def validate_update_policy(items, old_items):
     if sha(old_items['policy.json']) != INSTALLED_V2_POLICY_SHA:
-        raise Blocked('Installed B22-safe policy differs from reviewed v2 source')
+        raise Blocked('Installed B22 policy differs from reviewed v2 source')
     old_policy = json.loads(old_items['policy.json'])
     policy = json.loads(items['policy.json'])
     if set(old_policy) != set(policy) or set(policy) != {
@@ -355,7 +363,7 @@ def validate_update_policy(items, old_items):
         raise Blocked('V2 policy inventory changed')
     if any(old_policy[key] != policy[key] for key in (
             'schemaVersion', 'environment', 'origin', 'secretGid', 'imageTag',
-            'backupMaxAgeSeconds', 'profiles')):
+            'backupMaxAgeSeconds')):
         raise Blocked('V2 point update changed deployment policy')
     if (set(old_policy['files']) != set(BUNDLE) or
             set(policy['files']) != set(BUNDLE) or
@@ -364,6 +372,7 @@ def validate_update_policy(items, old_items):
         raise Blocked('Non-MDM bundle changed during v2 point update')
     if (policy['schemaVersion'] != 2 or
             policy['environment'] != 'geops-spec02-staging' or
+            old_policy['profiles'] != LEGACY_PROFILES or
             policy['profiles'] != PROFILES or
             policy['mdm'] != {'region': 'com'} or
             not isinstance(old_policy['mdm'], dict) or
@@ -374,16 +383,16 @@ def validate_update_policy(items, old_items):
             old_policy['controllers']['geops_deploy.py'] != policy['controllers']['geops_deploy.py']):
         raise Blocked('V2 point update requires unchanged B22 policy and region com')
     old_overlay = old_items['bundle/' + MDM_OVERLAY]
-    expected_overlay = replace_once(
-        old_overlay,
-        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key]\n',
-        b'    secrets: [db_password, admin_session_key, admin_csrf_key, invitation_hmac_key, mdm_grant_key, gps_quarantine_key, mdm_client_id, mdm_client_secret]\n')
-    expected_overlay = replace_once(
-        expected_overlay,
-        b'networks:\n  stage_egress:\n    name: geops_spec02_mdm_stage_egress\n',
-        b'networks:\n  stage_egress:\n    name: geops_spec02_mdm_stage_egress\nsecrets:\n  mdm_client_id:\n    file: ./.local/staging/secrets/mdm_client_id\n  mdm_client_secret:\n    file: ./.local/staging/secrets/mdm_client_secret\n')
+    expected_overlay = old_overlay
+    if b'mdm_client_id, mdm_client_secret' in expected_overlay:
+        expected_overlay = replace_once(
+            expected_overlay,
+            b', mdm_client_id, mdm_client_secret]', b']')
+        expected_overlay = replace_once(
+            expected_overlay,
+            b'secrets:\n  mdm_client_id:\n    file: ./.local/staging/secrets/mdm_client_id\n  mdm_client_secret:\n    file: ./.local/staging/secrets/mdm_client_secret\n', b'')
     if items['bundle/' + MDM_OVERLAY] != expected_overlay:
-        raise Blocked('MDM overlay differs beyond optional OAuth client secrets')
+        raise Blocked('MDM overlay differs beyond removal of mounted OAuth client secrets')
     if items['bundle/' + API_ENTRYPOINT] != old_items['bundle/' + API_ENTRYPOINT]:
         raise Blocked('API entrypoint changed during OAuth secret mount update')
     for name, body in old_items.items():
@@ -413,9 +422,13 @@ def validate_update_policy(items, old_items):
 
 def observe_b22_live(layout, state):
     if (state.get('schemaVersion') != 2 or state.get('phase') != 'steady' or
-            state.get('previous') is not None or state.get('pending') is not None or
-            state.get('active', {}).get('profile') != 'B22-safe'):
-        raise Blocked('Steady B22-safe is required for controller update')
+            state.get('pending') is not None or
+            state.get('active', {}).get('profile') not in ('B22-safe', 'B22-mdm') or
+            (state['active']['profile'] == 'B22-safe' and state.get('previous') is not None) or
+            (state['active']['profile'] == 'B22-mdm' and
+             (not isinstance(state.get('previous'), dict) or
+              state['previous'].get('profile') != 'B22-safe'))):
+        raise Blocked('Steady B22 profile required for controller update')
     endpoint = checked(['/usr/bin/docker', 'context', 'inspect', '--format',
                         '{{.Endpoints.docker.Host}}'])
     if endpoint not in ('unix:///var/run/docker.sock', 'unix:///run/docker.sock'):
@@ -431,7 +444,7 @@ def observe_b22_live(layout, state):
                 value['State'].get('Health', {}).get('Status') != 'healthy'):
             raise Blocked('Staging service identity or health changed')
         if kind in ('api', 'web') and value['Image'] != state['active'][kind + 'Id']:
-            raise Blocked('B22-safe image differs from protected state')
+            raise Blocked('B22 image differs from protected state')
         result[kind] = {'containerId': value['Id'], 'imageId': value['Image'],
                         'health': 'healthy'}
     rows = checked(['/usr/bin/docker', 'exec', 'geops-spec02-staging-geops-db-1',
@@ -460,8 +473,8 @@ def validate_updated_v2(layout):
     spec.loader.exec_module(module)
     control = module.ControllerV2()
     state = control.preflight()
-    if state['active']['profile'] != 'B22-safe':
-        raise Blocked('Updated v2 preflight did not retain B22-safe')
+    if state['active']['profile'] not in ('B22-safe', 'B22-mdm'):
+        raise Blocked('Updated v2 preflight did not retain B22')
     control.smoke()
 
 
@@ -724,7 +737,8 @@ def update_v2(layout, archive_path, signature_path, *,
         journal['phase'] = 'active'
         atomic_replace(layout.update_journal,
                        (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
-        return {'result': 'V2_UPDATED_B22_SAFE', 'packageSha256': digest}
+        return {'result': 'V2_UPDATED_B22_' + state['active']['profile'].split('-')[1].upper(),
+                'packageSha256': digest}
     finally:
         os.close(lock)
 

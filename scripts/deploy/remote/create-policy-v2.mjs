@@ -43,6 +43,18 @@ const profiles = {
     variant: 'mdm-qa',
     mdmEnabled: true,
   },
+  'B23-safe': {
+    sqlCount: 23,
+    sqlListSha256: '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d',
+    variant: 'gps-base',
+    mdmEnabled: false,
+  },
+  'B23-mdm': {
+    sqlCount: 23,
+    sqlListSha256: '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d',
+    variant: 'mdm-qa',
+    mdmEnabled: true,
+  },
 };
 const bundle = Object.fromEntries(
   files.map((name) => [

@@ -296,6 +296,19 @@ export const api = {
       `/v1/admin/mdm/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   mdmStatus: () => read<MdmStatus>('/v1/admin/mdm/status'),
+  mdmOAuthConfig: () =>
+    read<{
+      configured: boolean;
+      source: 'admin' | 'legacy' | 'none';
+      region: string;
+      callback_url: string | null;
+    }>('/v1/admin/mdm/oauth/config'),
+  mdmSaveOAuthConfig: (clientId: string, clientSecret: string, csrf: string) =>
+    read<{ configured: true }>('/v1/admin/mdm/oauth/config', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    }),
   mdmInventory: (after?: string) =>
     read<{ items: MdmInventoryDevice[]; next_cursor: string | null }>(
       `/v1/admin/mdm/inventory${after ? `?after=${encodeURIComponent(after)}` : ''}`,

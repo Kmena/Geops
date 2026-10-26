@@ -30,8 +30,9 @@ const versions = [
   '0020_gps_mixed_batch_receipt.sql',
   '0021_gps_offline_policy_contract.sql',
   '0022_mdm_web_oauth.sql',
+  '0023_mdm_oauth_client.sql',
 ] as const;
-type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22;
+type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -94,7 +95,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18, 19, 20, 21, 22].includes(actual.size) ||
+    ![14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(actual.size) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -132,6 +133,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_oauth_pending', 22, 'r'],
     ['mdm_oauth_one_pending_tenant', 22, 'i'],
     ['mdm_oauth_pending_expiry', 22, 'i'],
+    ['mdm_oauth_client_config', 23, 'r'],
+    ['mdm_oauth_config_rate', 23, 'r'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -151,7 +154,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   if (
     !permission.rows[0]?.definition.includes('gps.installation.manage') ||
-    permission.rows[0].definition.includes('gps.user.manage') !== state >= 15
+    permission.rows[0].definition.includes('gps.user.manage') !== state >= 15 ||
+    permission.rows[0].definition.includes('mdm.oauth.configure') !== state >= 23
   )
     throw new Error('Permission constraint mismatch');
   const columns: Array<[string, string, SchemaVersion, boolean]> = [
@@ -190,6 +194,10 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_oauth_pending', 'session_id', 22, true],
     ['mdm_oauth_pending', 'verifier_ciphertext', 22, true],
     ['mdm_oauth_pending', 'expires_at', 22, true],
+    ['mdm_oauth_pending', 'client_generation', 23, true],
+    ['mdm_oauth_client_config', 'ciphertext', 23, true],
+    ['mdm_oauth_client_config', 'generation', 23, true],
+    ['mdm_oauth_config_rate', 'next_allowed_at', 23, true],
   ];
   for (const [table, column, introduced, notNull] of columns) {
     const found = await db.query<{ attnotnull: boolean; type: string }>(
@@ -465,7 +473,7 @@ export async function recoverMaintenance(
       throw error;
     }
     await onStage?.('authorized');
-    for (let next = before + 1; next <= 22; next++) {
+    for (let next = before + 1; next <= 23; next++) {
       const migration = catalog[next - 1];
       if (!migration) throw new Error('Recovery migration missing');
       await db.query('BEGIN');
@@ -496,12 +504,12 @@ export async function recoverMaintenance(
         throw new Error('Identity or permission inventory changed during recovery');
     }
     await checkIdentity(db, path, auth);
-    if ((await schemaState(db, catalog)) !== 22) throw new Error('Schema 22 not committed');
+    if ((await schemaState(db, catalog)) !== 23) throw new Error('Schema 23 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
     try {
-      await audit(db, auth, 'maintenance.recovery.validated', 22);
+      await audit(db, auth, 'maintenance.recovery.validated', 23);
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
@@ -510,7 +518,7 @@ export async function recoverMaintenance(
     await onStage?.('audited');
     const gate = await checkIdentity(db, path, auth);
     if (
-      (await schemaState(db, catalog)) !== 22 ||
+      (await schemaState(db, catalog)) !== 23 ||
       identities !== (await identityFingerprint(db, before))
     )
       throw new Error('Final maintenance integrity check failed');

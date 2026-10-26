@@ -19,6 +19,10 @@ SAFE_API = 'ghcr.io/kmena/geops-api@sha256:' + '1' * 64
 SAFE_WEB = 'ghcr.io/kmena/geops-web@sha256:' + '2' * 64
 MDM_API = 'ghcr.io/kmena/geops-api@sha256:' + '3' * 64
 MDM_WEB = 'ghcr.io/kmena/geops-web@sha256:' + '4' * 64
+B23_SAFE_API = 'ghcr.io/kmena/geops-api@sha256:' + 'a' * 64
+B23_SAFE_WEB = 'ghcr.io/kmena/geops-web@sha256:' + 'b' * 64
+B23_MDM_API = 'ghcr.io/kmena/geops-api@sha256:' + 'c' * 64
+B23_MDM_WEB = 'ghcr.io/kmena/geops-web@sha256:' + 'e' * 64
 BACKUP = '5' * 64
 RESTORE = '6' * 64
 EPOCH = '00000000-0000-0000-0000-000000000001'
@@ -26,7 +30,9 @@ EPOCH = '00000000-0000-0000-0000-000000000001'
 
 def version(profile):
     api, web = {'A21': (A_API, A_WEB), 'B22-safe': (SAFE_API, SAFE_WEB),
-                'B22-mdm': (MDM_API, MDM_WEB)}[profile]
+                'B22-mdm': (MDM_API, MDM_WEB),
+                'B23-safe': (B23_SAFE_API, B23_SAFE_WEB),
+                'B23-mdm': (B23_MDM_API, B23_MDM_WEB)}[profile]
     return {'commit': A_COMMIT if profile == 'A21' else COMMIT,
             'apiRef': api, 'webRef': web,
             'apiId': api.split('@')[-1] if '@' in api else 'sha256:' + '7' * 64,
@@ -47,7 +53,7 @@ class FakeController(v2.ControllerV2):
         self.docker = 'docker'
         self.saved = {'schemaVersion': 2, 'active': version(active),
                       'previous': None, 'phase': 'steady', 'pending': None}
-        self.ledger_profile = 'A21' if active == 'A21' else 'B22'
+        self.ledger_profile = v2.ledger_profile_for(active)
         self.gate_phase = 'open'
         self.images = {'api': self.saved['active']['apiId'],
                        'web': self.saved['active']['webId'], 'db': 'sha256:' + 'd' * 64}
@@ -77,7 +83,7 @@ class FakeController(v2.ControllerV2):
                 'status': self.statuses[service], 'health': self.health[service]}
 
     def ledger(self):
-        key = 'A21' if self.ledger_profile == 'A21' else 'B22-safe'
+        key = self.ledger_profile if self.ledger_profile == 'A21' else self.ledger_profile + '-safe'
         return self.ledger_profile, {'sqlCount': v2.PROFILES[key]['sqlCount'],
                                      'sqlListSha256': v2.PROFILES[key]['sqlListSha256']}
 
@@ -134,7 +140,9 @@ class FakeController(v2.ControllerV2):
         return ''
 
     def release(self, identity):
-        profile = 'B22-safe' if identity == 'safe_release_0001' else 'B22-mdm'
+        profile = {'safe_release_0001': 'B22-safe',
+                   'b23_safe_release_0001': 'B23-safe',
+                   'b23_mdm_release_0001': 'B23-mdm'}.get(identity, 'B22-mdm')
         target = version(profile)
         return {'profile': profile, 'commit': target['commit'],
                 'api': target['apiRef'], 'web': target['webRef']}, target['releaseSha256']
@@ -144,7 +152,7 @@ class FakeController(v2.ControllerV2):
         self.check_compose(target['profile'], target['apiRef'], target['webRef'])
         return target
 
-    def restore_proof(self, identity, backup_sha):
+    def restore_proof(self, identity, backup_sha, source_profile='A21'):
         if identity != 'restore_pass_0001' or backup_sha != BACKUP:
             raise v1.Blocked('Restore proof mismatch')
         return RESTORE
@@ -166,6 +174,46 @@ class FakeController(v2.ControllerV2):
 
 
 class V2TransitionTests(unittest.TestCase):
+    def b22_mdm_source(self):
+        controller = FakeController('B22-mdm')
+        controller.saved['previous'] = version('B22-safe')
+        return controller
+
+    def test_b23_promotion_and_safe_return(self):
+        controller = self.b22_mdm_source()
+        prepared = controller.execute('prepare', 'b23_safe_release_0001')
+        self.assertEqual(prepared['profile'], 'B23-safe')
+        begun = controller.execute('promote23-begin', 'b23_safe_release_0001',
+                                   'begin23_approval_001', 'restore_pass_0001')
+        self.assertEqual(begun['ledgerProfile'], 'B22')
+        self.assertEqual(controller.statuses['api'], 'exited')
+        self.assertEqual(controller.statuses['web'], 'exited')
+        controller.ledger_profile = 'B23'
+        with self.assertRaisesRegex(v1.Blocked, 'unsuitable'):
+            controller.execute('promote23-abort22', approval_id='abort22_approval_001')
+        self.assertFalse(any('up' in item for item in controller.commands))
+        promoted = controller.execute('promote23-complete', approval_id='complete23_approval_001')
+        self.assertEqual(promoted['profile'], 'B23-safe')
+        self.assertEqual(controller.saved['phase'], 'steady')
+        deployed = controller.execute('deploy', 'b23_mdm_release_0001',
+                                      'deploy23_approval_001')
+        self.assertEqual(deployed['profile'], 'B23-mdm')
+        self.assertEqual(controller.saved['previous']['profile'], 'B23-safe')
+        returned = controller.execute('rollback', approval_id='rollback23_approval_001')
+        self.assertEqual(returned['profile'], 'B23-safe')
+        self.assertEqual(controller.ledger_profile, 'B23')
+
+    def test_b23_abort_before_migration_and_no_b22_start_at_23(self):
+        controller = self.b22_mdm_source()
+        controller.execute('promote23-begin', 'b23_safe_release_0001',
+                           'begin23_approval_001', 'restore_pass_0001')
+        result = controller.execute('promote23-abort22', approval_id='abort22_approval_001')
+        self.assertEqual(result['profile'], 'B22-mdm')
+        self.assertEqual(controller.saved['previous']['profile'], 'B22-safe')
+        controller.ledger_profile = 'B23'
+        with self.assertRaisesRegex(v1.Blocked, 'differs from live database'):
+            controller.switch(version('B22-mdm'))
+
     def test_sql_guard_blocks_a21_before_any_compose_up(self):
         controller = FakeController('A21')
         controller.ledger_profile = 'B22'
@@ -205,16 +253,15 @@ class V2TransitionTests(unittest.TestCase):
 
             controller.call = mounted_hash
             v2.ControllerV2.verify_secrets(controller, 'B22-mdm', mounted=True)
-        self.assertEqual(len(calls), len(v1.SECRET_NAMES) + len(v2.OAUTH_SECRET_NAMES))
+        self.assertEqual(len(calls), len(v1.SECRET_NAMES))
         self.assertTrue(all(item[2] == v1.SERVICES['api'] for item in calls))
 
-    def test_mdm_requires_both_nonempty_oauth_client_secrets(self):
+    def test_mdm_does_not_require_oauth_client_secrets(self):
         controller = FakeController()
         controller.enforce_root = False
         with patch.object(v1, 'regular_bytes', side_effect=lambda path, *_: (
                 b'' if path.name == 'mdm_client_secret' else b'synthetic-secret')):
-            with self.assertRaisesRegex(v1.Blocked, 'Invalid protected OAuth client secret'):
-                v2.ControllerV2.verify_secrets(controller, 'B22-mdm')
+            v2.ControllerV2.verify_secrets(controller, 'B22-mdm')
             v2.ControllerV2.verify_secrets(controller, 'B22-safe')
 
     def test_safe_to_mdm_and_return_to_safe(self):

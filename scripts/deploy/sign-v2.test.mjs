@@ -31,6 +31,18 @@ const policy = {
       variant: 'mdm-qa',
       mdmEnabled: true,
     },
+    'B23-safe': {
+      sqlCount: 23,
+      sqlListSha256: '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d',
+      variant: 'gps-base',
+      mdmEnabled: false,
+    },
+    'B23-mdm': {
+      sqlCount: 23,
+      sqlListSha256: '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d',
+      variant: 'mdm-qa',
+      mdmEnabled: true,
+    },
   },
   mdm: { region: 'com' },
 };
@@ -70,7 +82,7 @@ test('v2 release signature binds exact policy, catalog and profile', () => {
       '--policy',
       policyPath,
       '--profile',
-      'B22-mdm',
+      'B23-mdm',
       '--manifest',
       manifestPath,
     ];
@@ -97,8 +109,8 @@ test('v2 release signature binds exact policy, catalog and profile', () => {
     );
     assert.equal(openssl.status, 0, openssl.stderr);
     const parsed = JSON.parse(document);
-    assert.equal(parsed.profile, 'B22-mdm');
-    assert.equal(parsed.sqlCount, 22);
+    assert.equal(parsed.profile, 'B23-mdm');
+    assert.equal(parsed.sqlCount, 23);
     assert.equal(parsed.api, manifest.images.api.mdm);
     assert.equal(parsed.web, manifest.images.web.mdmQa);
     writeFileSync(
@@ -115,7 +127,7 @@ test('v2 release signature binds exact policy, catalog and profile', () => {
     assert.equal(
       verify(
         null,
-        Buffer.from(document.toString().replace('B22-mdm', 'B22-safe')),
+        Buffer.from(document.toString().replace('B23-mdm', 'B23-safe')),
         key.publicKey,
         signature,
       ),

@@ -1,4 +1,4 @@
-"""Root-only disposable Linux test of the signed B22-safe v2 point update."""
+"""Root-only disposable Linux test of the signed B22 v2 point update."""
 
 import importlib.util
 import io
@@ -27,7 +27,7 @@ def write(path, body, mode):
 
 
 class Fixture:
-    def __init__(self):
+    def __init__(self, profile='B22-safe'):
         self.temp = tempfile.TemporaryDirectory(prefix='geops-v2-update-', dir='/opt')
         self.layout = installer.Layout(self.temp.name)
         for path in (self.layout.old, self.layout.new, self.layout.state,
@@ -57,9 +57,10 @@ class Fixture:
                         '-rawin', '-in', message, '-out', self.signature],
                        check=True, capture_output=True)
         os.chmod(self.signature, 0o600)
-        self.state = {'schemaVersion': 2, 'active': {'profile': 'B22-safe',
+        self.state = {'schemaVersion': 2, 'active': {'profile': profile,
                       'apiId': 'sha256:' + 'a' * 64, 'webId': 'sha256:' + 'b' * 64},
-                      'previous': None, 'phase': 'steady', 'pending': None}
+                      'previous': ({'profile': 'B22-safe'} if profile == 'B22-mdm' else None),
+                      'phase': 'steady', 'pending': None}
         self.state_body = (json.dumps(self.state) + '\n').encode()
         write(self.layout.state / 'state.json', self.state_body, 0o600)
         write(self.layout.journal, (json.dumps({'schemaVersion': 1, 'phase': 'active',
@@ -93,7 +94,7 @@ class Fixture:
         self.observations += 1
         assert state == self.state
         assert (layout.state / 'state.json').read_bytes() == self.state_body
-        return {'profile': 'B22-safe', 'ledger': installer.B22_HASH,
+        return {'profile': self.state['active']['profile'], 'ledger': installer.B22_HASH,
                 'api': self.state['active']['apiId'],
                 'web': self.state['active']['webId'], 'db': 'healthy', 'gate': 'open'}
 
@@ -128,6 +129,14 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(self.fx.state_body,
                          (self.fx.layout.state / 'state.json').read_bytes())
         self.assertGreaterEqual(self.fx.validations, 3)
+
+    def test_b22_mdm_point_update_preserves_running_profile(self):
+        self.fx.close()
+        self.fx = Fixture('B22-mdm')
+        self.assertEqual(self.fx.run()['result'], 'V2_UPDATED_B22_MDM')
+        self.assertEqual(self.fx.run()['result'], 'ALREADY_UPDATED')
+        self.assertEqual(json.loads((self.fx.layout.state / 'state.json').read_bytes()),
+                         self.fx.state)
 
     def test_oauth_client_provisioning_is_protected_and_idempotent(self):
         self.fx.run()
