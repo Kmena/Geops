@@ -1,0 +1,2602 @@
+{
+  "schemaVersion": 1,
+  "kind": "SPEC03_RELEASE_CANDIDATE_DRAFT",
+  "identity": "spec03-b30-7927fd2070465362ca49",
+  "sourceSha256": "7927fd2070465362ca49185a0add1d1030044e41fdb9a266e95e4d93e79ad243",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "6fe6e59f5e178d210b56c6fde3db053a0657c8e8a8fa3af98622c8811824b32e"
+    },
+    {
+      "path": ".editorconfig",
+      "sha256": "0f6d08d7e3fa2b5e25a84d39ad663bb0ac47a89c7a1f61eaf4b5f3692a3c6b3c"
+    },
+    {
+      "path": ".gitattributes",
+      "sha256": "6d5506c819467772b61c95189cd8d157506ce648c665e390e5e021557f342b47"
+    },
+    {
+      "path": ".github/workflows/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".github/workflows/deploy-mdm-v2-images.yml",
+      "sha256": "ba5c48a2222f9451030bbd459e95cf22e13634118b6353552723592493fec414"
+    },
+    {
+      "path": ".github/workflows/deploy-p0-images.yml",
+      "sha256": "45f20b8353bad5b6bcc006fbf685d620ae9c3b1e47915dc5e6873cbef5a3200f"
+    },
+    {
+      "path": ".github/workflows/poc-gps.yml",
+      "sha256": "b8e4f9983acac544678c37d46687910f94e63ff80ebc15d52e6e8911d468953e"
+    },
+    {
+      "path": ".github/workflows/spec-02.yml",
+      "sha256": "19fb3daef042199d0efb5a50ceeddd401a941bb50e2eee8a61d40c3af1df9515"
+    },
+    {
+      "path": ".github/workflows/wave-0a.yml",
+      "sha256": "4a265b489183414627d5199baba3e37bfed968a165f7d22982d663f4a3c8e3b0"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "bb9eab8110025bc899909ef7f2191bca410be64b05d10d3a582b4401a9f7270f"
+    },
+    {
+      "path": "README.md",
+      "sha256": "d169a512d38cad3e1bbcbdd43dd36925a5937111ef375d6b521ecfeb1de2eb4b"
+    },
+    {
+      "path": "apps/android-agent/README.md",
+      "sha256": "10be7122e5b8a40879a86ea92eaa73365cc1feab38ada763bb0897b599928ec9"
+    },
+    {
+      "path": "apps/android-agent/build.gradle.kts",
+      "sha256": "e50db227349bb2ad08d586870a36fb0ff94bdccf68db20f5918010c7081ff2f6"
+    },
+    {
+      "path": "apps/android-agent/settings.gradle.kts",
+      "sha256": "a2f6397643c8efe062875dae761274c97c21c769481d4cf10d81128566e69917"
+    },
+    {
+      "path": "apps/android-agent/src/android/AndroidManifest.xml",
+      "sha256": "3418e29594af109ed5cda569b9d41a3f8958e6eee46a7baa0b7a2d614506b8e3"
+    },
+    {
+      "path": "apps/android-agent/src/android/kotlin/com/geops/agent/AndroidHealthProbe.kt",
+      "sha256": "ddc821789f36db79e83398a76afe4432237c9713fe007662e36afd7351d3be67"
+    },
+    {
+      "path": "apps/android-agent/src/android/kotlin/com/geops/agent/AndroidKeys.kt",
+      "sha256": "c76ee7ecd1e97ef8c634e7540178c67e53eea82552fc16181cb18443ad653b71"
+    },
+    {
+      "path": "apps/android-agent/src/android/kotlin/com/geops/agent/GeopsLocationService.kt",
+      "sha256": "ec476b26df5b545129b67daf047904ff94f7f0006550a4715a945896e094b73c"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/AgentStore.kt",
+      "sha256": "97af48abe8a28932308a94c44fbe3916d9584bff19012f989a0be968c3cceabb"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/BatchSync.kt",
+      "sha256": "7952f87d8819666cbfde8222b5755841bc3944e8f8b82b69126c879443918c93"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/DeviceTransport.kt",
+      "sha256": "e4cd46df5c416a4ac2f990c015b4a4754f868edb4256fa707070f658d4356564"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/Diagnostics.kt",
+      "sha256": "655ca5afbe8d04334d5cce07eed1cf5fbd3336a11d7ba5ecd1924b063a13e356"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/EnrollmentClient.kt",
+      "sha256": "04d67ad57eb21c5447a1864b55ec94e583a42cefbcfaf9b85357205dfe05d0dc"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/HealthDiagnosis.kt",
+      "sha256": "540a9c1357b6fd8a16733916b2bba0ae61c52175ee5221a1b7614d680bb4b5cc"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/PendingUpload.kt",
+      "sha256": "53ad6ac2d42b5876309d7e681a2f017d7fe1341d3cba106caccaf43ab2342669"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/PolicyEngine.kt",
+      "sha256": "00144a6f533caaaa08ca59804ab17f9827dbaed4f63f75064de3d1dc6d3bfc28"
+    },
+    {
+      "path": "apps/android-agent/src/main/kotlin/com/geops/agent/TrackingController.kt",
+      "sha256": "e8e9661e1508abbc599dfb507d12ab2981ab91ad9f9f130ac52f29f9da410636"
+    },
+    {
+      "path": "apps/android-agent/src/test/kotlin/com/geops/agent/ConfigInterop.kt",
+      "sha256": "4af2a3d430396894e74410c11bb974a84c82ec423ca1cf901a9bf7d73999b561"
+    },
+    {
+      "path": "apps/android-agent/src/test/kotlin/com/geops/agent/SessionPositionInterop.kt",
+      "sha256": "0f3db38dc59b41951f0b4d225cdd3af9c458e24baaab5cb87f22aa068f06f5b8"
+    },
+    {
+      "path": "apps/android-agent/src/test/kotlin/com/geops/agent/SyntheticTests.kt",
+      "sha256": "fac40ed2459535549aa51b1a8e4253c798cc818d22b00db285841c38bcf71eba"
+    },
+    {
+      "path": "apps/android-agent/src/test/resources/staging-pop-vector.json",
+      "sha256": "db9580f141e5adf0476cd45f35cc653910e4d599c2ab9185153f6ae9e05c98eb"
+    },
+    {
+      "path": "apps/android-app/Dockerfile.build",
+      "sha256": "2994181fbacc46c6bb77c381d9aad1f83ee594028db8fe9e3e0b3c9b0c9bf759"
+    },
+    {
+      "path": "apps/android-app/README.md",
+      "sha256": "a98871afd9d76f6bec27d27abbd26d248b307f852064f0f72280e66049be9dd4"
+    },
+    {
+      "path": "apps/android-app/build.gradle.kts",
+      "sha256": "cbf8737e5032a3ec953153ed421817715f16574651f1d1e6d4ea113bafc58349"
+    },
+    {
+      "path": "apps/android-app/gradle.properties",
+      "sha256": "4845d9587551351615742276b4c7df780aac0bd04812d78c8bc8ff34e2a5a196"
+    },
+    {
+      "path": "apps/android-app/settings.gradle.kts",
+      "sha256": "028d5adc7775d7ba619a6403c066d4e49efe494aabbdbc5f0dbfcbd10080e925"
+    },
+    {
+      "path": "apps/android-app/src/main/AndroidManifest.xml",
+      "sha256": "b66a9b3c48a01cb4dda22dee52ff2a58346d797612d07332d57f8d3a559a48d8"
+    },
+    {
+      "path": "apps/android-app/src/main/kotlin/com/geops/mobile/AgentRuntime.kt",
+      "sha256": "30a01c1289f5027bd682ff92a9df02dd5053c53c1530616ab5443646037863a2"
+    },
+    {
+      "path": "apps/android-app/src/main/kotlin/com/geops/mobile/AutonomousBootReceiver.kt",
+      "sha256": "a74f5103f81be0493b7c3f986dda592f5881e11bd9ef24f411e289af8a049865"
+    },
+    {
+      "path": "apps/android-app/src/main/kotlin/com/geops/mobile/EnrollmentActivity.kt",
+      "sha256": "05296f3e16127c61fba6c82bb984f8e42478147e786e1a9d3231d1aee8b713f2"
+    },
+    {
+      "path": "apps/android-app/src/main/kotlin/com/geops/mobile/GeopsApplication.kt",
+      "sha256": "4a5c0cb1c52d922662751ae9400ba496be04213554b285d26422b92d2716ebac"
+    },
+    {
+      "path": "apps/android-app/src/main/kotlin/com/geops/mobile/PendingUploadJobService.kt",
+      "sha256": "b33f1d6aa6a9e480fc2b8bc2c91976577fdec601ccc867fe9a6b3f0dbb4b6272"
+    },
+    {
+      "path": "apps/android/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/api/.env.example",
+      "sha256": "680d2405e2957b49c40eff015823bcbde063b079f5cc4744780aa647a0092b52"
+    },
+    {
+      "path": "apps/api/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/api/mdm-oauth-core.d.mts",
+      "sha256": "4cde0348dd85e266942c959f33ee1e52ee22d977031b9d2f2863972d2948a6c5"
+    },
+    {
+      "path": "apps/api/mdm-oauth-core.mjs",
+      "sha256": "8b7f8437e2c04bc487f5ff362a2b30da35c71abdad93d26fdf37e217aeec6ab1"
+    },
+    {
+      "path": "apps/api/mdm-oauth-dev.mjs",
+      "sha256": "fdc7298684bb1d06007509d47deca545853498570650e603f8c762c03a9115ee"
+    },
+    {
+      "path": "apps/api/mdm-oauth-secret-export.mjs",
+      "sha256": "16681ddabad1f071d7b7886ec9ed143c1288eafe5c86bad1293c1dfec4f9f902"
+    },
+    {
+      "path": "apps/api/package.json",
+      "sha256": "10de56295828bbcabbf0943c38a26cba95a0474ec964ff50b3a70902663978bb"
+    },
+    {
+      "path": "apps/api/scripts/copy-migrations.mjs",
+      "sha256": "97c475f5e45aa17f3666813c5c0ef1b04df2cbcf1e2b86a42e73226516a7fb39"
+    },
+    {
+      "path": "apps/api/src/admin-auth/bootstrap.ts",
+      "sha256": "f3d2e5ab9cdef00582f2b8170e7b3d22ef50e016c6fecdb41c12a7dc5ffc3fa2"
+    },
+    {
+      "path": "apps/api/src/admin-auth/gps-capability-bootstrap.ts",
+      "sha256": "5334b97062e353430baffd642bb9551815171336440952dd429dbb42fa2e0b4c"
+    },
+    {
+      "path": "apps/api/src/admin-auth/gps-capability-cli.ts",
+      "sha256": "6a4fdfd9bed3f8a88807762026de9b394592b6ee08d59863fe11e60223197899"
+    },
+    {
+      "path": "apps/api/src/admin-auth/recovery.ts",
+      "sha256": "41888a855f39d00e4da50f85daaa1ade8f88f9fccb368d647c7ae8c91ef118ea"
+    },
+    {
+      "path": "apps/api/src/admin-auth/routes.ts",
+      "sha256": "c22d610b8201955cdef65f8341b0a6523ac91c2d1ced17dd85e3df136f9cbcae"
+    },
+    {
+      "path": "apps/api/src/admin-auth/service.ts",
+      "sha256": "07d91d7b1a0a5b5530e340cc7c7608b719ff5e9b4d232ddf4e4f1638e3999012"
+    },
+    {
+      "path": "apps/api/src/admin-auth/supervised-recovery.ts",
+      "sha256": "83aa70693ecf293731e50cb6e30408413e056efb475b8e5a9a02255b4b54684d"
+    },
+    {
+      "path": "apps/api/src/admin-auth/user-administration.ts",
+      "sha256": "0893b7c7ba30f7e71dee25186b626e0b556f1fc2b7b180e1cfd2b684a6710318"
+    },
+    {
+      "path": "apps/api/src/admin-auth/user-routes.ts",
+      "sha256": "565fd7149ba100c54e34c6dc09143ea3d75653bb03a934b8250bea1310aeb6a7"
+    },
+    {
+      "path": "apps/api/src/agent-device-link-routes.ts",
+      "sha256": "7365dccf95dadfb56f13d693d1e9e99605d8ef753e7834113e20cfd237e66299"
+    },
+    {
+      "path": "apps/api/src/agent-device-links.ts",
+      "sha256": "93ca4ac8fd77edd8e84653ba6fde1775d4ab59cd05b14f1d3f14cfc214fb63db"
+    },
+    {
+      "path": "apps/api/src/app.ts",
+      "sha256": "8dc2f33ec7893e2da7cc5dcdc849990541785a3f156231d570fc0f945b65fa5d"
+    },
+    {
+      "path": "apps/api/src/audit/index.ts",
+      "sha256": "defe84b4a3561c8f3ebcb35eadea8280905bd82e14151183ad6bf6a3b4f33731"
+    },
+    {
+      "path": "apps/api/src/client-catalog-routes.ts",
+      "sha256": "bec65ab43bdd960d28315d38384c5c79347867511bd4333088434f541b41a9f8"
+    },
+    {
+      "path": "apps/api/src/client-catalog.ts",
+      "sha256": "bbe63aad36d2b40c0be907a9f0587dfb519a8f9fed175769209b3fa5102b08c4"
+    },
+    {
+      "path": "apps/api/src/compliance-dashboard-routes.ts",
+      "sha256": "1e199658b39f453c74c74c60853204e84721107f3aa90d58a0fb58482e3c6a4e"
+    },
+    {
+      "path": "apps/api/src/compliance-dashboard.ts",
+      "sha256": "e08c413f4ee8f4f68ecd6c11c7dfbc86176c7b794096e7e1ef9e1a094e261222"
+    },
+    {
+      "path": "apps/api/src/config.ts",
+      "sha256": "8d5a58b50dbe41eaf6dd256e9deda53757608e959c97eb69b7f73123d0932b62"
+    },
+    {
+      "path": "apps/api/src/db/maintenance-gate.ts",
+      "sha256": "c5f0bdce9d6cc4a7c02e0fbe1fdb5c3f9b587cef73e2b4808b27846246d1778e"
+    },
+    {
+      "path": "apps/api/src/db/maintenance-recovery-cli.ts",
+      "sha256": "929f1355a3702c9ee4873b3e89cfae9788ecd4595ea005650be503dba81c206c"
+    },
+    {
+      "path": "apps/api/src/db/maintenance-recovery.ts",
+      "sha256": "513a1c4d69a2da296766426bd4bee86d3b81c08465a0668b03da4c5caa19ab5e"
+    },
+    {
+      "path": "apps/api/src/db/migrate.ts",
+      "sha256": "818145ccc47a3f7f75b91d88a86d1bcfe9f134410b4fd59cf1d6253bf72c20aa"
+    },
+    {
+      "path": "apps/api/src/db/migration-manager.ts",
+      "sha256": "ce002345937dac2e235bf0bc480302af1060621ba5a55fabea37f157c4407ff0"
+    },
+    {
+      "path": "apps/api/src/db/migration-target.ts",
+      "sha256": "c78e297e06fdc600ef1141bbffe7a87d65ab687ea750ed258b2ac84f23405134"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0001_postgis.sql",
+      "sha256": "c5a4b9f1d7549e59fbf69b161065e614e95c5ddb0cc014e4f9540f568c6c0934"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0002_admin.sql",
+      "sha256": "33cda143fbc20bf2b6224e902ab871b917c3429cc65bdcfbd95c5e0de8b39c6b"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0003_device_identity.sql",
+      "sha256": "5b9cb24605520146a8ba9e1c9bc8874368e09f9f3542ef4b84e27fab412b61fa"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0004_mdm.sql",
+      "sha256": "56f75813e603769e80f73241ba47dd430985cf64e03a5cb8de6c51af67b984d8"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0005_attestation_policy.sql",
+      "sha256": "5b09cfb63532fa283de48e15afa30b2341d3a4a68f0ac222423523d82b794138"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0006_lifecycle.sql",
+      "sha256": "1ece13d745eb2ca09694a87951de380992c23c88e098709edf642fc774100f7b"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0007_security_epoch.sql",
+      "sha256": "7c8a94a5259959d49b00ecf6eefbc8c6edc8c13fecdc9a9eb2ca79e96994a8fb"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0008_supervised_recovery.sql",
+      "sha256": "744c3ba5b039b50477eda0f535e9658c14cdad3a93c9c16aafb4ce75f920d74e"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0009_gps_policies.sql",
+      "sha256": "821c2226f4b8138a680f2a382a3bfa4c1def5ebe49986c594f6a14ce86bc52ea"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0010_gps_health.sql",
+      "sha256": "29ec3bddf982dbb547048062727f4f7c8a3b2e4e69724549a95e91bb4683a18c"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0011_gps_published_name.sql",
+      "sha256": "0f8e9a3008e85b334d6911d317470822d80b56a9b84da5a72bb2e5029353945b"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0012_gps_events.sql",
+      "sha256": "e649c6d96a42b7f9ebf6630f8c93dbec79f18f2bfb6e2865bb5630ef2e25f3e9"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0013_gps_operations.sql",
+      "sha256": "170fdec8120703ef5864b5f562aed2ee8f43e86f82b2ce437aee5283d531270d"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0014_gps_installation_binding.sql",
+      "sha256": "dc6aeebcabe8c0111a0c4dc40ed7d8e6410eb652c6003bc566c140b71d73ef09"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0015_single_tenant_admin.sql",
+      "sha256": "8ccb89274551f94e6e6f17fa85c6c869ebc88874006f08830d80bd93b3e16f8f"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0016_gps_continuity_alerts.sql",
+      "sha256": "7c98850921042e60723433a00d7e9c5dd45cde58b8477cad2b2b577ddba22af2"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0017_gps_continuity_evaluated_at.sql",
+      "sha256": "32a8c342fe5ce557fe98f28c36e3c8d10736c32f5dc892c58fb3c73602234b82"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0018_mdm_inventory.sql",
+      "sha256": "8f91a73a82f71074c699559980daa3102331fab13e3a602cc88b203608adca07"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0019_mdm_security.sql",
+      "sha256": "a0c44497328d580968bde960032ec256856bf8852531ff855497af37eada9ddc"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0020_gps_mixed_batch_receipt.sql",
+      "sha256": "f0df0ca28fd490ecf9c8b7dbdc9d667d13eb0f998c5fe5a19afba6b2e2cfa19e"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0021_gps_offline_policy_contract.sql",
+      "sha256": "fd499a8db77f30d2c89b9524c9d4b79b028af0bc07fa530f9cfd43da78c98559"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0022_mdm_web_oauth.sql",
+      "sha256": "935eb2ffb723a438bf292073497c0a41c23829790de5d3533645be9aa44d02ad"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0023_mdm_oauth_client.sql",
+      "sha256": "ec991513e907488543dc2442329a6f823a944bc6f10386318c7d8082607f88e9"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0024_client_geofences.sql",
+      "sha256": "5b2a1cdfc479cf63057fc1081b81d76133d4e0fbcf10308170d3514168a573be"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0025_route_catalog.sql",
+      "sha256": "8e53fb4beddafe36be9a192221f4c324be18b0317fce7f339730a604566b4a06"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0026_agents_assignments.sql",
+      "sha256": "02d793841115f23da07fc0d43a71729415b57369996dc728663b84d9b84ea115"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0027_visit_dwell_engine.sql",
+      "sha256": "ebc405d652b8e902e4031d49fb5ad8d1630d12a4d5b76be662840f7e9fc23898"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0028_agent_device_links.sql",
+      "sha256": "fec1d922f7c8e79a2cebab75153ac94467f5cfa683154ceb27b0f9a0679a5c80"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0029_geops_gps_identity.sql",
+      "sha256": "1f818a9362905b1ab27e8a4aab2aaa7a171335116132134c83a171a35906e5e3"
+    },
+    {
+      "path": "apps/api/src/db/migrations/0030_gps_continuity_geops_owner.sql",
+      "sha256": "ee9f644c0026874fc6fac3ace7410bf44ba45b2d9672a4dc844c058fe6b614ba"
+    },
+    {
+      "path": "apps/api/src/db/pool.ts",
+      "sha256": "ee5398f8e6561cb6c003b734030d365316910a7a8052aae5cbaef968d9c99cd7"
+    },
+    {
+      "path": "apps/api/src/db/quarantine-restored-db.ts",
+      "sha256": "26051cec2c876924656da349653bfb8296bb1cdd681ad227a107d7e33636be2e"
+    },
+    {
+      "path": "apps/api/src/db/restore-gate.ts",
+      "sha256": "fdf0fc0f6edb11d0f548a843e0285064ed717af3fa79183a9ec8bb85a2b71b41"
+    },
+    {
+      "path": "apps/api/src/db/restore-quarantine.ts",
+      "sha256": "836756ce95a354eb7d6ee1a703bb7f5a464e6f969e7c0d51a508078dd2ae8983"
+    },
+    {
+      "path": "apps/api/src/db/security-gate-cli.ts",
+      "sha256": "354e104963fad2b7d240f799ffea11d93ea53e41d4379d1b74a09a8d62db2c70"
+    },
+    {
+      "path": "apps/api/src/device-identity/admin-scope.ts",
+      "sha256": "268787043f49c880901db6901647cfaed79623941cb1ca5df76ad5f8a8370020"
+    },
+    {
+      "path": "apps/api/src/device-identity/crypto.ts",
+      "sha256": "84bbc4dd061b6c279ea64c0c0b5aaeb5674ab7f69009ae71512fe57ab08a7069"
+    },
+    {
+      "path": "apps/api/src/device-identity/enrollment.ts",
+      "sha256": "b10736eebcef685ce464cc0ac164167264271b12fe2ba7c8d39cc69d6b68f70a"
+    },
+    {
+      "path": "apps/api/src/device-identity/lifecycle.ts",
+      "sha256": "993db459bcccd108db9c3eb4bb14ab54d3b5b4f743f4683e768f8b049a127bb9"
+    },
+    {
+      "path": "apps/api/src/device-identity/raw-body.ts",
+      "sha256": "f3744e448beb46d7092acc262b0538d6d8b6d944b3a2058243b2cac159eae690"
+    },
+    {
+      "path": "apps/api/src/device-identity/repository.ts",
+      "sha256": "4b10a966d8bfbcf45a639c17fb04df67bed3bffeaa10bb2d05379baa7e144e78"
+    },
+    {
+      "path": "apps/api/src/device-identity/routes.ts",
+      "sha256": "747abb1726f819205266cea0c58f43544e20956b83cc4af178ba503182eb8766"
+    },
+    {
+      "path": "apps/api/src/device-identity/session.ts",
+      "sha256": "1421ef3a0b92125aa5956dc4c4df4ee34fbd2a5b94ddb9bbcd8411e8deb29f56"
+    },
+    {
+      "path": "apps/api/src/errors.ts",
+      "sha256": "ecc91b72b3cb14db2a094b414458f3ff088a1de501bc14455f2fca9c8d4aa924"
+    },
+    {
+      "path": "apps/api/src/gps-administration.ts",
+      "sha256": "2a5a308e4853a66ecaea2dc305eac4e324bb2574e7e280a819411787e91e9c8b"
+    },
+    {
+      "path": "apps/api/src/gps-continuity-monitor.ts",
+      "sha256": "8dd4cc5c35483077886a46706a9eaedc7365d0fd2926c543e5ac041d7b78fc3e"
+    },
+    {
+      "path": "apps/api/src/gps-continuity-routes.ts",
+      "sha256": "68bb67c8623a2f6511f45465566c1134349031d009dbe28730518e5eeb36239c"
+    },
+    {
+      "path": "apps/api/src/gps-device-config.ts",
+      "sha256": "a5118d95c0725f147804f5860869d15bd766e9972b90d7482e2c1dcd800505de"
+    },
+    {
+      "path": "apps/api/src/gps-device-scope.ts",
+      "sha256": "87e7b18c35531ef22152ebb046652cf9a3dc678b662b7cbc648b472ed3f0c4ac"
+    },
+    {
+      "path": "apps/api/src/gps-event-contracts.ts",
+      "sha256": "8a8f04162ad0847ffd06ab1faba72f8ea8f555dc289cd1493a75c89fe810276a"
+    },
+    {
+      "path": "apps/api/src/gps-event-routes.ts",
+      "sha256": "6c217b90feb84d45a70a9cb4653c9920211b8004e0e2971a2471ec3918e23b03"
+    },
+    {
+      "path": "apps/api/src/gps-event-service.ts",
+      "sha256": "ac25f1d153a98eae888eb46cac52e36a6db962c3a3c0d952714be478ad5789e6"
+    },
+    {
+      "path": "apps/api/src/gps-health-routes.ts",
+      "sha256": "1d538544ab2e23ade513cb4419e5cd2b6efa9b3b3a540c6fbc2990a226fc2905"
+    },
+    {
+      "path": "apps/api/src/gps-health-service.ts",
+      "sha256": "a6f64e006b7b26cf16b4b69eaa8bf1cf98d29e0a1a9a24a17a41ec0890544a9a"
+    },
+    {
+      "path": "apps/api/src/gps-policy-routes.ts",
+      "sha256": "f7bdbcda2993f1f3752e49d77321078a2bcf1cc440b6a8b25f1db4461dbe3d48"
+    },
+    {
+      "path": "apps/api/src/gps-policy-service.ts",
+      "sha256": "4918ae36aa9e45277f8c217143c02f5dc2f2f853b0518caa0b58f2b3cd688749"
+    },
+    {
+      "path": "apps/api/src/gps-policy-windows.ts",
+      "sha256": "38fc91ea1944a2f5b59f17affc92cfb32d37854c5737babf45fb194fd8dbb26b"
+    },
+    {
+      "path": "apps/api/src/gps-scheduler.ts",
+      "sha256": "12c4884925ae7fb0a7bdd8285cc6bd08f2cc0e181e668f44eb1353f453d895b5"
+    },
+    {
+      "path": "apps/api/src/health.ts",
+      "sha256": "93b31deac2f801cba04d432c1fa5b17d1f624e014878089d7450e6d0abb6a783"
+    },
+    {
+      "path": "apps/api/src/logging.ts",
+      "sha256": "15b7baafbd959be1a58790aeb64671fbf04549c9a94149d0c8e340df81318056"
+    },
+    {
+      "path": "apps/api/src/main.ts",
+      "sha256": "2c478e0a4f11f4743b21da8983a92cc5599a20521a378aea5423c55909191e72"
+    },
+    {
+      "path": "apps/api/src/mdm/connection-control.ts",
+      "sha256": "105d145f2e62186dfbb684eb4d5e7c9dd0e125cef0260addbf2997a32c5b54b3"
+    },
+    {
+      "path": "apps/api/src/mdm/grants.ts",
+      "sha256": "bea7819a8ae5e69af2dabb41ee162506e405fa4dd0355e6eeb692a49e8a967ac"
+    },
+    {
+      "path": "apps/api/src/mdm/inventory.ts",
+      "sha256": "1678c501d440bb9e0e221e5ab10e6736b9a7ff260ff5699fa2af03172fb8b661"
+    },
+    {
+      "path": "apps/api/src/mdm/oauth-client-store.ts",
+      "sha256": "d92622c34da61dc68e8fdc2c55bbd2f17d119355e05934563856bf8d15712fbe"
+    },
+    {
+      "path": "apps/api/src/mdm/oauth-runtime.ts",
+      "sha256": "85400c185b835d66bfa160b7c14270322dbfb33648aa1f33b41219ff6a6799fd"
+    },
+    {
+      "path": "apps/api/src/mdm/provider.ts",
+      "sha256": "6ada808d9a431de521716476aa757ff866a7fc97d9e85e6d4c2d352bd6a04088"
+    },
+    {
+      "path": "apps/api/src/mdm/provision-oauth-client.ts",
+      "sha256": "a31dc6abb16419dc5952893f46b02bf3f88beb3b1d7c346d57562109dc7330b5"
+    },
+    {
+      "path": "apps/api/src/mdm/real-grants.ts",
+      "sha256": "aec75b7dc83db442c869ce252f773d9297f2cc4ecf1b50034cfefb6e3ba99368"
+    },
+    {
+      "path": "apps/api/src/mdm/routes.ts",
+      "sha256": "478f3df0da1350f9d37689321f07416fbb324f1fef3b830ff1a35ef3e69bf8cd"
+    },
+    {
+      "path": "apps/api/src/mdm/tenant-runtime.ts",
+      "sha256": "664a33def59385bb03cffc5e64ec91c562639c9e447996b4a1eaf39ab4725cf3"
+    },
+    {
+      "path": "apps/api/src/mdm/web-oauth.ts",
+      "sha256": "25afe66fe3aa6e0e99e06a064e1c196a0ccd8f43299b179032c891da71bfa913"
+    },
+    {
+      "path": "apps/api/src/route-catalog-routes.ts",
+      "sha256": "ce64e0ea91f5999b089e043a14b6428b7559d4a7bd380a6aff60ace261e96af9"
+    },
+    {
+      "path": "apps/api/src/route-catalog.ts",
+      "sha256": "62567826fdfc2dc7c4647df2661683886263507f6bfb3ba77e70f004a0248e16"
+    },
+    {
+      "path": "apps/api/src/visit-dwell-engine.ts",
+      "sha256": "2fed9df6bf492a2e5bdeeafa5f99edbd49ac2dce716bb766827850a32836bd42"
+    },
+    {
+      "path": "apps/api/src/visit-evaluation-routes.ts",
+      "sha256": "d92311985a1c18eb77397b9edc8683ccaaae61382b0ec05e6582927413e4b559"
+    },
+    {
+      "path": "apps/api/src/visit-evaluation-worker.ts",
+      "sha256": "ab84900b23aa02ce4f1649e0a29a04aadd79200975d5d7f665b5a71f6b8ebc6e"
+    },
+    {
+      "path": "apps/api/src/visit-evaluation.ts",
+      "sha256": "411ce8099a4bd4503d8bc6b3badef6615d8c81aa4e1c829536e8a7a7c1964596"
+    },
+    {
+      "path": "apps/api/src/visit-schedule-routes.ts",
+      "sha256": "d368e0d47447eeb56ede98b15c6cdf89c4e626d40e3d90008c8fd8653845ae93"
+    },
+    {
+      "path": "apps/api/src/visit-schedule.ts",
+      "sha256": "59e1ec68260b9eea19c2363b197470b9962858cdf712415f8ff3c0a74b50ebfe"
+    },
+    {
+      "path": "apps/api/test/admin-tenant-bootstrap.integration.mjs",
+      "sha256": "ba0e83b3e2b7d9fdb863a8d3e5d88a63f933685bf08d8f6a6aad97180d497259"
+    },
+    {
+      "path": "apps/api/test/agent-device-links.integration.mjs",
+      "sha256": "060562d939ba18842e7fbcb11a8ecab72ebef40d0b6d6c3435ae3fcd228f324f"
+    },
+    {
+      "path": "apps/api/test/agent-device-upgrade.integration.mjs",
+      "sha256": "bbe62345fb137986cf621f5e5491fd42ba120f7620c13f99455530d3a558d2aa"
+    },
+    {
+      "path": "apps/api/test/client-catalog-browser-server.mjs",
+      "sha256": "1957abeb3b5c001621c197e3904d225762966faf4798996c4558d26c6703fe1d"
+    },
+    {
+      "path": "apps/api/test/client-catalog.integration.mjs",
+      "sha256": "e6accd78b4cfc739edec7bcf49b25966a92b5a4fd3f0c0d092c7d01ed23487e7"
+    },
+    {
+      "path": "apps/api/test/compliance-dashboard.integration.mjs",
+      "sha256": "f1f0424a72da61147a2e1084a7c08b94a16709d3d74e8aec2aff63081084c014"
+    },
+    {
+      "path": "apps/api/test/device-enrollment.integration.mjs",
+      "sha256": "9c8598423caf5ea20eed2fb1c4e61a90ffc615f4481b7e58283f39d577e9160d"
+    },
+    {
+      "path": "apps/api/test/foundation.test.ts",
+      "sha256": "7900c7602f1228f42cb8dba4dddeaee8f22fccb9d6a984fb1b081baf2b3ef6f1"
+    },
+    {
+      "path": "apps/api/test/gps-capability-bootstrap.integration.mjs",
+      "sha256": "37e9fab61c8f0acc66ec33a57117edcb0d8fb2e999b353ace551aa2f9bc3bf54"
+    },
+    {
+      "path": "apps/api/test/gps-config.integration.mjs",
+      "sha256": "077c6825da1f6df1fd8dfd1071b06b84d624b878031597d415ac5ce57c200c0c"
+    },
+    {
+      "path": "apps/api/test/gps-continuity-migration.integration.mjs",
+      "sha256": "3013267dbcaaeb814ac614c3fe793ae9a3edff21c68bdc0c96e58a5aa82b10fb"
+    },
+    {
+      "path": "apps/api/test/gps-continuity.integration.mjs",
+      "sha256": "4a732cd2c3cf033f4ea228133a78306b5eb682c71e738c71cab1b987130bb9f9"
+    },
+    {
+      "path": "apps/api/test/gps-continuity.unit.test.mjs",
+      "sha256": "829e11a5e8863a49f0e2243e29bdde95c21406ba8e2ce730c09824f148933083"
+    },
+    {
+      "path": "apps/api/test/gps-events.integration.mjs",
+      "sha256": "f64604631ed187d7d99ea0b9f338508d5ffccaa29482dd921569c232c9251222"
+    },
+    {
+      "path": "apps/api/test/gps-health.integration.mjs",
+      "sha256": "3c8825e419848456e116388317a3250363c1603746f1c18f834752ca7a4557cd"
+    },
+    {
+      "path": "apps/api/test/gps-mixed.integration.mjs",
+      "sha256": "a9d32c908b0c8a7b7a83b6afe3bf8c7ee59900962db237214b172d56235d0ff4"
+    },
+    {
+      "path": "apps/api/test/gps-operations.integration.mjs",
+      "sha256": "6dd0d32e155f3651594bc8e197af7f3ef02d2e359707549d584f25bb2650adda"
+    },
+    {
+      "path": "apps/api/test/gps-policy.integration.mjs",
+      "sha256": "540709f60436817a77139ced13f5661183ab034a939e06210b4e3b52a9a41be8"
+    },
+    {
+      "path": "apps/api/test/gps-scheduler-load.integration.mjs",
+      "sha256": "629c4f5efc8cd046ef4267e120e14141427383093efc3b421b4fd7e5cf9155ac"
+    },
+    {
+      "path": "apps/api/test/identity-edge.mjs",
+      "sha256": "394b7e20da39a57385f5b573f60c9f3747fe7c642b393da6da40689d9f33c595"
+    },
+    {
+      "path": "apps/api/test/integration-smoke.mjs",
+      "sha256": "7d3e965c8d8e972b71700043f5c9aeb08948e1fa72b8e00cd7fe37f713c250e3"
+    },
+    {
+      "path": "apps/api/test/load-smoke.mjs",
+      "sha256": "a8d3bc133077a05496e00ca87025e569c722d452dea236f78ffc25d496bc323f"
+    },
+    {
+      "path": "apps/api/test/maintenance-cli-rehearsal.integration.mjs",
+      "sha256": "d20469e359962301e22db5eefccde3477e52f0a4eb9e1a040df2a40d4bc28a1b"
+    },
+    {
+      "path": "apps/api/test/maintenance-recovery-22.integration.mjs",
+      "sha256": "e0ab16919c06a6a2929108899235736e9f558b92e38273a305c6d940ca4af5d8"
+    },
+    {
+      "path": "apps/api/test/maintenance-recovery-versions.integration.mjs",
+      "sha256": "78dce035ed6c46562c50ce8587ef15c2ef3c741631976374788cd57e6095a2d0"
+    },
+    {
+      "path": "apps/api/test/maintenance-recovery.integration.mjs",
+      "sha256": "b5bf653d2aef199fbf9b5cdf08ef5350d83c08b239966778207d551954325d70"
+    },
+    {
+      "path": "apps/api/test/maintenance-upgrade.integration.mjs",
+      "sha256": "8635009f3b44fb2af667901e1fffecc3ab197bc4fe3a9ad8867f355819b70d3b"
+    },
+    {
+      "path": "apps/api/test/mdm-disabled.test.ts",
+      "sha256": "85652e5f6d03898d66544847cc11fe152ab15c4a34a9de15eb9ee9e87809f1f9"
+    },
+    {
+      "path": "apps/api/test/mdm-inventory.integration.mjs",
+      "sha256": "3e7323cb12e0b115bbadce76e0ef3b811e299f831fb0632c4560435965b22c4d"
+    },
+    {
+      "path": "apps/api/test/mdm-oauth-secret-export.test.mjs",
+      "sha256": "e38550026fa8189c58b038d93a6f6b10eadc4103356bd496d685caeb49d618aa"
+    },
+    {
+      "path": "apps/api/test/mdm-oauth-upgrade.integration.mjs",
+      "sha256": "6449d55d2340b3aad6e7ab83dbaf398aa1e0e71245a868e01f170f1ff6396b91"
+    },
+    {
+      "path": "apps/api/test/mdm-oauth.test.mjs",
+      "sha256": "f46615e5edc8ecb03c06ebd8f67f242a49dcd4af7464e4ec98bb6350ee7c8883"
+    },
+    {
+      "path": "apps/api/test/mdm-provider.test.ts",
+      "sha256": "90e1809893371b29fa6b28530b025cb494c845ded56d0221c04da6590537cf30"
+    },
+    {
+      "path": "apps/api/test/mdm-real.test.ts",
+      "sha256": "103a39c1914cecaf9432bfe1387eb436c3e7923c528f34caa25459ebcba4adc4"
+    },
+    {
+      "path": "apps/api/test/mdm-security.integration.mjs",
+      "sha256": "14b21404c4cab05b7a088d36e6be69214ed8343de19bcf9ba1b48b56eac864be"
+    },
+    {
+      "path": "apps/api/test/mdm-web-oauth.integration.mjs",
+      "sha256": "459e50c4e480719208fdfd1c3419da64c17b3ec23e393414fe6e6c8968ff27e4"
+    },
+    {
+      "path": "apps/api/test/mdm-web-oauth.test.ts",
+      "sha256": "a098dac43e68a9bd42614bfc783ab1f2cddfa2c0af43411856cbf31c86fa30ff"
+    },
+    {
+      "path": "apps/api/test/migration-0015-upgrade.integration.mjs",
+      "sha256": "930e48bb390bb4d142ea64d3c01f9c3ce5042d5120b54aa452fbfd0e749817bf"
+    },
+    {
+      "path": "apps/api/test/migration-target.test.ts",
+      "sha256": "da3e9e980925b475cadc9b500ee1e3880ee768c52e726bc7134e541538405aa5"
+    },
+    {
+      "path": "apps/api/test/restore-before-revoke.mjs",
+      "sha256": "520d2e6cdabb9487eeca6f93a257336e54c7bfbb884b5179efbc3dd41b2a79ce"
+    },
+    {
+      "path": "apps/api/test/restore-check.mjs",
+      "sha256": "424b167712f8ce3c1c4cfae9d844649732240632aabfe3fd17a1ca570765e792"
+    },
+    {
+      "path": "apps/api/test/restore-gate.mjs",
+      "sha256": "83f206fa98f1117c48a629b15eaee4748ee9edb2d865d8478322a6cc1c9d9e18"
+    },
+    {
+      "path": "apps/api/test/route-catalog.integration.mjs",
+      "sha256": "849907235ec52817b321d74452615a2e3b1d3aa98f0b96e7f72df1b16077fbbb"
+    },
+    {
+      "path": "apps/api/test/security-regression.mjs",
+      "sha256": "7cd25abb22b6cae3d38f44262f7ad7d680636ef97c4f9aef4874d91b4e7c2afd"
+    },
+    {
+      "path": "apps/api/test/single-tenant-release-restore.integration.mjs",
+      "sha256": "810040d6b40fc3ec417cc7c47a1d854268205fbe4bdcc4b2c6a61e899530e25f"
+    },
+    {
+      "path": "apps/api/test/single-tenant-users.integration.mjs",
+      "sha256": "9602f54958cc01daa4b08504b15ef0ed33b9087da55e9c52d965010eccc3e44a"
+    },
+    {
+      "path": "apps/api/test/spec03-mdm-upgrade.integration.mjs",
+      "sha256": "dee0a20e8c74b1c2b871f58cfefbfca4e0b575a09345e576aa747e8627e2959a"
+    },
+    {
+      "path": "apps/api/test/staging-cookie.test.mjs",
+      "sha256": "d2d83b11f0f3513d525ddd247101eabda322d15da726943bd9e095ea3cea1775"
+    },
+    {
+      "path": "apps/api/test/visit-dwell-engine.test.ts",
+      "sha256": "d5ba2ecb064d2ff2d8864334ef3049dcee1cb115ab7d6984d368136034264b9a"
+    },
+    {
+      "path": "apps/api/test/visit-evaluation.integration.mjs",
+      "sha256": "e0783468619e48fc96c8a943d61f8b5a589c4f7a600fc6c563da9ac0cd4c2968"
+    },
+    {
+      "path": "apps/api/test/visit-schedule.integration.mjs",
+      "sha256": "bf91b13b00b27eb62b903bda50820cadfdc9958587c1cfbf790b3d4315824ed8"
+    },
+    {
+      "path": "apps/api/tsconfig.build.json",
+      "sha256": "1996de07fb33d68709ebd24cab74f3fbb45f6803a1f70b1db9dc51cd6b470263"
+    },
+    {
+      "path": "apps/api/tsconfig.json",
+      "sha256": "f6966615e06635fa766bf5cf12c163ce7a4dca5cc46476d9cbfb63c8416d41ee"
+    },
+    {
+      "path": "apps/web/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/web/index.html",
+      "sha256": "a5d58a946d927764f9e3a2f0836b3c7e83928cf4f2249aafdbccfd913ddcb65c"
+    },
+    {
+      "path": "apps/web/package.json",
+      "sha256": "ca96e7cb9b68b98d6ac44ffe261d8a388bacf8c758ac3b4f3f189b03c1d00cac"
+    },
+    {
+      "path": "apps/web/src/AdminUsers.test.tsx",
+      "sha256": "40f49928267d303837b11112420be67d7f9feb61e71a7df0fe8c63d2da692033"
+    },
+    {
+      "path": "apps/web/src/AdminUsers.tsx",
+      "sha256": "8d02900dd89837632b6d33fb70d682e224297d45a24ba0a5ac0f8abf2c7f360a"
+    },
+    {
+      "path": "apps/web/src/CatalogMap.tsx",
+      "sha256": "a68f7e6aecef34a741fabd43d00598d5087bc061fb6a6e7ae57292c8830a0a40"
+    },
+    {
+      "path": "apps/web/src/ClientCatalog.tsx",
+      "sha256": "7a98fb6d9b7c6bbe0518ad3a6149ee95b8bcff6f05834419cf8c342be80439cc"
+    },
+    {
+      "path": "apps/web/src/ComplianceDashboard.tsx",
+      "sha256": "8c2f665da9c5d7c198022bc5dd993d0fd39c15de51e891a55042779b8ac2696c"
+    },
+    {
+      "path": "apps/web/src/ComplianceMap.tsx",
+      "sha256": "6ddbc98609840a151e28f733f460343e1d2c5de684f9ffb3932cf47b3bc82c82"
+    },
+    {
+      "path": "apps/web/src/DeviceManagement.test.ts",
+      "sha256": "eed4414edda19b8a6d3dbaf8fd5dde3b0ae3f8b9e090fdaa1253400d424282f2"
+    },
+    {
+      "path": "apps/web/src/DeviceManagement.tsx",
+      "sha256": "5e854924a0880e2d14bfe95f4959ac1757172cb07062bad146bafb6576e9f072"
+    },
+    {
+      "path": "apps/web/src/EnrollmentPanel.tsx",
+      "sha256": "ba6f1e40fdceb65e5d3751b5c7fbff364ab49b67085b1ff1f3ecfc81c630170c"
+    },
+    {
+      "path": "apps/web/src/MdmAvailability.test.tsx",
+      "sha256": "cec333bda8acdcda5355e74a8a8fbe411b5692b2f8ea598885def01fc568d519"
+    },
+    {
+      "path": "apps/web/src/MdmAvailability.tsx",
+      "sha256": "d15e246590e49f3086ff56a2056b538778e7022c55cc281c2fa88f9499e47542"
+    },
+    {
+      "path": "apps/web/src/MdmInventoryAvailability.test.ts",
+      "sha256": "457982da64e4d82eb7be15ba27b48edba95a074e12490f52f0d4cec17f645389"
+    },
+    {
+      "path": "apps/web/src/MdmInventoryAvailability.ts",
+      "sha256": "6d2ee9fc7c6f71100ee084103caf8950e02ebfb6ab1aeb23d4a55ce49939d3cb"
+    },
+    {
+      "path": "apps/web/src/RouteCatalog.tsx",
+      "sha256": "feb943fcb3264db83a9f91d75ea261619754124acc168cd5c3b4a81aaa8525be"
+    },
+    {
+      "path": "apps/web/src/RouteMap.tsx",
+      "sha256": "df1a7c6898b175cbc63baa186a5db021d1db20d904942bc4a842dd85176e0fe7"
+    },
+    {
+      "path": "apps/web/src/VisitSchedule.tsx",
+      "sha256": "a270388e7a00b17f006ace0e9ecd596ba32e0cc98ea6bf7211e12f151c1bb361"
+    },
+    {
+      "path": "apps/web/src/activation.test.ts",
+      "sha256": "3017fb9610bd98cde4cbca99629fb3ef7fba328012fee5102c63c3f30366cdb0"
+    },
+    {
+      "path": "apps/web/src/activation.ts",
+      "sha256": "40621d904514164643e264fc20282530115dce0938d5b399c05820ac681fb0bb"
+    },
+    {
+      "path": "apps/web/src/api/base.test.ts",
+      "sha256": "6345fb50a8228bcf764c7ee05459c1e49a08c5e207216e8827f89b4080af507d"
+    },
+    {
+      "path": "apps/web/src/api/base.ts",
+      "sha256": "bb35b3ba5ca2ee8ad80475e7f549fe433c6ecbba370242615c6f5bce38606616"
+    },
+    {
+      "path": "apps/web/src/api/client.test.ts",
+      "sha256": "d8ed112e6d954c44213de38fe050fd3dfb1e443c434b7f8f7b820abcb24395de"
+    },
+    {
+      "path": "apps/web/src/api/client.ts",
+      "sha256": "d93549c4427bf693e5495013996119b784912656dec85b589476c54ee680d679"
+    },
+    {
+      "path": "apps/web/src/app.tsx",
+      "sha256": "31d512d50729987639686e9c54717b6383efac5ca44f7256a6c46cb549d8158c"
+    },
+    {
+      "path": "apps/web/src/auth.tsx",
+      "sha256": "ea3659536abcdd13b46aad7a6d082dc1df9373ac76e990ebeac86cabb4608dd5"
+    },
+    {
+      "path": "apps/web/src/gps/GpsDeviceWorkspace.tsx",
+      "sha256": "ffe285283b45c5116e0f11bac41e1f98958b28224d0bb73c55a71d191eacf13d"
+    },
+    {
+      "path": "apps/web/src/gps/GpsLiveWorkspace.tsx",
+      "sha256": "49fde68fa74efd26c0eb055db136fa4f8d8258a84e7d79423faa2ded73df804c"
+    },
+    {
+      "path": "apps/web/src/gps/GpsMap.tsx",
+      "sha256": "b5c1169d7d3541f7e8adf443a037e783f3c64aa4dabe4463fa674adcb5c30416"
+    },
+    {
+      "path": "apps/web/src/gps/GpsPolicyEditor.tsx",
+      "sha256": "d0cc900696582273d4c87ab0d891ee2c8853c60ce5199e0460876a9302372086"
+    },
+    {
+      "path": "apps/web/src/gps/GpsWorkspace.tsx",
+      "sha256": "ab640c6cf82eea91e37b8b03e6acf0afa3772780ed60ace7fc629c305aa336e1"
+    },
+    {
+      "path": "apps/web/src/gps/continuity-model.test.ts",
+      "sha256": "a9bf5ce61f53370babc59fb17b5722edf9f13e323425129b47e1205b94308c9e"
+    },
+    {
+      "path": "apps/web/src/gps/continuity-model.ts",
+      "sha256": "0ef7eb313f3d98559e10a5de5d4528424ab794d82637603f27765135a1cbe89f"
+    },
+    {
+      "path": "apps/web/src/gps/fixtures.ts",
+      "sha256": "5a8ececa5ea206cf075fc9e02eebdb8ba61c85df738b366ae19240b72b59962b"
+    },
+    {
+      "path": "apps/web/src/gps/gps.css",
+      "sha256": "e8562bc6fca9736b8debca382e065b356c401adc2cb86c67de2320a97a09ca28"
+    },
+    {
+      "path": "apps/web/src/gps/gps.test.tsx",
+      "sha256": "f294a6ab7b1f36153b8f0e06ef986d1d829ae923e07cf4d7219ec75b973d87ef"
+    },
+    {
+      "path": "apps/web/src/gps/load.test.ts",
+      "sha256": "82f5af9eb6a8a8b7726c6358575b290858f3975cc54bf08dabd417489e835496"
+    },
+    {
+      "path": "apps/web/src/gps/load.ts",
+      "sha256": "a7ef4532b14c05f18255f19c5a15e103afd30b420929eb4e73ff4b289e6fb400"
+    },
+    {
+      "path": "apps/web/src/gps/map-model.ts",
+      "sha256": "59ae600fb8234c6613739f9411874ef2f2c4f7e153b099cf488f571e3ac42b13"
+    },
+    {
+      "path": "apps/web/src/gps/model.ts",
+      "sha256": "52f34550084c066c77dbc263f9fae757dc329c36133d76d99796b30eac163a4f"
+    },
+    {
+      "path": "apps/web/src/gps/remote.test.ts",
+      "sha256": "1fa2bf32b4daaa5e876e73c71b05342d6b032dcee9bdcbd7f2f2490229e6398d"
+    },
+    {
+      "path": "apps/web/src/gps/remote.ts",
+      "sha256": "c1876ea6319fe7460c7b70eba389f60023a391e44dcca54ccf5647d295a007db"
+    },
+    {
+      "path": "apps/web/src/gps/tracking-model.test.ts",
+      "sha256": "28477bb5e931eedd58aecb5bdd45c27ff3be65a52f5913c677e117da40e1e3c6"
+    },
+    {
+      "path": "apps/web/src/gps/tracking-model.ts",
+      "sha256": "26a017d7b85b6f884ffd07d45e53205b51980741f2a316fb4ea6267eb74da390"
+    },
+    {
+      "path": "apps/web/src/main.tsx",
+      "sha256": "14a5e15975f6439db798df77c6e25f860ca61cd8fddfbbaee3aa9b8379f02e21"
+    },
+    {
+      "path": "apps/web/src/styles.css",
+      "sha256": "7d378a4059cabf6e8d6e4c5c9422ff98adf288cf597afeca376f2326e016c796"
+    },
+    {
+      "path": "apps/web/test/client-catalog.e2e.js",
+      "sha256": "901f704a0ab57ce8e9626ff07ab656f422b0bb1120c497e9cab052eea6755d11"
+    },
+    {
+      "path": "apps/web/test/compliance-dashboard.e2e.js",
+      "sha256": "b7527d37ef9470f8719ccadfa9c91d5749b2dd6c1dd6ad5e9751c9ae3ca38c36"
+    },
+    {
+      "path": "apps/web/test/route-catalog.e2e.js",
+      "sha256": "5305e321b6394778b7433f2aab4f5bf2ce6647b014489641dd75b811980d2c5a"
+    },
+    {
+      "path": "apps/web/test/visit-schedule.e2e.js",
+      "sha256": "0e3b2cbcfb571d235171a75582a1f89d35c178c933c9c81a125b4dd296097841"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "sha256": "00373de31c0830988dfe4f3411fa1c8deacb1945561a4fcd6eb7a91b1646bc2d"
+    },
+    {
+      "path": "apps/web/vite.config.ts",
+      "sha256": "8dec7a6da5f9d52eb28d5c7ca0b9b0710df0443d3e761119cef64fb0e1cda9f8"
+    },
+    {
+      "path": "biome.json",
+      "sha256": "0c4e3a76bb37b3f650068acee359df0403e129da37d5b702f6e654a5dfac5a3f"
+    },
+    {
+      "path": "docs/audit-continuidad-gps-2026-10-20.md",
+      "sha256": "93900640e026a9769aff03ab792c69d4afb48accc17ceb5990451d8de5620ad0"
+    },
+    {
+      "path": "docs/audit-geops-ui-ux-gps-2026-10-20.md",
+      "sha256": "e5d8430bbe8770285c78b6ee9dbe60f355ca03dc256795e19f91dace00aba4fb"
+    },
+    {
+      "path": "docs/audit-regresion-gps-poco-2026-10-21.md",
+      "sha256": "5fc02760eb88c3e24c942ed949e7272ca1ace6eac253d66c7ca67ae03a8b9ceb"
+    },
+    {
+      "path": "docs/deployment/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/deployment/wave-0a-nonproduction.md",
+      "sha256": "5d5ade4bb3b450e2977d8e8e962569e71256c8bc4e1fd1ebd4ed34bd9e21a9c6"
+    },
+    {
+      "path": "docs/development/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/development/device-lifecycle-wave2-2026-10-20.md",
+      "sha256": "191f5bc440bde05cb5d5277f47facb52f833cb6a38c1f4e140a9df49abaf54f2"
+    },
+    {
+      "path": "docs/development/gps-map-wave-1.md",
+      "sha256": "dffd483e99c76c7ff10731b16c0503a661c7149cd32a8be21de4345fc8e189f7"
+    },
+    {
+      "path": "docs/development/leaflet-migration-2026-10-20.md",
+      "sha256": "14780d0e53f04a91ef3e6938a4b9594b66442a38e479e1d878b1507e58f5a56b"
+    },
+    {
+      "path": "docs/development/leaflet-osm-pilot-2026-10-20.md",
+      "sha256": "18f3b92d3806117ce4403fbdbdc03f95a4fb1db1ab505ec60c6ede7c541d3a1f"
+    },
+    {
+      "path": "docs/development/mdm-oauth-local.md",
+      "sha256": "b23966b63ab87e11c0971e514ecacd240c18d020079bc4d764c6248a7535c884"
+    },
+    {
+      "path": "docs/development/wave-0a-local.md",
+      "sha256": "fae5b849e2c5887fd992957d7c23f7e8ceb928e9da77b8c79eb899ce9e249205"
+    },
+    {
+      "path": "docs/mdm-centralized-oauth.md",
+      "sha256": "ee8a34d26b2aed4398cf526a3a5bf99f6e246c40ff9866d871118701a841977f"
+    },
+    {
+      "path": "docs/mdm-manageengine-integration-2026-10-21.md",
+      "sha256": "a7e58dabba2c06fd66ff67fc48ee3c489ab3b80f5927c75ce9110ac139304298"
+    },
+    {
+      "path": "docs/mdm-r1-real-validation-2026-10-21.md",
+      "sha256": "3e6a675f2ce376c7cfb9447c54d9b8e6108c006a5cb12134d310355471167df6"
+    },
+    {
+      "path": "docs/mdm-r2-huawei-p40-readiness-2026-10-21.md",
+      "sha256": "29e112444c40c518780778cfe70cd4911a6904f41f6db8b313fca9a1e174f194"
+    },
+    {
+      "path": "docs/mdm-security-remediation-2026-10-21.md",
+      "sha256": "97967a696e09f5299148a650bbf5c543149378ab915f513b8b7eb418e8bace2e"
+    },
+    {
+      "path": "docs/operations/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/operations/admin-recovery.md",
+      "sha256": "232b033171b7827be9666959de90491f808ec746f86efd9573657707d82fba87"
+    },
+    {
+      "path": "docs/operations/backup-restore-synthetic.md",
+      "sha256": "8a6d83cee0fb888367ab06906f858d6a64d7b8b966cb7161b893f326ea4541fd"
+    },
+    {
+      "path": "docs/operations/device-lifecycle-wave2-staging.md",
+      "sha256": "d33c8b1beee9dba629415ab54e75d38517b2db823b412c9d8a5dd6b362be2872"
+    },
+    {
+      "path": "docs/operations/gps-device-names-api-web-staging.md",
+      "sha256": "d46b7ada9a214a5d72dba3cf85d8dec75ef38999c624053175bdc1225b56a1c6"
+    },
+    {
+      "path": "docs/operations/leaflet-osm-web-only-staging.md",
+      "sha256": "8c1dc8a95c6b375bbc991b2c453d793c8a43d0791b8056781e2ce2619e575a1c"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/.dockerignore",
+      "sha256": "feb3d8277341b08e90ec6b5777cef65ddd5ce47b9b019fe2f96e8c1fd93ff98c"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/.env.example",
+      "sha256": "792dd0301b2f06958295fa24842a21ecd64adb6ea6e5fbedc049d100d7365426"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/.gitignore",
+      "sha256": "93d324fabf0fc457546f65610f76790546d7bf2e3ee27f0504dc17a7161482ef"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/README.md",
+      "sha256": "56374f0fa2948bf0d49273a60d5d35053129e56c4479d1f564e7aa83b50ac67a"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/README.md",
+      "sha256": "12ed799b13440cae302e50a89e8d52b2bca901929120993e038377f83fcbfde0"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/analysis.test.mjs",
+      "sha256": "84475548fa34f98d8dfea639f6f1a5226b9b1250ab49bfba6a664533166bcb47"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/analyze.mjs",
+      "sha256": "4d521c847439c915fd60c081cd91db5bc1d36d95fd3504000d95fcd24cf954a0"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/common.mjs",
+      "sha256": "2e56c69776acfe17c04646f966fdd85d3063d2acd3492f9112c83704a7da9cd7"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/extract.mjs",
+      "sha256": "de751044944817f217fbbbfb325449eb593dadb2f2d4a6b930eda7e4fd56ad22"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/report-template.md",
+      "sha256": "0a6cce886c17f55b8f5c0baa99da271687fe88e239729712bae8fb1fd67a585a"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/security.md",
+      "sha256": "39f845b34d0336a5cdefd7eb21e0e1f1ae5b722799a040d5d8223db5cf447deb"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/analysis/synthetic-validation.md",
+      "sha256": "0d3031317f875a19b8cbfc16f89374594e3166a4b4557b6cdf3a22b0ab40b9e3"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/build.gradle.kts",
+      "sha256": "40b96493b840af1d2e8eaef42a9321fdb7a8b4a165b291323bb1f683807cb124"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/AndroidManifest.xml",
+      "sha256": "9f565aff5627c6b1f8878d2e8dd9153480a0ee254de3d59a11305a4cd19d5052"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/Buffer.kt",
+      "sha256": "8847ef4e9f5a8c65559ba4e10cd34ee290889f37400488d9c8091e2c218f760e"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/CaptureGate.kt",
+      "sha256": "19da4136f6921bfbcfc350312942afb2974ee494724e0e6348d395b562921710"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/CryptoBox.kt",
+      "sha256": "8ea7149fccdf94fcac0a45501a5cb585168fa18f4855d6629692bc2d5208959b"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/DeviceStatus.kt",
+      "sha256": "bb5f899f3913c1ba386d9998b0358800c437e7e4e0d1d4b40c9a388b4005a37e"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/EnrollmentClient.kt",
+      "sha256": "7d12c5f8e15bf0fb59b234bae41c97055330c82e7b373d19596335f8ee3b6019"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/EnrollmentProtocol.kt",
+      "sha256": "4943b1aa31aec8d2dbd29e3a34b4794912a294c57e86cfa2c52a601e5685b999"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/MainActivity.kt",
+      "sha256": "9059227e0e2ca92c18a277437ac62295b04199870336b8f973acd9d57544b8dc"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/SyncProtocol.kt",
+      "sha256": "94cc9aee8d6ee484c8f971d32ed4723213162bfd08038248212f27702f1aa6cc"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/SyncWorker.kt",
+      "sha256": "4239b134ac5e2ba524bdee6b7b9acff38d5f897571a3605df98018f610932cfe"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/main/java/com/geops/weekendpoc/TrackingService.kt",
+      "sha256": "33d60b428af207c7f10ab5a45bebe2cc6c5e010562ec963ddd3b1eea35452adb"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/test/java/com/geops/weekendpoc/CaptureGateTest.kt",
+      "sha256": "f8b3883d00617a96fc497e8a21910234154c59cd08c9a4a4f95aa36ea4f1a04f"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/test/java/com/geops/weekendpoc/DeviceStatusTest.kt",
+      "sha256": "44c21c29c54b5d1c4563807a7d46b000203c9e0dbc731e33f0b9050c744d375c"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/test/java/com/geops/weekendpoc/EnrollmentProtocolTest.kt",
+      "sha256": "9a44abfda272d51674f400bf6fafeb0883562bab4ad6ba3b3d9a19e3906d15ec"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/app/src/test/java/com/geops/weekendpoc/SyncProtocolTest.kt",
+      "sha256": "4315faa19d8584e3b652438f316c4696cfe77bcd9af33416acd01ce4cfef6f4d"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/build.gradle.kts",
+      "sha256": "8da788e1895cb23841319cc67965c7c93e8795889b30a7d1fed743035c315177"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/gradle.properties",
+      "sha256": "8fcf00d21c2836a6f755c2c3239d4429331048725bead0290feb3b559841c9b0"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/android/settings.gradle.kts",
+      "sha256": "3717940f6bad1d367d6dbd46a3d627efc9d8d7c6b281acee2dbb8168447d89b1"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/app.mjs",
+      "sha256": "3052b58c15e6d14aee3adddea30f8391c681e049c9b343e6e6011f7c970b57fd"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/hash-password.mjs",
+      "sha256": "8db68d3bccc1423b213cd4c1525e56b031334cb6c081af8bdeca3a1bd5e9d735"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/schema.sql",
+      "sha256": "53b99532ee242711e92d296429fcd502b00f1f5b143ed6727bcb9c07439c175d"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/server.mjs",
+      "sha256": "ff647085a4a872285a3d908f410b35f7ffd5ea6062b82e1364cbf9daba8418d2"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/store.mjs",
+      "sha256": "c036f44b8b9ca1344bbce4d5607050b24108d3cec3be90102cc6090a4aca21cc"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/test/api.test.mjs",
+      "sha256": "b9d2d3864887095a9f9efe0669cf7fee1fb4420697a7cbb0dc11f11324068370"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/test/postgres.integration.mjs",
+      "sha256": "f005ab8d53ff8426b70a8b9b7cf7196ca4deefc8ea06d730be13ce520ea7f7f4"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/api/validation.mjs",
+      "sha256": "0728a6e74281f3b6e0e301bee3762bd209a90cfaa01d51b8a8f38e5b2c756fec"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/docs/approval.md",
+      "sha256": "45d8a33542e4d031797170308dd1f79a5dd25e806168a2b469ebbf8d450e4ab4"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/docs/deployment.md",
+      "sha256": "2561c210c1a211d46ef81cf7f17a9708bd5c7c4933bcdac78af57379ecede28f"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/docs/evidence.md",
+      "sha256": "8078eb50a230717ffbb45e2c82fb50f2f50bbab90f2e5d36f374ff2279be55ea"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/docs/field-apk-reinstall.md",
+      "sha256": "a9692beb3a687a7b626d1410beb28df591272d08de64fc09b28c002dbb341af9"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/docs/field-checklist.md",
+      "sha256": "266a8a2ff629c9d09ea4fd2aeaeed022085465a74c5134bec9a354873ad094ee"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/docs/qr-enrollment-diagnostics.md",
+      "sha256": "cddb19bde4b807c7bfde29228ea0601f9c48f58635d97766858f1cca3d083abf"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/Caddyfile",
+      "sha256": "fb971f0853c971ecf68b7276af0e041b8a81101bdacc3100cd5ff73474d79187"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/Dockerfile.api",
+      "sha256": "474f41a2f62cfe3d2c68681fc3ee1d0df7fd9970ba5004c2fc6fc2e5161e13dc"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/Dockerfile.caddy",
+      "sha256": "907190a0340af956760ee42685447e85f8b9392ee2b6a8646ae7a987237e4011"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/Dockerfile.web",
+      "sha256": "971d26549ef13938b61bac773555175596c657e247a499e1acadd6158786962e"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/backup.mjs",
+      "sha256": "a6475818d1099e16f525806fb34218e31e6ef250d9be0fcc7470012b6a5851a2"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/cloud-config-preflight.mjs",
+      "sha256": "fc16ea137e76b248b52a4d610cf6172358149e0a65e76bbbbe74f308345ba616"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/cloud-config-preflight.test.mjs",
+      "sha256": "5a29c25df159318eef2d02144c71f28906d969911d945261b643cb23857436e7"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/compose.cloud.yaml",
+      "sha256": "74dad466718d7678dca8575bf730b2511b62922eb9ae69b212006541d1933a21"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/compose.dev.yaml",
+      "sha256": "4328c9b353e86f59fed8534126a72e4bd4911cf90a0d2f7d92ae0c6e007d0dc9"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/nginx.local.conf",
+      "sha256": "89559e68fea98e2ec6708ef0183d34101241cbcd06fbf2f1aab3c23976d9e55d"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/preflight-server.sh",
+      "sha256": "02d590e09aab5f3783236e44f3875b1858fb5e8bc32e1b4abffcfc13080c4629"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/infra/verify-backup.mjs",
+      "sha256": "d31f275baca4bba4019b978c301e33749e2647fadcedad8fc5e97baac4c1b158"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/package-lock.json",
+      "sha256": "3d75cb5cc30e1276dfd3dd2b24f42b1f7ac251df6da44de901085646e4f54604"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/package.json",
+      "sha256": "da0f6df27a9ad3aa2d96527859b6a3199a8f0dd31cad60fd963e3a618126e117"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/web/index.html",
+      "sha256": "8debb51fe2832a41a5f2fec9d9e5b9d1ed476711866e764535ba5f514a95c83d"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/web/main.jsx",
+      "sha256": "33db358326a36e7b23758088c128f46fe3faf1ee84c3077f3db8b1e4ce80d2ce"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/web/style.css",
+      "sha256": "36e7a2fa517d7602db555db9509c68ce97ac0c89664422391e27dae2c92fc87d"
+    },
+    {
+      "path": "experiments/weekend-gps-poc/web/vite.config.js",
+      "sha256": "e04c77bab67b195f1ccecef7b288e4dae2686238e052f03f109bfd75ad42f7d6"
+    },
+    {
+      "path": "infrastructure/compose/.env.staging.example",
+      "sha256": "777b91903affb95e8c3e7243b970258fe5988e3207d3ed6ee9a13bfd7a18ac16"
+    },
+    {
+      "path": "infrastructure/compose/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "infrastructure/compose/compose.dev.yaml",
+      "sha256": "21980aa6356ebcfb364fa31d2654d03b0f673c3d6ea71af11fc6018f218c2ea2"
+    },
+    {
+      "path": "infrastructure/compose/compose.spec03-release-lab.yaml",
+      "sha256": "e721902f36a335b7e34fce2ce31a53285ed6e7d37365abc7c7bd9f5a490ae114"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.api-only.override.yaml",
+      "sha256": "950053dc3175f2e15047dceeb3119d43473d006254013c4eca688b0355498a13"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.digest.override.yaml",
+      "sha256": "d7dd571c46c46a8f20751611d747914bd4da1f2bf8cac34c02504fdffbd6f702"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml",
+      "sha256": "72afabdd52b25675d69c46117dda6117c0a79cfafc412686249a52196d00c800"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.mdm.override.yaml",
+      "sha256": "fb11843d0bedd04eecb96114c7ba8e9b55d16960080ac0c47c3eda59c019d20b"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.migrate.digest.override.yaml",
+      "sha256": "8bcf71faab918436f2bb42fce83ee1fa586ed1663c60c52a5e9c815cf7cc2c19"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.web-only.override.yaml",
+      "sha256": "d9867f66823914b4f3ca75957872e9127442a7bc2024d9adbc4b35ca801ae7fa"
+    },
+    {
+      "path": "infrastructure/compose/compose.staging.yaml",
+      "sha256": "165865879bd3037c03ca4b033f3ea1a9ad283d45ae4c43439e7163adcf6248f4"
+    },
+    {
+      "path": "infrastructure/docker/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "infrastructure/docker/api-release-rehearsal.Dockerfile",
+      "sha256": "002c2f964aeced62c57e8b854b5ddfad560b9ff187aab57718f5e38fb515f4a3"
+    },
+    {
+      "path": "infrastructure/docker/api.Dockerfile",
+      "sha256": "c3f9f22ce30c12a155b5de1f2534e5890a21b9d726fec2bab7558e0d2dff39d1"
+    },
+    {
+      "path": "infrastructure/docker/web.Dockerfile",
+      "sha256": "f3498a680f575c60d4883cac4b3d716f7c83ad1dd7b24684f49994bde817504d"
+    },
+    {
+      "path": "infrastructure/nginx/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "infrastructure/nginx/geops-staging-https.conf",
+      "sha256": "42b128f4d4c7ac89a8f68816d5db9998136d641240a166402c90090e3fab482f"
+    },
+    {
+      "path": "infrastructure/nginx/geops-staging-web.conf",
+      "sha256": "d40823d0946d984c71a8ae8ce2c346bb451f185ecbd6b9883fa3d1a084e1ba62"
+    },
+    {
+      "path": "infrastructure/nginx/geops-web.conf",
+      "sha256": "ceffb981f5a850e94e903889f5c3f6031b387651c04f3a5f8174901e8c8d5416"
+    },
+    {
+      "path": "infrastructure/staging/Caddyfile.poc-proposed",
+      "sha256": "06c7a117775e925f2a29dbeafdb6873859400e3891f7f94c22603becbcb31363"
+    },
+    {
+      "path": "infrastructure/staging/api-entrypoint.sh",
+      "sha256": "7d6d46206cf9ee635d4da0623119c9f666bccbe5e214fed1ca617d0d7ae123a7"
+    },
+    {
+      "path": "infrastructure/staging/backup.sh",
+      "sha256": "b6784af0ac4c6180e65b981a963b33ea79d2f4902ace966c2c23e99b02f6ef6f"
+    },
+    {
+      "path": "infrastructure/staging/compose.poc-edge.override.yaml",
+      "sha256": "722431d46d8328a2fc18c7fbf81d09d7cad6d1c78ef5c0d5a2100414a1ee33e9"
+    },
+    {
+      "path": "output/auditoria-protocolo-envio-gps-2026-10-21.md",
+      "sha256": "92e81bf1f097eff7ec42e896b02d2ea6dcc6c60a23c50d0287226c96e3fa6bd4"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "7cfc1b07976515308adf1ef208d087b136b1f3fc6c97076f67e7bbc80f4e30fa"
+    },
+    {
+      "path": "package.json",
+      "sha256": "ef522074cc0f7169da188daf29dd44308f38d6afd0a062b93e896c32398e5c59"
+    },
+    {
+      "path": "packages/api-contracts/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "packages/api-contracts/openapi.gps.design.yaml",
+      "sha256": "e8d6a2bc4f8f9577e50721c30dbcdaf74b8ea1309bcaaffae1af686bb2c921e5"
+    },
+    {
+      "path": "packages/api-contracts/openapi.yaml",
+      "sha256": "c04be584625de705624e9c0c2d86140d1571d2a2093974d940d4598b7b889b3e"
+    },
+    {
+      "path": "packages/api-contracts/package.json",
+      "sha256": "d4d495c7ff95b8efd6e31fccd115227fc30956d0a761cbb2605626c1545642ce"
+    },
+    {
+      "path": "packages/api-contracts/scripts/check-openapi.mjs",
+      "sha256": "2b1730fc9f26c9b920acb7443631d385756041416042e67a080f747865fe5d3a"
+    },
+    {
+      "path": "packages/api-contracts/src/identity.ts",
+      "sha256": "7a37aeaa23f15943d78f14212469c65f6e4cd007fb5d4cfc63c4239d29ecbea2"
+    },
+    {
+      "path": "packages/api-contracts/src/index.ts",
+      "sha256": "6f57d5ce5b0cd91565f87a1f405ed6d531b865e19482ee19eb77f97b08048b23"
+    },
+    {
+      "path": "packages/api-contracts/test/contracts.test.mjs",
+      "sha256": "3c2dc20576dbbaa883d0dd55d6662336e77cfa9d9516ba13ac7b1530a0e460f4"
+    },
+    {
+      "path": "packages/api-contracts/test/staging-pop.test.mjs",
+      "sha256": "46c27a6078b8de55a38486665b5a854e8a2e33d29ff75a3fc002869f55912abf"
+    },
+    {
+      "path": "packages/api-contracts/tsconfig.build.json",
+      "sha256": "1996de07fb33d68709ebd24cab74f3fbb45f6803a1f70b1db9dc51cd6b470263"
+    },
+    {
+      "path": "packages/api-contracts/tsconfig.json",
+      "sha256": "02eaf8927f914043f50a9748b377c40d44b92ffec6601f2d02a61c2f4a9a4548"
+    },
+    {
+      "path": "scripts/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "scripts/check-staging-caddy.mjs",
+      "sha256": "dfe562e5b8cb458069c8de7e2ab7ff343e0fda9cf1ab024de099242e2b20c254"
+    },
+    {
+      "path": "scripts/check-staging-compose.mjs",
+      "sha256": "98be61889ab6a17940f43c501bbee59f2b1a750901b269452e0881c145e9a681"
+    },
+    {
+      "path": "scripts/create-local-compose-env.mjs",
+      "sha256": "f7a5305a1160a04ad93a7f75dda31989597187475d8b7b6096e5edb60c8156bf"
+    },
+    {
+      "path": "scripts/deploy/README.md",
+      "sha256": "7992717e7b5e789b7e2fcf94d3883364ddf5bcf990750c8f9a78377bc03a2b68"
+    },
+    {
+      "path": "scripts/deploy/create-manifest-v2.mjs",
+      "sha256": "604a02ffcbb706708605355f0c9ed511f088d56f7b5914bdd36349227aaa8696"
+    },
+    {
+      "path": "scripts/deploy/create-manifest-v2.test.mjs",
+      "sha256": "a8ff7e3441d89ec7a298507c28ddbb3575eff430ee93c2f4058b82bd0fe3c548"
+    },
+    {
+      "path": "scripts/deploy/create-manifest.mjs",
+      "sha256": "860e5427438fd3687d3817c17d431cb376e6e857e88ec9b6fc848781a29ec985"
+    },
+    {
+      "path": "scripts/deploy/create-plan.mjs",
+      "sha256": "29573b4e3f0aca2cdf8998fda5c44d02b93a959f8b084db0daf5bd3920ddad1f"
+    },
+    {
+      "path": "scripts/deploy/create-policy-v2.test.mjs",
+      "sha256": "5d20dedf6e71fffa372b10c1d26a4b2b192d5a63edf149c2caf2f25fd236ef63"
+    },
+    {
+      "path": "scripts/deploy/gps-rehearsal.mjs",
+      "sha256": "528ac511950808737693904c91c65fd8d5cce851ee07efa134b6dfb1d499849e"
+    },
+    {
+      "path": "scripts/deploy/isolated-rehearsal.mjs",
+      "sha256": "2685d12bb28195a2a823ca6d68cee792def2a9e2a7184c200354e9dbef53e816"
+    },
+    {
+      "path": "scripts/deploy/lab-v2/controller_adapter.py",
+      "sha256": "f47552771f7527b0c2a3346cc769066e4b92fe3d46fd71c12ee6bdf0056ecbe3"
+    },
+    {
+      "path": "scripts/deploy/lab-v2/create_lab_secrets.py",
+      "sha256": "17146375b08d2dc17df8589b522667971780971c9707b86ed7439109f9c08444"
+    },
+    {
+      "path": "scripts/deploy/lab-v2/normalize_a21_sql.py",
+      "sha256": "f92c2427b449f94f1783eb29e4435b3c83c9aa8750536741e1909a715a53ef57"
+    },
+    {
+      "path": "scripts/deploy/lab-v2/recovery_matrix.py",
+      "sha256": "8c11a591efc4c0f4781acd3349eab6ed29ff77190bc2b3f6a2dcabbbf4a54705"
+    },
+    {
+      "path": "scripts/deploy/lab-v2/snapshot.py",
+      "sha256": "ebdf7f2c0257fd3fb96e18e0b4c6e563ea2d7db2fb3a1aa981f9580dbd7690a2"
+    },
+    {
+      "path": "scripts/deploy/migrate.mjs",
+      "sha256": "5c18dbb3bec173fdacf94d135514655184025cd8a7f2fa08e5224895aa4fbcbd"
+    },
+    {
+      "path": "scripts/deploy/preflight.mjs",
+      "sha256": "5a9fdff02142031e1a218e8ee396c7e16b378a8da17e6d9d78f6e2386192f021"
+    },
+    {
+      "path": "scripts/deploy/preflight.test.mjs",
+      "sha256": "55281f91583de291a097413ef25746bc3a6afcb0133aaee2964ce0b3996b09ff"
+    },
+    {
+      "path": "scripts/deploy/publication-gate.mjs",
+      "sha256": "4dbb0fb359d210a0b5e6c1d3f4175d8b28f47c3a98e73409c42c0cc0e8b08cff"
+    },
+    {
+      "path": "scripts/deploy/publication-gate.test.mjs",
+      "sha256": "52c7f43b22610981fd4769f3f883351b5c658a9945978821d87b7022e8f3c84e"
+    },
+    {
+      "path": "scripts/deploy/registry-rehearsal.mjs",
+      "sha256": "9ca7b5a498032ee3d4de145b947f9fe1e100e4f6b56241bd7b49493e1b91dc3a"
+    },
+    {
+      "path": "scripts/deploy/release-plan.example.json",
+      "sha256": "61deea8e130fd848cf6d198cd55d3ead338ae5ceba205d12c0aa1fbf68bbb96e"
+    },
+    {
+      "path": "scripts/deploy/release.mjs",
+      "sha256": "18a217e069689d21f787c7a705ad345b0c9229928895bf09cc578db423c7b991"
+    },
+    {
+      "path": "scripts/deploy/release.test.mjs",
+      "sha256": "c4ba69f1e1fb672a23f76be0976ab3954e9b33c462f7ad79af3922c720e5b9ac"
+    },
+    {
+      "path": "scripts/deploy/remote/INSTALL_V2.md",
+      "sha256": "0975cbda13eea953348ef410aa401805addbebb8e291591088e549a91cbe0bc7"
+    },
+    {
+      "path": "scripts/deploy/remote/README.md",
+      "sha256": "f01d23c88e471fd0f17189f8d82d94d50060b6f7937589b2e60e01d94fbe0b54"
+    },
+    {
+      "path": "scripts/deploy/remote/client-v2.mjs",
+      "sha256": "ad8c6022ce03c40a9b2a2c25ad0d4139ea5de189d34d5415e791ee4f4d15a449"
+    },
+    {
+      "path": "scripts/deploy/remote/client.mjs",
+      "sha256": "60fbdadd27a509cd4ea90a72b6651042154e1093653618f2bf496676b6341443"
+    },
+    {
+      "path": "scripts/deploy/remote/create-policy-v2.mjs",
+      "sha256": "16d8d16c339a0814b2225f83248c16b246d4a777027c887f746f6ad674fc5d77"
+    },
+    {
+      "path": "scripts/deploy/remote/first-staging-policy.json",
+      "sha256": "119eeb53bac57f3146c215a2b9e566189cb0e5d62cb4174d1710431b31f76fd1"
+    },
+    {
+      "path": "scripts/deploy/remote/first-staging-state.json",
+      "sha256": "da83afc3f6914c188f5f0043cd6df9a45b57e9a279890ef5eb52e60446ae79a7"
+    },
+    {
+      "path": "scripts/deploy/remote/geops-deploy-v2.sudoers",
+      "sha256": "de38e139e1e0e8f88e07723cd5ce75aabb726fabff3a6ebed6824cf98b57f4a0"
+    },
+    {
+      "path": "scripts/deploy/remote/geops-deploy.sudoers",
+      "sha256": "43822cdb59aae3db8e22547b62bf0835d9c136d46b29ba513f7496e306cee6d7"
+    },
+    {
+      "path": "scripts/deploy/remote/geops_deploy.py",
+      "sha256": "844fb087a7afd7bb8e31a630cb069c5bef185056a046d475d6745287e1e392cb"
+    },
+    {
+      "path": "scripts/deploy/remote/geops_deploy_v2.py",
+      "sha256": "4f36325ab4f7b6c228e7a06cd0ba425d894e29a624322680de4db53d2eef06ec"
+    },
+    {
+      "path": "scripts/deploy/remote/install-v2.py",
+      "sha256": "8c5607e5e6058ed978924e8a29cfef36fb256cce611a3e54c77070f4641a4f5f"
+    },
+    {
+      "path": "scripts/deploy/remote/install.py",
+      "sha256": "6c05813cef6c93f716a94b3dbb710ba7cfb384edd8b770ffdb42d5bd16bef424"
+    },
+    {
+      "path": "scripts/deploy/remote/package-v2.py",
+      "sha256": "209611ad1f8b36669aa0c12105a77af5f0d4e1403c4d3e5e246ffcd3e38b6046"
+    },
+    {
+      "path": "scripts/deploy/remote/package.py",
+      "sha256": "7add9b1f4ba40b9222298185fd02d690f1792acb8da719ad4902d1fd48decedc"
+    },
+    {
+      "path": "scripts/deploy/remote/run-update-v2.ps1",
+      "sha256": "7a314d8b56cbeb2fe349c5a5c69d3cccf6564dee905ccbb67c9eab558404fe58"
+    },
+    {
+      "path": "scripts/deploy/remote/sign-package-v2.mjs",
+      "sha256": "413bd687fbd8c067cd4283a2c6284da1a10c9f475e15aca2100350631ec28779"
+    },
+    {
+      "path": "scripts/deploy/remote/sign-v2.mjs",
+      "sha256": "f761b1ed90a6d412cf714b63d8bca407caac874860657d68faefa412bfa7ba30"
+    },
+    {
+      "path": "scripts/deploy/remote/sign.mjs",
+      "sha256": "22d67e238fa81d8a280845737d20a3af704f39c08324de078a8f1957e2aba63b"
+    },
+    {
+      "path": "scripts/deploy/remote/test_geops_deploy.py",
+      "sha256": "0e8d1112f3a8352f004f649b5b0f7aa16cd15e20282973d78768b00c3267c620"
+    },
+    {
+      "path": "scripts/deploy/remote/test_geops_deploy_v2.py",
+      "sha256": "c49128072afdc31a3a809a84bdce687ca2394f0e9f448c49a7124d43ec8a8839"
+    },
+    {
+      "path": "scripts/deploy/remote/test_install_v2_linux.py",
+      "sha256": "7b7824cdcefeb139bf90811a0a2ec5140e1906f91a8347c711789e4bbbb290c5"
+    },
+    {
+      "path": "scripts/deploy/remote/test_linux_isolation.py",
+      "sha256": "ab9880bd8fe3923c8eaf179016744856c316d3a7020b79ad547a8aa3aa341fa7"
+    },
+    {
+      "path": "scripts/deploy/remote/test_update_v2_linux.py",
+      "sha256": "aeeb6ac623b8a09b2e94372c7ddcbb031a308104bed31e448f057d7cce4c64d6"
+    },
+    {
+      "path": "scripts/deploy/sign-v2.test.mjs",
+      "sha256": "1ed20d41dd9db9273d30efb698f741c9b3384cc4ee22c90f387b722d934653db"
+    },
+    {
+      "path": "scripts/deploy/spec03-candidate-manifest.mjs",
+      "sha256": "029124717df45e02db3cec238fc9c89d8c53302feebce4789158f372f09320e6"
+    },
+    {
+      "path": "scripts/deploy/spec03-fresh-migration.mjs",
+      "sha256": "a4aa3ef7ac9266c739e670bf7e2552ab8ef26a712c3707ff14af117a13ed53f3"
+    },
+    {
+      "path": "scripts/deploy/spec03-upgrade-supervisor.mjs",
+      "sha256": "5b6867d508a73602803c3ffb717559556f153981b5523605c31716a31ae45e68"
+    },
+    {
+      "path": "scripts/deploy/spec03-upgrade-supervisor.test.mjs",
+      "sha256": "5276a753e4bf0a0ce752564f3abcb48275b678dab9d0df56ebba6b20815a255c"
+    },
+    {
+      "path": "scripts/deploy/timed-step.mjs",
+      "sha256": "49713a85ba1f79faad15c81c525f375cf70cfd728c04ea350d07025f2b71aef6"
+    },
+    {
+      "path": "scripts/deploy/verify-source-ci.mjs",
+      "sha256": "61f53dbc3ef3f741ffccfefb70261443d1071658366d79af2c912d5f00e5fdd5"
+    },
+    {
+      "path": "scripts/deploy/verify-source-ci.test.mjs",
+      "sha256": "d74a1912b0041562f16400548b4b8f9013b7c605b993d956fda36d1ba10879d8"
+    },
+    {
+      "path": "scripts/release-0015/replica-check.mjs",
+      "sha256": "62d4217c58abbddd121544665a3b8f077c975235ad91e81d712fe6f495cbcaa5"
+    },
+    {
+      "path": "scripts/release-0015/replica-check.test.mjs",
+      "sha256": "c769c5d7b73cbeb26bece23ccb8341ecce98f771be262f0f5f07ae0a2697c74b"
+    },
+    {
+      "path": "scripts/release-0015/ubuntu-rehearsal.sh",
+      "sha256": "e54f4abb7a0259cb707faec3f99135877746eb1c9bee2c2a6cbb373a90a79652"
+    },
+    {
+      "path": "scripts/restore-synthetic.mjs",
+      "sha256": "f94b530ad9f714df6acde30e4e5e1182aaa2c992eb2e92879f30bef579aa79e2"
+    },
+    {
+      "path": "scripts/restore-synthetic.test.mjs",
+      "sha256": "32377059131b1acb48f25823bc0bdb3e86b25ef27e4f68b86d28de1139992a69"
+    },
+    {
+      "path": "scripts/run-spec03-browser-e2e.ps1",
+      "sha256": "dee7e871d3a8b22480c1945dc90ed0fe862a8588675eb83401e12484c7043841"
+    },
+    {
+      "path": "scripts/run-spec03-mdm-integration.ps1",
+      "sha256": "a8e30d2e685c7bd7b9b4daf90d22e4fbd72dfc4906c6d7e79a8ff38a0786909f"
+    },
+    {
+      "path": "scripts/run-spec03-release-migrations.ps1",
+      "sha256": "0660adb272fe8e7d9589d3b013736c2b358e9bdd9af7322382e9ed5c0d43e2a7"
+    },
+    {
+      "path": "scripts/run-spec03-wave4b-integration.ps1",
+      "sha256": "20500a938a0964428431b0567126f5c90ef2888545644cb2060e1126c89390cc"
+    },
+    {
+      "path": "scripts/run-spec03-wave5-browser-e2e.ps1",
+      "sha256": "17708b93d91859f857c44df31397effbf026c63e74c957eb9dc8b12658a838e6"
+    },
+    {
+      "path": "scripts/run-spec03-wave5-integration.ps1",
+      "sha256": "a0a56600d097c31b4da5a509bf23ca508e8d55c483f04b9026d86a2704da6f29"
+    },
+    {
+      "path": "scripts/security-scan.mjs",
+      "sha256": "1c44e1f2572ff1e54c3ce8f6816f3a94718050a4e9c2696464d68728ec4e2488"
+    },
+    {
+      "path": "scripts/staging/clean-reinstall-0015.sh",
+      "sha256": "d5241fea5df93ca74f356f895c99bfc67cd8940cb762ad25b0315139bb584403"
+    },
+    {
+      "path": "scripts/staging/clean-reinstall-0018.sh",
+      "sha256": "f63e6abc56e4cd6349b5f2d33bf992b5f9bc3392dfb9ae0359f06bf7704e9039"
+    },
+    {
+      "path": "scripts/staging/test-clean-reinstall-0015.sh",
+      "sha256": "d32aceefa45419c5ac2a8abea717bc5d925a543c139097e9d693de8c3564a509"
+    },
+    {
+      "path": "scripts/staging/test-clean-reinstall-0018.sh",
+      "sha256": "5f79f60a94a5417200ff72093345312d89cc766922fafbacc8042ef692b58bab"
+    },
+    {
+      "path": "specs/README.md",
+      "sha256": "54a994e5548ffc7078d784e8714f6bb92218af3f24601b9aad28260f8be80c42"
+    },
+    {
+      "path": "specs/acceptance/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-001-monorepo.md",
+      "sha256": "047a900a519e6cbd518931ff3a9c488c671192f4018fecf476f0ff0a86ae6f9a"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-002-gps-propio.md",
+      "sha256": "261d2232ffeb44b49aaefe5c3c755acb4e75c5325e433c4927964c24dc48ea14"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-003-ingesta-gps.md",
+      "sha256": "02464c9c252d0f659f1263b0bce783644d842c20674a52ea563e75a37c82c677"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-004-infraestructura.md",
+      "sha256": "c15812854876530dc734ce444dbe4c0c8d1047abca7321f05ae8f9936bbce136"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-005-mapas-captacion.md",
+      "sha256": "16c7eceb71d53ac36e12c147336f0beabd2a614616b9fcf519b32091f8de1da6"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-006-privacidad-administracion.md",
+      "sha256": "11fb1b4a3827be96e878b47c4c7699c5852de68682bca53fb4c99a4deb996c0e"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-007-mdm-externo.md",
+      "sha256": "fa3a94c0556607e179954d9bf828710e6ebad5ab4c65864c77e9a02706ba91d5"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-008-buffer-offline.md",
+      "sha256": "650c0583a3271ac9bb3d89ba091c4e8fd3f28713036116c42eaa7caeb74899be"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-009-datos-geoespaciales.md",
+      "sha256": "248981fad4c452e44a04567fb15592dc1b324f2d3f8bd6f10eb7fe7fda0ccac6"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-010-visitas-recurrentes.md",
+      "sha256": "89335a68018aef4adcb96baadbaa4346dce38125ad3cd00f04bea9debab95a65"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-011-ia-rutas-diferida.md",
+      "sha256": "0fd5868de6eb78d632527fda1e0391e995041e1043b3cfe2e57027b0a452b956"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-012-identidad-dispositivo.md",
+      "sha256": "2fe34f422ca300225f2cb195175be438ca1f2fb14ed0139b3997e2a348ea7bb0"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-013-restore-security-epoch.md",
+      "sha256": "110e394e16c5774547f8822ef7d740d33fed0a7326ac3be52ef49dd2bf1d2142"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-014-mdm-flota-existente-propuesto.md",
+      "sha256": "740f49c7beb374788a6683cfd137405597ba379fdc0c3fea8b7f650a6cdbf91d"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-015-capacidades-administrativas-gps.md",
+      "sha256": "67e82e5ee53a8eef4962abbfb3453cddc4c978e18042b44bf06737751a8a26b6"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-016-identidad-sesiones-gps.md",
+      "sha256": "573043e30e5813b82e55f07fdf56285c1527e19d1189676028bc015e19f3c709"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-017-politicas-gps-temporales-offline.md",
+      "sha256": "0c86293cfa3627570284b41a7393fd5c6138c687a01aad8402388c328b5df9e5"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-018-operaciones-gps-sinteticas-propuesto.md",
+      "sha256": "70fdd76ef81117aba2ad02a620a0831f2ba9c9361c8dbb022ee3e3f594cb47a5"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-019-empresa-unica-administracion-por-capacidades-propuesto.md",
+      "sha256": "e59c3ff9e226981ca801df2e92f05b472701f91d5d7f733830ba5d1fc4735c70"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-020-ultima-politica-valida-offline.md",
+      "sha256": "5a1f70b60e3bde13d5da952dd3fb820313d0c9d000ae5b0d6086d53067737bfe"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-021-geozonas-circulares-propuesto.md",
+      "sha256": "dea7527abc826d235485478d9086e3a99e580a3cd6fdc38666a598313d46a2e6"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-022-permanencia-acumulada-jornada-propuesto.md",
+      "sha256": "8f0e5d073fa7a88a89f5a16b7e3d596e31a00e23d62c5749259197d6ad2e1f8b"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-023-rutas-reutilizables-orden-libre-propuesto.md",
+      "sha256": "90cb6f89c4cb3572e3600e32eccf52588c47142bf4a390b5425a72bcea3596b6"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-024-versionado-rutas-geozonas-propuesto.md",
+      "sha256": "07392d41c3b0105d591b26caaf47041ba8b390693180ae5362dd98d571c538da"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-025-evaluacion-backend-gps-offline-propuesto.md",
+      "sha256": "ee73f2234e056eeb72feb8f454392eb567b2731d3dd31b06f5fbe262596a3ca7"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-026-recurrencia-asignaciones-propuesto.md",
+      "sha256": "cd25d86aa163b80d11f99194da0e893d36473054627b27bf919c3fa2e1dff788"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-027-identidad-geops-agente-dispositivo-wave4b-propuesto.md",
+      "sha256": "36859f19a93dd3257982c482ea048de92a72033ec3ea6cde5c8ecd8a2137c90e"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-028-dashboard-cumplimiento-provisional-propuesto.md",
+      "sha256": "e0fa1ca42f403aa6c0e5611d8602cf362f08eacf92a59a7e70db24c0a0f50920"
+    },
+    {
+      "path": "specs/architecture/adr/ADR-029-continuidad-geops-sin-mdm-y-upgrade-supervisado.md",
+      "sha256": "7a3659c508af67fc441428d07e9e61a4b0abf7b263d7045b1000e07fc5e79e1a"
+    },
+    {
+      "path": "specs/prd/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "specs/prd/GEOPS-PRD-v1.1.md",
+      "sha256": "982ba308f86072bf12c927616c9f17f6369dffa73b3bc00ecfdf609c43d91415"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/README.md",
+      "sha256": "e03dd02e8e288e27f75ab271c4da707f5a7bb8d8d63e351ac8f768d6d27b2c23"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/api-contracts.md",
+      "sha256": "ce40842c67f80a0b7343961e7152cf162be6235e9222be32bc2914dec9dbe98a"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/architecture.md",
+      "sha256": "be30091975d8cecaaf831f5768c0988efa462780fc7bd3596b479b897d0324a8"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/business-rules.md",
+      "sha256": "5e9f52781d1c8ffafc5ec40ac37de6b6f3d4a0a1d804b004cf4977de01fca572"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/closure-report.md",
+      "sha256": "185564cf87efa80ecf2a45aae5597c96f33aeeda10081250794a06212f32ca9c"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/data-model.md",
+      "sha256": "64855c1afd7d862007197d5e88dde5604aefb8f98f07fc641f0212244bd56254"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/device-provisioning.md",
+      "sha256": "50d62b437df0ea2e60d61702fa0a4479385afd0d1466ad22daf4ea0a001092d3"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/identity-api-contract.md",
+      "sha256": "0c815142510494baad86eb3e2f344058d4c444f6bc2385544f9c40dd280eb98c"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/mdm-business-decision.md",
+      "sha256": "e4b449a31d0e42afd8a2493e5a3a388cd9b70d4c9d6884a25af5d064e65d1dfb"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/mdm-free-api-validation.md",
+      "sha256": "989aa04e133d57a6f14fe2c8d4fec4ff74b54194a7761ebc26d6a42d8a208cfa"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/open-questions.md",
+      "sha256": "d73f13d71b4de0fca3009e5f021efce848ee29a6c0b5eb0ff491f071c490ded0"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/pilot-test-plan.md",
+      "sha256": "1f028c57b325a302d580759b307229639176d9791195b41355418a578c716c3d"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/requirements.md",
+      "sha256": "852251abfa682d14dc26f5515089250abf46c6a99a71dcc9ec5de675d1b1d718"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/research.md",
+      "sha256": "943501ade58c39307fabf69e2ac6a4a4740b1f4a213e90f02580b2fb46df85cb"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/risks.md",
+      "sha256": "5138fb979424f9d7a1b3fc14adadd647547ae318fcec55fd11ce6f7d3fd129eb"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/wave-0a-readiness.md",
+      "sha256": "9ac30b4ae15e191d0a0c634b39cc0430640cddc31adfdcf39d1f63db87088baf"
+    },
+    {
+      "path": "specs/spec-00-technical-feasibility/wave-readiness.md",
+      "sha256": "0cf1876cd8953755c556e4abc05328aa5b90d7c17a2463119e2ed0a630959eb1"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/README.md",
+      "sha256": "683d03b0a9e2e9d7a053597085e59cda85b4c670240f349e347095cd713faa34"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/api-contracts.md",
+      "sha256": "628d207d8ed9d22faa1077c176e9e6943aa3c157684eef216a93c18709f59495"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/architecture.md",
+      "sha256": "e75999094aa529fcbba12bf12a75a866ce17526fcba1127ea30d8e7c443a7ab2"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/data-model.md",
+      "sha256": "160e0a47c0cdb5528f75b15a2f23321dc48711dcc409005dea9599cc9c6170e4"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/implementation-evidence-T01-T05.md",
+      "sha256": "3073faf6843168bf6a524249ec38d1038bf1b3b91ffbdb26b54cd2bbf82c8a5d"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/implementation-evidence-T06-T18.md",
+      "sha256": "86ef73c660ee35db1bf0f9a3ea93a5c613af593e85b7682b335be59561d32021"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/openapi.yaml",
+      "sha256": "c04be584625de705624e9c0c2d86140d1571d2a2093974d940d4598b7b889b3e"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/plan.md",
+      "sha256": "e1317ced50f464af2af0f675ff7f9f51042827d9201eb9775e77d5c4737829ca"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/research.md",
+      "sha256": "1fff5a897a2db02a84ee42d3f9142f418236e1aa8fb46857fe0a195377a8a8b5"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/risks.md",
+      "sha256": "8bd01d71620809b0e21ed8cf2fc5e39876ab0d93e76472aded2df07772dd6c80"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/spec.md",
+      "sha256": "616cdc4b5bb98967df80d44aa935ba085ce613d9d5bd56d7ca07fc1c75fb9eb7"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/tasks.md",
+      "sha256": "a254e121787dcda64ef5c7bf5b52f3bd8c4e6d736209eff990100391cc5ab23f"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/test-plan.md",
+      "sha256": "94639dbdc0a7ffe0442150c80666e0e5b9cf0553d303f7e79069b9d934d9ac5c"
+    },
+    {
+      "path": "specs/spec-01-foundation-wave-0a/wave-readiness.md",
+      "sha256": "2f4eb692c63c9202aa4e044f0f21a2eb1df0224bf4836477df6cf151adda97d4"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/README.md",
+      "sha256": "d65fd893f6d7d8db3dafc2fda3e5974b86bfdbaf582b680d5800a745376adaf6"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/admin-tenant-bootstrap-runbook-2026-10-19.md",
+      "sha256": "e4a89f9f8153f23fb8459782d62d277eeb18ae5301e5eb284c7d1b016a613394"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/api-contracts.md",
+      "sha256": "11bf5264c3669b19b8c8f655671ca84c0edfc717c814cc0caf2b42d575e1ec07"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/architecture.md",
+      "sha256": "e93de6969e72ec50ce6ae57478b92b3cccb1e9c8dc76eb3a09954aa925acb7de"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/contract-review-2026-10-19.md",
+      "sha256": "93566ccfd041df140070eb8cc44453dedc732beed08a7f1005b419399a4f1b11"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/contract-vectors.test.mjs",
+      "sha256": "6618c96e968233c2ebd587ca9ab2feb60b5eae18a44613406a3fd1e2f7af2e8f"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/data-model.md",
+      "sha256": "56d2b4971c19c64ec27ed42e091685ce105640edeb554fa2e28edb3f417ea29e"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/enrollment-authorization-review-2026-10-20.md",
+      "sha256": "587c2dfd457c8ed6ae1d9c1290a8c60df53ad1742dd0651931b023817d55109e"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/gps-capability-grants-proposal-2026-10-19.md",
+      "sha256": "bf88d39fdb67e321c6a2672037e049f8ad42543a47fb03f443a48b4c45cfa265"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/gps-health-backend-2026-10-19.md",
+      "sha256": "9c82bc68af2875b19476b2f978520fe6292b39d821e7986b4256e5e187b8d42c"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/gps-health-change-proposal.md",
+      "sha256": "d557a5f402931c88156a7487733c35502e5009f3ae879cee53eaa28735bc782d"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/gps-upload-started-blocker-p0-2026-10-21.md",
+      "sha256": "21e2128359c6f3d48c4b32b0ef64e2d09ccf69b7789583389c4a6d148a0aca0b"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/impacto-dec-gps-offline-001-2026-10-21.md",
+      "sha256": "75f9768fd79fc631dbf6dc54a5c53b0b9646bd5d99efeb40331dcf7559dc41f4"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/integration-execution-2026-10-21.md",
+      "sha256": "d2a97c0bcb03897dbce9bcf34b10f529bf11a780c642be89c713694b784e0193"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/migration-0015-final-release-gate-2026-10-20.md",
+      "sha256": "47b1f1ddbead4a2a1e8ca4fb8ce3d198ab77f0ed56fc811b481326ab8cfdb046"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/migration-0015-safe-recovery-2026-10-20.md",
+      "sha256": "01785c01713181743f1995c875d4b7132002d3dba5b5505916fe9e6cc61f4e46"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/openapi.design.yaml",
+      "sha256": "e8d6a2bc4f8f9577e50721c30dbcdaf74b8ea1309bcaaffae1af686bb2c921e5"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/openapi.health.proposed.yaml",
+      "sha256": "ccc90e5221eb75fffeb025bf94de4d25ea6b79c6c4516b09cbcce2c80314d039"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/plan.md",
+      "sha256": "95ccf54fb3c841b2f27cdb5387cde3cc1ab3afe6edf466aae59cf8251ba8f8c2"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/poco-p0-manual-2026-10-21.md",
+      "sha256": "9fe6a30b2e595877f672ab28f29624450642f2dfcd5a4d3b317fe952a2c69bae"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/readiness-audit-2026-10-19.md",
+      "sha256": "40970720d9ad672b4a6159d56aa8693cd6c42f3904aff572e451ce7ca38b606b"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/recovery-14-17-report-2026-10-21.md",
+      "sha256": "4babaa01fd4d4e8928dfd48f4c6edd39b2a5b539bcb664f2168bcb8024633fb7"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/recovery-14-18-report-2026-10-21.md",
+      "sha256": "90ab351b190ecb8707e2873f588456e2e14c3665309a0bb100ab8508a10f2c11"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/requirements.md",
+      "sha256": "f9c3aab8c8ee0a7f7e37592ba23db354de419c1b20645068a269020120efc1d7"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/research.md",
+      "sha256": "61cd843254366c2653da7e56e65431841827b2f5ac36e5eab0e427374753500f"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/risks.md",
+      "sha256": "b21dd143ac52992e863acdba7e9691348ba733b8bbfccebffff5f02deb26aaa8"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/single-tenant-administration-runbook-2026-10-19.md",
+      "sha256": "93fcc4649970fcf6e086d964305812215be221fc712ade27024a0e9f87b138e8"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-1-manual-deployment-2026-10-21.md",
+      "sha256": "08dcb360de3023e9fc7a80c923785be58bf7a01d7b22d849fc1da775777313b8"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-clean-reinstall-0015-2026-10-20.md",
+      "sha256": "45d9759e2b4b739026f9bf1ee6ef162fc55a7e24b928d1ab943f2a9dd11bb36a"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-clean-reinstall-0018-2026-10-21.md",
+      "sha256": "6e940c1d297a1a25f2e79ec70f096dc5cd1186640e1ab2e8aacf9028d447c1b8"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-duckdns-readiness-2026-10-19.md",
+      "sha256": "1e8b08d174bed668cc2612dd067ad922eb5bb9b26c6ef77a82ca5b02d77947b3"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-enrollment-security-upgrade-2026-10-20.md",
+      "sha256": "c5b69e68d0ca32cec1991698200d1e0e2160ab5311ed75868378048fe4831755"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-path-readiness-2026-10-19.md",
+      "sha256": "8f6b62f1561ed621d97f0ab6e6bda73b08b24ec828be5db64f2a89518a071be5"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-path-security-review-2026-10-19.md",
+      "sha256": "d28c32fa86d119344a48a7cb57bcd90d51a3cd1f45b49742f4d37dfa1a2b919e"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-readiness-2026-10-19.md",
+      "sha256": "d5f27883ec79f0ac24527382a81111ccec80f259ea1510f2da461faa87f91450"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/staging-web-qr-upgrade-2026-10-20.md",
+      "sha256": "ac3d3fe140ccd4f6571576caa29c00052ed502d72454b72f0047242e660029c0"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/tasks.md",
+      "sha256": "7887109c774f4e82c897f90b53b1c2f71fcfdbee5032f19e167c0e7c18bcd669"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/test-plan.md",
+      "sha256": "ebb6503f7ac8ef0430c99d621f8251d0ad91266580afc69162fe567900f8dc69"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/ubicacion-autonoma-offline-propuesta-2026-10-21.md",
+      "sha256": "9e6d15d90048312557e11f794b32f7ffc6e83925e48a06f6ea1505f31f7883f3"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/unified-staging-candidate-2026-10-21.md",
+      "sha256": "1917daf2eab833c27656f3edeb4132e4fb8aeed5c36323b2c0e93d4a69f5b3ee"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-b-implementation-2026-10-19.md",
+      "sha256": "233ca16caa5e01bcca2f1caa446693312bc3c29d3b7f48963c7a1eed093823ec"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-c-implementation-2026-10-19.md",
+      "sha256": "b401f7a7d9c421b5b85df3c61f8d74006f4bd6e82d62145a15006ec186eb3794"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-d-web-2026-10-19.md",
+      "sha256": "348bf4d8652386c9aa468d8b0924b1d3f0fa16fbb6334e406261c20d53b8a7f7"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-e1-c2-sessions-positions-2026-10-19.md",
+      "sha256": "da85cff7831f42539951a507781fe31633367ac8c89a703b53aa1839d052249e"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-e1-c3-scheduler-activation-web-2026-10-19.md",
+      "sha256": "4ae435fddf39fc084b198def77cf5614791e7c05d9a06940be7474a4f4f013cd"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-e1-readiness-2026-10-19.md",
+      "sha256": "d2ef88c261989352346a83fd1f18e777c9fee5f226fe2356923bf745949d9786"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-e2-first-device-2026-10-19.md",
+      "sha256": "66891ed9671a6ffb83a47b03171c036224e7e48e7412e09572d3dec575af2cd0"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-e2-single-tenant-release-readiness-2026-10-20.md",
+      "sha256": "21c65fdd6b07f74f0a76a8a9171bb65733d49a15fb70dad9d7b9702fecc4f40f"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/w1-e2-staging-upgrade-readiness-2026-10-19.md",
+      "sha256": "0891ed1c869e9ba6693fe919067bba74eb026a623105da33bb5ed620837bd8c5"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/wave-readiness.md",
+      "sha256": "9de7af4a4d4ccd24b319c6bad07366d4f2efcf4fda7f25c53e56a82d6987260b"
+    },
+    {
+      "path": "specs/spec-02-android-agent-wave-1/waves-a-d-execution-2026-10-21.md",
+      "sha256": "ea9e51539483a059b488d7d671e7418071801978b8df94f012ce557bdd5bf638"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/README.md",
+      "sha256": "eb99a27fed7a07810ee884d1474c9242d52c276ea25f53e3da189c74dfa236ed"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/architecture-contracts.md",
+      "sha256": "f984d5a7cbf8ae1fa2e635c63274a3a8da60411401464521dc70627fbb87304a"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/automatic-start-feasibility.md",
+      "sha256": "7c1a04c628af63c09cd27a9907c09a2fbb954c8df9d1c7d4b464ab6dbcef0157"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/baseline-integration-review-2026-10-20.md",
+      "sha256": "79f283f33745812fb227c5c33398d51ea1a27f1b05db6ad709934693d5776ff4"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/plan.md",
+      "sha256": "66f1d6ba76d8f0b1a37aa1e7977ffeb754157ba93a79206fd3311d976df546df"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r0-baseline-2026-10-20.md",
+      "sha256": "c95e254181227b830fd8e112c4435327b80a5e5fae1337e9e7edbfe81e539272"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r1-observability-2026-10-20.md",
+      "sha256": "eca521101205d0d7bff3642e501ad5d49fbc69f8111828f661af9f313fcec49d"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r2-android-continuity-2026-10-20.md",
+      "sha256": "9f5bb03b36f36f43363798aaddcc054b28b13fd74be57953acfaa8ab800c2210"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r3-independent-upload-2026-10-20.md",
+      "sha256": "4a4fadc391d8c1406ddda314d8d0f00c1dc60712ba83ce06634f0149db4261bc"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r4a-backend-alerts-2026-10-20.md",
+      "sha256": "e0e7c570923defb9f8a9cc97e2513948d639fc1cea74b43af37bc57c094f1a7e"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r4b-contract-coordination-2026-10-20.md",
+      "sha256": "6a2e7f3f94f5a66c195829a3ebe7b3f8a355e8d236f2ddfc6985abe1adfa577e"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/r4b-integration-2026-10-21.md",
+      "sha256": "a23d361d9ef606605dc2586997dfb934e0917345c63fe466c8039a9ac36807e4"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/requirements.md",
+      "sha256": "3908434b9457ec6e6a24adc5a19afe61e2657e423188d1512fd75d944ffe227c"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/risks-decisions.md",
+      "sha256": "830a9f8fb7ffeaa2f09bed6606c1d80d041b1e3aedacbdb5d2d0f411bbadd149"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/tasks.md",
+      "sha256": "df414b1b28527e65b90c5b95ad85ba5b9478319540ad4fa5e5b9cfcd585203ff"
+    },
+    {
+      "path": "specs/spec-02-gps-resilience-proposed/test-plan.md",
+      "sha256": "4d4bd731cb4699f322e4cedfa403041ba10ed785da3ddc6d4d2a8b00b16dcd03"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/README.md",
+      "sha256": "dfbc3ef0922025b845349e2d83d243c1d64c3d79a78aba1c01412878807806e0"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/api-contracts.md",
+      "sha256": "119b7a588f35da199a116727f39f5535d6537d33924064a2a871e94015d4265b"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/architecture.md",
+      "sha256": "421b5d6daf9eadd5837ba08d5bb9d89eca13ea5a822e12ec07c69b00e56fabab"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/audit.md",
+      "sha256": "e394c3970ea64c6d5329b0a468b6b38b989c14db3b2be04a80f1550994366968"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/data-model.md",
+      "sha256": "59269f616a0cca4aab2771a623adcd5ad8a5fb2462ad82a692fb79a12857d962"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/mdm-ingest-audit-2026-10-26.md",
+      "sha256": "d4ae19937fd9d116c3be01a083d6bd3b9b2e294a7730f01ca528882b5a0126d0"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/mdm-integration-report.md",
+      "sha256": "97bd71e0f9681f158f715ef633a6230b1551a82377390677589ba81f68a19b86"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/plan.md",
+      "sha256": "4e34acc1458752242e9fe9e436e3bd05b6cd98e23a2abb1de797641776972efa"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/requirements.md",
+      "sha256": "a458292a2cda7a6d7b220800d6fdcd7950f565ccf3cea3ba38031b4dc3c12979"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/risks.md",
+      "sha256": "cbc1e7654f43f33d2c8fdb782c40662053a528b9c37d258e89b71a2dcf7d707e"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/test-plan.md",
+      "sha256": "5f9b438779a7e38eb4473d4603aebb1b31d8a367d5b00de641d2bae5852cf066"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/traceability.md",
+      "sha256": "fcc8ceef7574d40ba5afd76613029001df53c071fc8575f1d7968e4422a01298"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave1-closure.md",
+      "sha256": "d26c1df567d9fcbc2658844fb62cdcf05564a7b31d7c328bc0f0909c7fc24133"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave2-closure.md",
+      "sha256": "bb1fafffec6bfe54fcbfe8318243d2690578213ec11c39c549a907bf19ec1004"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave3-closure.md",
+      "sha256": "5729ee63b2600154acfb2add296b297ea4cf129b7ee5ea6631ca862ea7e78221"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave4a-closure.md",
+      "sha256": "e633a9837c89f4e4bd7497b4f1dd6e89b816f127a0f62943cc9e345bedf842d4"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave4b-closure.md",
+      "sha256": "434b452e1e0efc057aaf0b79515f678d6f9814969b4a6e3786af6178d1749fe6"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave4b-physical-protocol.md",
+      "sha256": "4a098d9d0e11e73795a3339b8b6a8cda9732df5bf407987f6160dff06828ce31"
+    },
+    {
+      "path": "specs/spec-03-clients-geofences-routes/wave5-closure.md",
+      "sha256": "67b4b2b01a39588b9a486fb34569ee1f4d086e6b2246a51f2bfe51c9a25457ee"
+    },
+    {
+      "path": "specs/spec-mdm-manageengine/openapi.yaml",
+      "sha256": "1269af9d3ed799fbe77d2ffbbc0b76457ee0b5e5fde413c3c265ac65a5a21e67"
+    },
+    {
+      "path": "specs/waves/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tsconfig.base.json",
+      "sha256": "ca2837e08d01aa70d414fe69f2de8065c58f2be963caa1dde0dbc2f950e0e4db"
+    }
+  ],
+  "database": {
+    "minimumSourceSchema": 23,
+    "targetSchema": 30,
+    "b23PrefixSha256": "90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d",
+    "targetListSha256": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6",
+    "migrations": [
+      {
+        "version": "0001_postgis.sql",
+        "sha256": "c5a4b9f1d7549e59fbf69b161065e614e95c5ddb0cc014e4f9540f568c6c0934"
+      },
+      {
+        "version": "0002_admin.sql",
+        "sha256": "33cda143fbc20bf2b6224e902ab871b917c3429cc65bdcfbd95c5e0de8b39c6b"
+      },
+      {
+        "version": "0003_device_identity.sql",
+        "sha256": "5b9cb24605520146a8ba9e1c9bc8874368e09f9f3542ef4b84e27fab412b61fa"
+      },
+      {
+        "version": "0004_mdm.sql",
+        "sha256": "56f75813e603769e80f73241ba47dd430985cf64e03a5cb8de6c51af67b984d8"
+      },
+      {
+        "version": "0005_attestation_policy.sql",
+        "sha256": "5b09cfb63532fa283de48e15afa30b2341d3a4a68f0ac222423523d82b794138"
+      },
+      {
+        "version": "0006_lifecycle.sql",
+        "sha256": "1ece13d745eb2ca09694a87951de380992c23c88e098709edf642fc774100f7b"
+      },
+      {
+        "version": "0007_security_epoch.sql",
+        "sha256": "7c8a94a5259959d49b00ecf6eefbc8c6edc8c13fecdc9a9eb2ca79e96994a8fb"
+      },
+      {
+        "version": "0008_supervised_recovery.sql",
+        "sha256": "744c3ba5b039b50477eda0f535e9658c14cdad3a93c9c16aafb4ce75f920d74e"
+      },
+      {
+        "version": "0009_gps_policies.sql",
+        "sha256": "821c2226f4b8138a680f2a382a3bfa4c1def5ebe49986c594f6a14ce86bc52ea"
+      },
+      {
+        "version": "0010_gps_health.sql",
+        "sha256": "29ec3bddf982dbb547048062727f4f7c8a3b2e4e69724549a95e91bb4683a18c"
+      },
+      {
+        "version": "0011_gps_published_name.sql",
+        "sha256": "0f8e9a3008e85b334d6911d317470822d80b56a9b84da5a72bb2e5029353945b"
+      },
+      {
+        "version": "0012_gps_events.sql",
+        "sha256": "e649c6d96a42b7f9ebf6630f8c93dbec79f18f2bfb6e2865bb5630ef2e25f3e9"
+      },
+      {
+        "version": "0013_gps_operations.sql",
+        "sha256": "170fdec8120703ef5864b5f562aed2ee8f43e86f82b2ce437aee5283d531270d"
+      },
+      {
+        "version": "0014_gps_installation_binding.sql",
+        "sha256": "dc6aeebcabe8c0111a0c4dc40ed7d8e6410eb652c6003bc566c140b71d73ef09"
+      },
+      {
+        "version": "0015_single_tenant_admin.sql",
+        "sha256": "8ccb89274551f94e6e6f17fa85c6c869ebc88874006f08830d80bd93b3e16f8f"
+      },
+      {
+        "version": "0016_gps_continuity_alerts.sql",
+        "sha256": "7c98850921042e60723433a00d7e9c5dd45cde58b8477cad2b2b577ddba22af2"
+      },
+      {
+        "version": "0017_gps_continuity_evaluated_at.sql",
+        "sha256": "32a8c342fe5ce557fe98f28c36e3c8d10736c32f5dc892c58fb3c73602234b82"
+      },
+      {
+        "version": "0018_mdm_inventory.sql",
+        "sha256": "8f91a73a82f71074c699559980daa3102331fab13e3a602cc88b203608adca07"
+      },
+      {
+        "version": "0019_mdm_security.sql",
+        "sha256": "a0c44497328d580968bde960032ec256856bf8852531ff855497af37eada9ddc"
+      },
+      {
+        "version": "0020_gps_mixed_batch_receipt.sql",
+        "sha256": "f0df0ca28fd490ecf9c8b7dbdc9d667d13eb0f998c5fe5a19afba6b2e2cfa19e"
+      },
+      {
+        "version": "0021_gps_offline_policy_contract.sql",
+        "sha256": "fd499a8db77f30d2c89b9524c9d4b79b028af0bc07fa530f9cfd43da78c98559"
+      },
+      {
+        "version": "0022_mdm_web_oauth.sql",
+        "sha256": "935eb2ffb723a438bf292073497c0a41c23829790de5d3533645be9aa44d02ad"
+      },
+      {
+        "version": "0023_mdm_oauth_client.sql",
+        "sha256": "ec991513e907488543dc2442329a6f823a944bc6f10386318c7d8082607f88e9"
+      },
+      {
+        "version": "0024_client_geofences.sql",
+        "sha256": "5b2a1cdfc479cf63057fc1081b81d76133d4e0fbcf10308170d3514168a573be"
+      },
+      {
+        "version": "0025_route_catalog.sql",
+        "sha256": "8e53fb4beddafe36be9a192221f4c324be18b0317fce7f339730a604566b4a06"
+      },
+      {
+        "version": "0026_agents_assignments.sql",
+        "sha256": "02d793841115f23da07fc0d43a71729415b57369996dc728663b84d9b84ea115"
+      },
+      {
+        "version": "0027_visit_dwell_engine.sql",
+        "sha256": "ebc405d652b8e902e4031d49fb5ad8d1630d12a4d5b76be662840f7e9fc23898"
+      },
+      {
+        "version": "0028_agent_device_links.sql",
+        "sha256": "fec1d922f7c8e79a2cebab75153ac94467f5cfa683154ceb27b0f9a0679a5c80"
+      },
+      {
+        "version": "0029_geops_gps_identity.sql",
+        "sha256": "1f818a9362905b1ab27e8a4aab2aaa7a171335116132134c83a171a35906e5e3"
+      },
+      {
+        "version": "0030_gps_continuity_geops_owner.sql",
+        "sha256": "ee9f644c0026874fc6fac3ace7410bf44ba45b2d9672a4dc844c058fe6b614ba"
+      }
+    ],
+    "classification": "supervised_nonrollbackable_schema_upgrade"
+  },
+  "compatibility": {
+    "apiBeforeMigration": "B23_API_ONLY_WHILE_SCHEMA_23",
+    "apiDuringMigration": "STOPPED",
+    "apiAfterMigration": "SPEC03_API_SCHEMA_30_ONLY",
+    "webDuringMigration": "STOPPED",
+    "rollback": "NO_DATABASE_DOWNGRADE; RECOVER_FORWARD_TO_SCHEMA_30"
+  },
+  "artifactReferences": {
+    "api": null,
+    "web": null
+  },
+  "publication": {
+    "status": "PENDING",
+    "ciRun": null,
+    "publicationRun": null,
+    "signature": null
+  }
+}

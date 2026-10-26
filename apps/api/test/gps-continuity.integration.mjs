@@ -62,7 +62,7 @@ const check = (condition, label) => {
   checks++;
 };
 
-async function fixture(tenant, includeScheduled = true) {
+async function fixture(tenant, includeScheduled = true, withMdm = true) {
   const device = randomUUID(),
     binding = randomUUID(),
     installation = randomUUID();
@@ -74,14 +74,25 @@ async function fixture(tenant, includeScheduled = true) {
     "INSERT INTO geops_device(id,status,display_label) VALUES($1,'ACTIVE','Synthetic R4-A')",
     [device],
   );
+  if (withMdm) {
+    await pool.query(
+      `INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state)
+      VALUES($1,$2,'fake',$3,$4,'ACTIVE')`,
+      [binding, device, tenant, `fake-${device}`],
+    );
+  } else {
+    await pool.query(
+      'INSERT INTO geops_operating_tenant(tenant_id,established_by,audit_ref) VALUES($1,$2,$3)',
+      [tenant, admin, randomUUID()],
+    );
+    await pool.query(
+      "INSERT INTO geops_device_tenant(device_id,tenant_id,established_by,source) VALUES($1,$2,$3,'GEOPS_ENROLLMENT')",
+      [device, tenant, admin],
+    );
+  }
   await pool.query(
-    `INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state)
-    VALUES($1,$2,'fake',$3,$4,'ACTIVE')`,
-    [binding, device, tenant, `fake-${device}`],
-  );
-  await pool.query(
-    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at) VALUES($1,$2,$3)',
-    [installation, device, at(-10)],
+    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_binding_id,activation_tenant_id) VALUES($1,$2,$3,$4,$5)',
+    [installation, device, at(-10), withMdm ? binding : null, tenant],
   );
   await pool.query(
     "INSERT INTO gps_policy(id,name,state,draft_config,created_by,current_revision) VALUES($1,'Synthetic R4-A','ACTIVE','{}',$2,1)",
@@ -115,11 +126,11 @@ async function fixture(tenant, includeScheduled = true) {
     );
   await pool.query(
     `INSERT INTO gps_policy_delivery(capture_anchor_id,device_id,installation_id,
-    assignment_version,server_time,fetched_at,offline_not_after)
-    VALUES($1,$2,$3,1,$4,$4,$5)`,
-    [anchor, device, installation, at(0), at(60)],
+    assignment_version,server_time,fetched_at,offline_not_after,health_mdm_binding_id,health_tenant_id)
+    VALUES($1,$2,$3,1,$4,$4,$5,$6,$7)`,
+    [anchor, device, installation, at(0), at(60), withMdm ? binding : null, tenant],
   );
-  return { device, binding, installation, scheduled, anchor, tenant };
+  return { device, binding: withMdm ? binding : null, installation, scheduled, anchor, tenant };
 }
 
 async function health(fixture, minute, receivedMinute = minute) {
@@ -473,8 +484,8 @@ try {
     at(24),
   ]);
   await pool.query(
-    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at) VALUES($1,$2,$3)',
-    [replacementInstallation, a.device, at(24)],
+    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_binding_id,activation_tenant_id) VALUES($1,$2,$3,$4,$5)',
+    [replacementInstallation, a.device, at(24), replacementBinding, 'tenant-c'],
   );
   now = at(24);
   await monitor.tick();
@@ -543,6 +554,68 @@ try {
       fleetPages.every((item) => fleetIds.has(item.device_id)) &&
       new Set(fleetPages.map((item) => item.alert_id)).size === fleetPages.length,
     '25-device fleet pages remain tenant isolated and do not duplicate alerts',
+  );
+
+  const poco = await fixture('synthetic', true, false);
+  const pocoOpened = await monitor.tick();
+  const pocoAlert = await pool.query(
+    'SELECT tenant_id,mdm_binding_id FROM gps_continuity_alert WHERE device_id=$1 AND resolved_at IS NULL',
+    [poco.device],
+  );
+  check(
+    pocoOpened.opened >= 1 &&
+      pocoAlert.rows.length === 1 &&
+      pocoAlert.rows[0].tenant_id === poco.tenant &&
+      pocoAlert.rows[0].mdm_binding_id === null,
+    'GEOPS-owned device without MDM binding receives one continuity alert',
+  );
+  await monitor.tick();
+  check(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM gps_continuity_alert WHERE device_id=$1 AND resolved_at IS NULL',
+        [poco.device],
+      )
+    ).rows[0].n === 1,
+    'repeated monitor tick does not duplicate a null-binding alert',
+  );
+  check(
+    (await read(`?device_id=${poco.device}`)).statusCode === 404,
+    'GEOPS-owned device remains hidden without its tenant grant',
+  );
+  for (const table of ['gps_data_tenant_access', 'gps_health_tenant_access'])
+    await pool.query(
+      `INSERT INTO ${table}(admin_id,tenant_id,granted_by,reason)
+       VALUES($1,$2,$1,'Synthetic GEOPS continuity tenant grant')`,
+      [admin, poco.tenant],
+    );
+  check(
+    (await read(`?device_id=${poco.device}`)).json().items.length === 1,
+    'authorized admin can read the GEOPS-owned alert without coordinates',
+  );
+  await health(poco, 29);
+  now = at(31);
+  await monitor.tick();
+  check(
+    (
+      await pool.query(
+        'SELECT reason_code FROM gps_continuity_alert WHERE device_id=$1 AND resolved_at IS NULL',
+        [poco.device],
+      )
+    ).rows[0].reason_code === 'CAPTURE_STALE',
+    'null-binding health evidence changes continuity inference',
+  );
+  await position(poco, 31);
+  now = at(32);
+  await monitor.tick();
+  check(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM gps_continuity_alert WHERE device_id=$1 AND resolved_at IS NULL',
+        [poco.device],
+      )
+    ).rows[0].n === 0,
+    'null-binding position evidence resolves stale capture',
   );
 
   now = at(60);

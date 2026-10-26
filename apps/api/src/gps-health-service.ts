@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { appendAudit } from './audit/index.js';
+import { resolveGpsDeviceScope } from './gps-device-scope.js';
 import type { DevicePrincipal } from './device-identity/session.js';
 import { ApiError } from './errors.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
@@ -282,25 +283,8 @@ export class GpsHealthService {
     const db = await this.pool.connect();
     try {
       await db.query('BEGIN');
-      const device = await db.query<{ status: string }>(
-        'SELECT status FROM geops_device WHERE id=$1 FOR UPDATE',
-        [principal.deviceId],
-      );
-      if (device.rows[0]?.status !== 'ACTIVE')
-        throw new ApiError(403, 'device_inactive', 'Forbidden', true);
-      const binding = await db.query<{ id: string; customer_id: string }>(
-        "SELECT id,customer_id FROM mdm_binding WHERE geops_device_id=$1 AND state='ACTIVE' FOR SHARE",
-        [principal.deviceId],
-      );
-      const tenant = binding.rows[0];
-      if (binding.rows.length !== 1 || !tenant)
-        throw new ApiError(403, 'binding_inactive', 'Forbidden', true);
-      const installation = await db.query(
-        'SELECT 1 FROM gps_device_installation WHERE installation_id=$1 AND device_id=$2 AND activation_binding_id=$3 AND activation_tenant_id=$4 AND retired_at IS NULL FOR SHARE',
-        [batch.installation_id, principal.deviceId, tenant.id, tenant.customer_id],
-      );
-      if (!installation.rowCount)
-        throw new ApiError(403, 'installation_inactive', 'Forbidden', true);
+      const identity = await resolveGpsDeviceScope(db, principal.deviceId, batch.installation_id);
+      const tenant = { id: identity.bindingId, customer_id: identity.tenantId };
       const received = this.now();
       for (const event of batch.events) {
         const observed = Date.parse(event.observed_at);

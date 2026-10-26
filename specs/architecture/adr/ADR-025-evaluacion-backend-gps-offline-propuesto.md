@@ -17,3 +17,7 @@ Dashboard eventualmente consistente; necesita lag, retries y política de retenc
 ## Realización local Wave 4A
 
 Se implementó un job por asignación con `FOR UPDATE SKIP LOCKED`, lectura acotada de `position_event` y revisión append-only. El administrador puede encolar una asignación o fecha; un proceso separado reconcilia por conteo posiciones nuevas en modo sintético y drena la cola. Esta realización cumple el desacoplamiento del ACK y permite reproceso sintético tardío, pero **todavía no implementa** el outbox transaccional ni un programador operativo para datos reales. La regla versionada `dwell-pair-v1` está marcada `LAB_ONLY` y el worker la rechaza fuera de modo sintético. El vínculo agente–dispositivo es de laboratorio; Wave 4B debe resolver identidad física antes de integrar. El estado de esta ADR sigue como propuesta para operación real.
+
+## Realización local Wave 4B
+
+La cola ahora reconcilia `position_event` aceptados con vínculo operativo temporal, `captured_at`, sesión y snapshot; reintenta con backoff y permite procesamiento concurrente. La revisión 2 es `TECHNICAL_ONLY`, restringida a base sintética descartable. Se ensayó backend con binding MDM y con identidad GEOPS sin binding, manteniendo ACK y contrato v2/v3. El outbox, la calibración y la prueba física permanecen pendientes; el estado de propuesta operacional no cambia. Ver ADR-027 y el cierre de Wave 4B.

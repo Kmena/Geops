@@ -15,6 +15,7 @@ async function main() {
       throw new Error('Evaluation worker gate closed');
     const service = new VisitEvaluationService(pool);
     if (process.env.GEOPS_DATA_MODE === 'synthetic') await service.reconcileSynthetic(100);
+    await service.reconcileOperational(100);
     const result = await service.drain(100);
     process.stdout.write(`GEOPS visit evaluation jobs processed: ${result.length}\n`);
   } finally {

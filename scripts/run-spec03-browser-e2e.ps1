@@ -69,6 +69,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Visit schedule integration fixture failed.' }
   & node --import tsx apps/api/test/visit-evaluation.integration.mjs
   if ($LASTEXITCODE -ne 0) { throw 'Visit evaluation integration fixture failed.' }
+  & node --import tsx apps/api/test/agent-device-links.integration.mjs
+  if ($LASTEXITCODE -ne 0) { throw 'Agent-device and persisted-GPS integration fixture failed.' }
 
   $node = (Get-Command node).Source
   $apiProcess = Start-Process -FilePath $node -ArgumentList @('--import', 'tsx', 'apps/api/test/client-catalog-browser-server.mjs') -WorkingDirectory $root -Environment @{ DATABASE_URL = $databaseUrl; GEOPS_DATA_MODE = 'synthetic' } -WindowStyle Hidden -PassThru

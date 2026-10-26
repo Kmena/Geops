@@ -49,8 +49,19 @@
 
 **Gates de no regresión:** ejecutar `apps/api` test/contratos y tests GPS de integración con DB desechable; `apps/web` test/build; vector de contrato SPEC-02; pruebas Android existentes y campaña física cuando corresponda. El conjunto exacto se reconcilia con HEAD al implementar. No ejecutar contra staging ni producción como parte de este documento.
 
+## Ejecución Wave 4B local y protocolo físico
+
+`pwsh -NoProfile -File scripts/run-spec03-wave4b-integration.ps1` usa PostGIS descartable para Waves 1–4B (57, 76, 70, 40, 53 comprobaciones) y otra base para 0027→0029 con checksums/replay. `pwsh -NoProfile -File scripts/run-spec03-mdm-integration.ps1` ejercita 16 suites MDM/GPS, contratos v2/v3 y migraciones antiguas. `pwsh -NoProfile -File scripts/run-spec03-browser-e2e.ps1` cubre Chrome escritorio/móvil, Waves 1–3 y regresiones GPS. Completar `npm test`, build, typecheck y lint dirigido tras cada cambio final.
+
+Wave 4B prueba permisos/tenant, historia, exclusiones, concurrencia, idempotencia, cambio de agente, GPS MDM y sin MDM, ACK, `captured_at`, reproceso, worker y reintentos. El [protocolo físico](wave4b-physical-protocol.md) requiere autorización y evidencia correlacionada de ambos dispositivos.
+
 ## Ejecución Wave 4A local
 
 `apps/api/test/visit-dwell-engine.test.ts` cubre clasificación interior/exterior/borde, precisión, entradas acumuladas, huecos, muestra aislada, replay desordenado, jornada y medianoche, barreras de identidad/sesión/arranque/ancla, velocidad, unión física y parámetros. `apps/api/test/visit-evaluation.integration.mjs` corre después de fixtures Waves 1–3 en PostGIS `geops_verify_*`: migración/checksum, permisos, idempotencia HTTP, falta de identidad, vínculo temporal excluyente, posiciones tardías y fuera de orden, acumulación, historial inmutable, ausencia de coordenadas en evidencia y auditoría. El runner `scripts/run-spec03-browser-e2e.ps1` crea y destruye contenedor sin volumen, además de repetir Chrome 1280/390 px de Waves 1–3 y servicios GPS seleccionados.
 
 Pendiente de pruebas físicas y de política: trazas reales contra umbrales calibrados, retención y purga de derivados, aceptación MDM-free, reinicios/offline en dispositivo, disparo automático desde ingesta, carga de 25 dispositivos y 10 000 permutaciones. Ninguna prueba sintética cierra estos puntos.
+## Ejecución Wave 5 local
+
+`pwsh -NoProfile -File scripts/run-spec03-wave5-integration.ps1` crea PostGIS descartable y ejecuta Waves 1–4B, más `compliance-dashboard.integration.mjs`: 72 comprobaciones de estados, denominadores, grupos, filtros, paginación, tenant/permisos, auditoría, GPS ACK/backlog, evidencia, ausencia, privacidad y carga sintética 25 agentes × 31 días más 10 000 posiciones históricas; compara p95 de 1/7/31 días con objetivo local <1500 ms. Repite actualización 0027→0029, checksums y replay; no hay 0030.
+
+`pwsh -NoProfile -File scripts/run-spec03-wave5-browser-e2e.ps1` ejecuta Chrome 1280/390 px: Waves 1–3 (15/14/20), dashboard Wave 5 (21) y política/health/operaciones GPS (48/37/58). Prueba mapa, filtros, drilldown, historial/evidencia, estado vacío, error API, recarga y móvil. `pwsh -NoProfile -File scripts/run-spec03-mdm-integration.ps1` mantiene 16 suites MDM/GPS. Completar con `npm test`, `npm run build`, `npm run typecheck`, Biome dirigido y `git diff --check`. Todas las bases `geops_verify_*` y los contenedores se destruyen al terminar. La carga local no sustituye validación física, producción ni calibración de umbrales.

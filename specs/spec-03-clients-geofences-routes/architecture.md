@@ -38,6 +38,10 @@ La clasificación espacial usa PostGIS `ST_Distance(geography,geography)`; `ST_D
 
 ## Tiempo y concurrencia
 
+### Integración Wave 4B local
+
+`GpsDeviceScope` resuelve una instalación autenticada a un tenant. Con binding MDM activo conserva la ruta previa; sin binding exige `geops_device_tenant` inmutable e instalación GEOPS autorizada. Configuración, eventos y health comparten esta resolución. ACK y evaluador están desacoplados: un worker acotado reconcilia posiciones aceptadas, encola asignaciones y procesa con `SKIP LOCKED` y reintentos. El motor usa `agent_device_link` por `captured_at`, sesión efectiva/programada y snapshot de asignación. `TECHNICAL_ONLY` protege umbrales sintéticos; `LAB_ONLY` Wave 4A permanece.
+
 ### Implementación local Wave 4A
 
 `dwell-pair-v1` revisión 1 implementa los pares interiores consecutivos descritos arriba. Los parámetros de `visit_algorithm_revision` son **solo de laboratorio**: separación y crédito máximo de 300 s, guardia 0 s, precisión máxima 25 m, tolerancia de borde 0 m y velocidad máxima 50 m/s. El worker rechaza esta revisión fuera de `GEOPS_DATA_MODE=synthetic`. `ST_Distance` sobre `geography` calcula metros desde `assignment_visit`; la precisión completa se suma a la distancia al acreditar interior. Se trunca a segundos enteros para no acreditar fracciones no persistibles. Una muestra exterior o incierta, un cambio de vínculo, sesión, ancla o arranque, un evento de interrupción, velocidad imposible o hueco superior al máximo rompe el par. Una muestra sola acredita cero.
@@ -51,3 +55,6 @@ Cada asignación guarda zona IANA, fecha local y límites UTC ya resueltos. Una 
 ## Seguridad y observabilidad
 
 La API de administración reutiliza sesión, Origin/CSRF, capacidades y concesión tenant; se proponen `visit.catalog.read/write`, `visit.schedule.read/write`, `visit.result.read` y `visit.evidence.read` con concesión explícita. Las coordenadas solo se muestran para evidencia autorizada con motivo, paginación y auditoría. Métricas: backlog, antigüedad de evidencia, lag de evaluación, recalculaciones, muestras ambiguas, huecos, decisiones por regla y discrepancias de retención, sin etiquetas de coordenadas ni identificadores personales de alta cardinalidad.
+# Wave 5 — lectura administrativa de cumplimiento
+
+La API `/v1/admin/compliance` proyecta snapshots de asignaciones/paradas y la última evaluación persistida; no ejecuta `evaluateDwell` en la solicitud. Agrega KPI y grupos sobre la ventana acotada; lista y mapa paginan las mismas visitas. La identidad del agente es `agent`/`route_assignment`; las ubicaciones se atribuyen únicamente mediante `agent_device_link` válido al `captured_at` dentro de la jornada. Permisos independientes protegen resultados, vínculos, ACK/health y coordenadas. `gps_sync_status` describe sincronización observada, `visit_evaluation_job` describe procesamiento; no se equiparan. La revisión histórica enlaza causa auditable cuando fue registrada. Consultar [ADR-028](../architecture/adr/ADR-028-dashboard-cumplimiento-provisional-propuesto.md) y [cierre Wave 5](wave5-closure.md).

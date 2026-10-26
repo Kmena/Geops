@@ -594,7 +594,9 @@ try {
     fiveIds.push(await addFixtureDevice(`Android-Prueba-0${number}`));
   const activeInstallationId = randomUUID();
   await pool.query(
-    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at) VALUES($1,$2,now())',
+    `INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_binding_id,activation_tenant_id)
+     SELECT $1,$2,now(),b.id,b.customer_id FROM mdm_binding b
+     WHERE b.geops_device_id=$2 AND b.state='ACTIVE'`,
     [activeInstallationId, fiveIds[0]],
   );
   const inventoryResponse = await admin(operator, 'GET', '/v1/admin/devices');

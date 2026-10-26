@@ -54,6 +54,19 @@
 
 **Gate Wave 3:** `WAVE3_PLANNING_TECHNICAL_PASS` con 70/70 comprobaciones PostGIS y 20/20 Chrome, más regresión Wave 1 (57+15) y Wave 2 (76+14). `AGENT_DEVICE_INTEGRATION_PENDING`; `DEPLOYED = NO`. Ver [wave3-closure.md](wave3-closure.md).
 
+## Evidencia Wave 4B — identidad e ingestión local
+
+| Criterio | Implementación | Verificación | Estado |
+| --- | --- | --- | --- |
+| Identidad temporal | `agent_device_link`, GiST, historial, auditoría | 53 comprobaciones Wave 4B | PASS sintético |
+| Atribución GPS | `captured_at`, tenant GEOPS, instalación y sesión | ACK MDM/sin MDM, `position_event`, reproceso | PASS sintético |
+| Permanencia/snapshot | Motor Wave 4A, `assignment_visit` | 40 Wave 4A + Wave 4B | PASS sintético |
+| Migraciones | 0028–0029 aditivas | 0027→0029, checksums, 16 scripts MDM/GPS | PASS |
+| Física/calibración | Protocolo POCO/Huawei | Sin dispositivos ni autorización | PENDING |
+| Retención derivada | Riesgo documentado | Política no aprobada | PARTIAL |
+
+El estado final y los 17 controles están en [wave4b-closure.md](wave4b-closure.md). Pruebas sintéticas no constituyen validación operacional.
+
 ## Evidencia Wave 4A — motor local
 
 | Requisito | Implementación | Evidencia | Estado |
@@ -66,3 +79,20 @@
 | Activación automática / física | No conectada a ingestión; sin fuente de identidad real ni umbrales aprobados | Pendiente de Wave 4B, retención y calibración | PENDING |
 
 **Gate Wave 4A:** `WAVE4A_ENGINE_TECHNICAL_PASS` local con 12/12 unitarios y 40/40 integración sintética PostGIS; Waves 1–3 y GPS conservan PASS. `WAVE4B_PHYSICAL_INTEGRATION_PENDING`; `DEPLOYED = NO`. Ver [wave4a-closure.md](wave4a-closure.md) para conteos y límites.
+## Matriz de verificación Wave 5 local
+
+| Criterio | Implementación | Evidencia local | Estado |
+| --- | --- | --- | --- |
+| KPI, denominador y canceladas | `ComplianceDashboardService.summarizeVisits` | 72 comprobaciones Wave 5; opcionales, canceladas, cero denominador | PASS sintético |
+| Filtros y paginación | `GET /v1/admin/compliance`, URL Web | API combinada y Chrome 21 | PASS sintético |
+| Mapa/geozonas | `ComplianceMap`, snapshot `assignment_visit` | Chrome escritorio/móvil, círculo/leyenda/selección | PASS sintético |
+| Rutas/agentes/clientes | Agregados por asignación/agente/cliente, drilldown | API/PostGIS y Chrome | PASS sintético |
+| Atribución y ubicaciones | `agent_device_link` por `captured_at`; GPS solo con permisos | Wave 4B 53, Wave 5 permisos y enlace temporal | PASS sintético |
+| Estado provisional/sync | ACK/backlog de `gps_sync_status` separado del job | Casos UNKNOWN/BACKLOG/ACK/STALE; ausencia nunca `NOT_VISITED` | PASS sintético |
+| Evidencia/historia | Historial append-only, auditoría de causa nueva, referencias GPS y disponibilidad | Wave 5 API + Chrome; motivo previo nullable | PASS con límite histórico |
+| Tenant y privacidad | `visit.result.read`, `visit.device.read`, `gps.session.read`, `gps.location.read`, `visit.evidence.read` | 403 y concesiones parciales probadas | PASS sintético |
+| Rendimiento | Ventana 31 días, límite 10 000, índices existentes | 25 agentes × 31 días, 10 000 posiciones históricas; p95 90 ms en 1574 visitas | PASS local |
+| Migraciones/regresión | Sin migración nueva; 0027→0029 y checksums | 7 scripts PostGIS, 16 MDM/GPS, npm test/build/typecheck | PASS local |
+| Física, retención, cierre final | Fuera de Wave 5; protocolo Wave 4B | Sin dispositivos reales ni política aprobada | PENDING operacional |
+
+Ver [wave5-closure.md](wave5-closure.md) para conteos, limitaciones y estado final.

@@ -46,7 +46,7 @@ try {
     if ($index -ge 7) {
       $env:GEOPS_MIGRATION_TARGET = $database
       $env:GEOPS_CONFIRM_MIGRATION_TARGET = $database
-      & node --import tsx apps/api/src/db/migrate.ts
+      & node --import tsx scripts/deploy/spec03-fresh-migration.mjs
       if ($LASTEXITCODE -ne 0) { throw "Could not initialize $database for $($tests[$index])." }
     }
     Write-Output "RUN $($tests[$index])"

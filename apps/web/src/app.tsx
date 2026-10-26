@@ -26,6 +26,7 @@ import { mdmInventoryAvailability } from './MdmInventoryAvailability.js';
 import { ClientCatalog } from './ClientCatalog.js';
 import { RouteCatalog } from './RouteCatalog.js';
 import { VisitSchedule } from './VisitSchedule.js';
+import { ComplianceDashboard } from './ComplianceDashboard.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -205,6 +206,12 @@ function Shell({ children }: { children: React.ReactNode }) {
               to="/schedule"
             >
               Agentes y calendario
+            </Link>
+            <Link
+              aria-current={location.pathname === '/compliance' ? 'page' : undefined}
+              to="/compliance"
+            >
+              Cumplimiento de visitas
             </Link>
             {canManageUsers && (
               <Link
@@ -990,6 +997,16 @@ function AppRoutes() {
           <Protected>
             <Shell>
               <VisitSchedule />
+            </Shell>
+          </Protected>
+        }
+      />
+      <Route
+        path="/compliance"
+        element={
+          <Protected>
+            <Shell>
+              <ComplianceDashboard />
             </Shell>
           </Protected>
         }

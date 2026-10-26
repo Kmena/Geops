@@ -43,6 +43,10 @@ import { registerVisitScheduleRoutes } from './visit-schedule-routes.js';
 import type { VisitScheduleService } from './visit-schedule.js';
 import { registerVisitEvaluationRoutes } from './visit-evaluation-routes.js';
 import type { VisitEvaluationService } from './visit-evaluation.js';
+import { registerAgentDeviceLinkRoutes } from './agent-device-link-routes.js';
+import type { AgentDeviceLinkService } from './agent-device-links.js';
+import { registerComplianceDashboardRoutes } from './compliance-dashboard-routes.js';
+import type { ComplianceDashboardService } from './compliance-dashboard.js';
 
 export interface AppOptions {
   readinessProbe: ReadinessProbe;
@@ -74,6 +78,8 @@ export interface AppOptions {
   routeCatalog?: RouteCatalogService;
   visitSchedule?: VisitScheduleService;
   visitEvaluation?: VisitEvaluationService;
+  agentDeviceLinks?: AgentDeviceLinkService;
+  complianceDashboard?: ComplianceDashboardService;
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
@@ -130,6 +136,10 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerVisitScheduleRoutes(app, options.adminAuth, options.visitSchedule);
     if (options.visitEvaluation)
       registerVisitEvaluationRoutes(app, options.adminAuth, options.visitEvaluation);
+    if (options.agentDeviceLinks)
+      registerAgentDeviceLinkRoutes(app, options.adminAuth, options.agentDeviceLinks);
+    if (options.complianceDashboard)
+      registerComplianceDashboardRoutes(app, options.adminAuth, options.complianceDashboard);
     if (options.devices) {
       registerInventoryRoutes(
         app,

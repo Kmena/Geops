@@ -22,7 +22,7 @@ const pool = new pg.Pool({ connectionString: url, max: 8 });
 try {
   const applied = await applyMigrations(pool);
   assert.ok(applied.includes('0023_mdm_oauth_client.sql'));
-  assert.equal(applied.at(-1), '0027_visit_dwell_engine.sql');
+  assert.equal(applied.at(-1), '0030_gps_continuity_geops_owner.sql');
   assert.deepEqual(await applyMigrations(pool), [], 'migration replay is idempotent');
   const clock = { now: new Date('2026-10-21T12:00:00Z') };
   const settings = {

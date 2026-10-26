@@ -73,7 +73,7 @@ async (page) => {
   await page.getByText(/Ventana materializada: 0 creadas, 1 canceladas/).waitFor();
   await page.locator('.schedule-event.cancelled').first().waitFor();
   check(await page.locator('.schedule-event.cancelled').count() >= 1, 'exception cancels occurrence');
-  await page.locator('.schedule-event').first().click();
+  await page.locator('.schedule-event:not(.cancelled)').first().click();
   await page.getByRole('heading', { name: 'Snapshot de asignación' }).waitFor();
   check((await page.locator('#snapshot-title').locator('..').textContent()).includes('geozona circular'), 'historical snapshot visible');
   await page.getByRole('button', { name: 'Cancelar asignación' }).click();

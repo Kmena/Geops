@@ -23,6 +23,8 @@ import { ClientCatalogService } from './client-catalog.js';
 import { RouteCatalogService } from './route-catalog.js';
 import { VisitScheduleService } from './visit-schedule.js';
 import { VisitEvaluationService } from './visit-evaluation.js';
+import { AgentDeviceLinkService } from './agent-device-links.js';
+import { ComplianceDashboardService } from './compliance-dashboard.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -99,6 +101,8 @@ async function main(): Promise<void> {
     routeCatalog: new RouteCatalogService(pool),
     visitSchedule: new VisitScheduleService(pool),
     visitEvaluation: new VisitEvaluationService(pool),
+    agentDeviceLinks: new AgentDeviceLinkService(pool),
+    complianceDashboard: new ComplianceDashboardService(pool),
     devices,
     enrollment: new EnrollmentService(pool, devices, config.invitationHmacKey),
     deviceSessions: new DeviceSessionService(pool),

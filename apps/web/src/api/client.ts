@@ -217,6 +217,171 @@ export interface ScheduleAssignment {
   snapshot_hash: string;
 }
 
+export interface ComplianceVisit {
+  assignment_id: string;
+  stop_id: string;
+  agent_id: string;
+  agent_code: string;
+  agent_name: string;
+  route_id: string;
+  route_code: string;
+  route_name: string;
+  route_revision: number;
+  local_date: string;
+  starts_at: string;
+  ends_at: string;
+  time_zone: string;
+  client_id: string;
+  client_code: string;
+  client_name: string;
+  site_id: string;
+  site_name: string;
+  geofence_revision: number;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  required: boolean;
+  required_s: number;
+  credited_s: number;
+  status: string;
+  sync_state: string;
+  processing_state: string;
+  last_ack_at: string | null;
+  backlog_reported: number | null;
+  provisional: boolean;
+  evaluation_id: string | null;
+  evaluation_no: number | null;
+  evaluated_at: string | null;
+  completed_at: string | null;
+  first_qualified_at: string | null;
+  last_qualified_at: string | null;
+  algorithm_id: string | null;
+  algorithm_revision: number | null;
+  algorithm_scope: string | null;
+  source_watermark: string | null;
+  job_requested_at: string | null;
+  job_finished_at: string | null;
+  job_error_code: string | null;
+  device_id: string | null;
+  snapshot_hash: string;
+}
+
+export interface CompliancePage {
+  indicators: {
+    agents_with_routes: number;
+    scheduled_routes: number;
+    scheduled_visits: number;
+    required_visits: number;
+    completed_visits: number;
+    in_progress_visits: number;
+    pending_visits: number;
+    insufficient_evidence_visits: number;
+    unattributable_visits: number;
+    completed_routes: number;
+    accredited_compliance_percent: number | null;
+    compliance_denominator: number;
+    provisional: boolean;
+  };
+  routes: Array<{
+    assignment_id: string;
+    route_id: string;
+    route_name: string;
+    route_revision: number;
+    agent_name: string;
+    local_date: string;
+    visits: number;
+    required_visits: number;
+    completed_required_visits: number;
+    credited_s: number;
+    status: string;
+    provisional: boolean;
+  }>;
+  agents: Array<{
+    id: string;
+    name: string;
+    routes: number;
+    visits: number;
+    required_visits: number;
+    completed_required_visits: number;
+    credited_s: number;
+    pending_visits: number;
+    device_ids: string[];
+    provisional: boolean;
+  }>;
+  clients: Array<{
+    id: string;
+    name: string;
+    routes: number;
+    visits: number;
+    required_visits: number;
+    completed_required_visits: number;
+    credited_s: number;
+    pending_visits: number;
+    device_ids: string[];
+    provisional: boolean;
+  }>;
+  items: ComplianceVisit[];
+  locations: ComplianceDeviceLocation[];
+  location_access: boolean;
+  total_visits: number;
+  next_offset: number | null;
+  reconciliation_policy: string;
+}
+
+export interface ComplianceDeviceLocation {
+  agent_id: string;
+  device_id: string;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy_m: number | null;
+  captured_at: string | null;
+  received_at: string | null;
+  last_health_received_at: string | null;
+  communication_state: 'RECENT_REPORT' | 'NO_RECENT_REPORT' | 'NETWORK_UNAVAILABLE_REPORTED';
+}
+
+export interface VisitEvaluationHistory {
+  id: string;
+  evaluation_no: number;
+  status: string;
+  credited_s: number;
+  required_s: number;
+  source_watermark: string | null;
+  supersedes_id: string | null;
+  evaluated_at: string;
+  algorithm_id: string;
+  algorithm_revision: number;
+  first_qualified_at: string | null;
+  last_qualified_at: string | null;
+  completed_at: string | null;
+  sample_count: number;
+  uncertain_count: number;
+  gap_count: number;
+  trigger_reason: string | null;
+}
+
+export interface VisitEvidenceInterval {
+  interval_no: number;
+  device_id: string;
+  session_id: string;
+  event_id_a: string;
+  event_id_b: string;
+  from_at: string;
+  to_at: string;
+  observed_s: number;
+  credited_s: number;
+  event_a_captured_at: string | null;
+  event_b_captured_at: string | null;
+  event_a_received_at: string | null;
+  event_b_received_at: string | null;
+  event_a_accuracy_m: number | null;
+  event_b_accuracy_m: number | null;
+  event_a_quality_state: string | null;
+  event_b_quality_state: string | null;
+  event_a_available: boolean;
+  event_b_available: boolean;
+}
+
 export interface ScheduleRule {
   id: string;
   agent_id: string;
@@ -316,6 +481,17 @@ const routeWrite = <T>(
   });
 
 export const api = {
+  compliance: (query: Record<string, string>) =>
+    read<CompliancePage>(`/v1/admin/compliance?${new URLSearchParams(query).toString()}`),
+  visitHistory: (assignmentId: string, stopId: string) =>
+    read<{ items: VisitEvaluationHistory[] }>(
+      `/v1/admin/assignments/${assignmentId}/visits/${stopId}/evaluations`,
+    ),
+  visitEvidence: (assignmentId: string, stopId: string, evaluationId: string, reason: string) =>
+    read<{ evaluation_id: string; items: VisitEvidenceInterval[]; coordinates_included: boolean }>(
+      `/v1/admin/assignments/${assignmentId}/visits/${stopId}/evaluations/${evaluationId}/evidence`,
+      { headers: { 'x-geops-access-reason': reason } },
+    ),
   me: () => read<AdminProfile>('/v1/admin/auth/me'),
   login: (email: string, password: string) =>
     read<{ admin_id: string; csrf_token: string; expires_at: string }>('/v1/admin/auth/sessions', {

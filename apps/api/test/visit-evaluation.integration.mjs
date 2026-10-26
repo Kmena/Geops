@@ -171,8 +171,8 @@ try {
     [binding, device, assignment.tenant_id, `wave4a-${device}`],
   );
   await pool.query(
-    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at) VALUES($1,$2,$3)',
-    [installation, device, new Date(start.getTime() - 60_000)],
+    'INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_binding_id,activation_tenant_id) VALUES($1,$2,$3,$4,$5)',
+    [installation, device, new Date(start.getTime() - 60_000), binding, assignment.tenant_id],
   );
   await pool.query(
     "INSERT INTO gps_policy(id,name,state,current_revision,draft_config,created_by) VALUES($1,'Synthetic Wave 4A','ACTIVE',1,'{}',$2)",
@@ -184,8 +184,16 @@ try {
     [policy, new Date(start.getTime() - 86_400_000), new Date(end.getTime() + 86_400_000), owner],
   );
   await pool.query(
-    'INSERT INTO gps_policy_delivery(capture_anchor_id,device_id,installation_id,assignment_version,server_time,offline_not_after) VALUES($1,$2,$3,1,$4,$5)',
-    [anchor, device, installation, start, new Date(start.getTime() + 12 * 3600_000)],
+    'INSERT INTO gps_policy_delivery(capture_anchor_id,device_id,installation_id,assignment_version,server_time,offline_not_after,health_mdm_binding_id,health_tenant_id) VALUES($1,$2,$3,1,$4,$5,$6,$7)',
+    [
+      anchor,
+      device,
+      installation,
+      start,
+      new Date(start.getTime() + 12 * 3600_000),
+      binding,
+      assignment.tenant_id,
+    ],
   );
   await pool.query(
     "INSERT INTO gps_scheduled_session(id,device_id,policy_id,revision,assignment_version,local_date,start_at,end_at,state) VALUES($1,$2,$3,1,1,$4,$5,$6,'SCHEDULED')",

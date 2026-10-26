@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { appendAudit } from './audit/index.js';
+import { resolveGpsDeviceScope } from './gps-device-scope.js';
 import { exactBody } from './device-identity/raw-body.js';
 import type { DevicePrincipal, DeviceSessionService } from './device-identity/session.js';
 import { ApiError } from './errors.js';
@@ -48,22 +49,12 @@ export class GpsDeviceConfigService {
     const db = await this.pool.connect();
     try {
       await db.query('BEGIN');
-      const identity = await db.query<{
-        installation_id: string;
-        binding_id: string;
-        tenant_id: string;
-      }>(
-        `SELECT i.installation_id,b.id AS binding_id,b.customer_id AS tenant_id
-         FROM geops_device d
-         JOIN gps_device_installation i ON i.device_id=d.id AND i.retired_at IS NULL
-         JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
-           AND i.activation_binding_id=b.id AND i.activation_tenant_id=b.customer_id
-         WHERE d.id=$1 AND d.status='ACTIVE' FOR SHARE OF d,i,b`,
-        [principal.deviceId],
-      );
-      const holder = identity.rows[0];
-      if (identity.rows.length !== 1 || !holder)
-        throw new ApiError(403, 'gps_installation_inactive', 'Forbidden', true);
+      const identity = await resolveGpsDeviceScope(db, principal.deviceId);
+      const holder = {
+        installation_id: identity.installationId,
+        binding_id: identity.bindingId,
+        tenant_id: identity.tenantId,
+      };
       const state = await db.query<{ assignment_version: string }>(
         'SELECT assignment_version FROM gps_device_assignment_state WHERE device_id=$1 FOR SHARE',
         [principal.deviceId],

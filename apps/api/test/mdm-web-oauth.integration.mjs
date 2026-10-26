@@ -23,7 +23,7 @@ const pool = new pg.Pool({ connectionString: url, max: 8 });
 try {
   const applied = await applyMigrations(pool);
   assert.ok(applied.includes('0023_mdm_oauth_client.sql'));
-  assert.equal(applied.at(-1), '0027_visit_dwell_engine.sql');
+  assert.equal(applied.at(-1), '0030_gps_continuity_geops_owner.sql');
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
     csrfKey: Buffer.alloc(32, 12),
@@ -36,20 +36,31 @@ try {
   );
   const installerStore = new MdmOAuthClientStore(pool, Buffer.alloc(32, 21), 'com');
   await installerStore.provisionInitialFromInstaller(
-    adminId, randomUUID(), 'synthetic-installed-id', 'synthetic-installed-secret',
+    adminId,
+    randomUUID(),
+    'synthetic-installed-id',
+    'synthetic-installed-secret',
   );
   assert.deepEqual(await installerStore.status(), {
-    configured: true, source: 'admin', region: 'com',
+    configured: true,
+    source: 'admin',
+    region: 'com',
   });
   await assert.rejects(
     installerStore.provisionInitialFromInstaller(
-      adminId, randomUUID(), 'replacement-id', 'replacement-secret',
+      adminId,
+      randomUUID(),
+      'replacement-id',
+      'replacement-secret',
     ),
     { code: 'mdm_oauth_client_already_configured' },
   );
   await assert.rejects(
     installerStore.provisionInitialFromInstaller(
-      randomUUID(), randomUUID(), 'unauthorized-id', 'unauthorized-secret',
+      randomUUID(),
+      randomUUID(),
+      'unauthorized-id',
+      'unauthorized-secret',
     ),
     { code: 'mdm_oauth_operator_unavailable' },
   );
@@ -71,16 +82,22 @@ try {
     '192.0.2.10',
     randomUUID(),
   );
-  const clientStore = new MdmOAuthClientStore(pool, Buffer.alloc(32, 21), 'com', undefined,
-    'http://localhost:3501');
+  const clientStore = new MdmOAuthClientStore(
+    pool,
+    Buffer.alloc(32, 21),
+    'com',
+    undefined,
+    'http://localhost:3501',
+  );
   assert.deepEqual(await clientStore.status(), {
-    configured: false, source: 'none', region: 'com',
+    configured: false,
+    source: 'none',
+    region: 'com',
   });
   await clientStore.save(adminId, randomUUID(), 'synthetic-config-id', 'synthetic-config-secret');
-  await assert.rejects(
-    clientStore.save(adminId, randomUUID(), 'too-fast-id', 'too-fast-secret'),
-    { code: 'mdm_oauth_config_rate_limited' },
-  );
+  await assert.rejects(clientStore.save(adminId, randomUUID(), 'too-fast-id', 'too-fast-secret'), {
+    code: 'mdm_oauth_config_rate_limited',
+  });
   await assert.rejects(
     clientStore.save(randomUUID(), randomUUID(), 'unauthorized-id', 'unauthorized-secret'),
     { code: 'mdm_oauth_config_forbidden' },
@@ -93,7 +110,9 @@ try {
   const reloadedStore = new MdmOAuthClientStore(pool, Buffer.alloc(32, 21), 'com');
   assert.equal((await reloadedStore.load()).clientId, 'synthetic-config-id');
   assert.deepEqual(await reloadedStore.status(), {
-    configured: true, source: 'admin', region: 'com',
+    configured: true,
+    source: 'admin',
+    region: 'com',
   });
   await assert.rejects(
     reloadedStore.save(adminId, randomUUID(), 'unexpected-id', 'unexpected-secret', true),
@@ -153,9 +172,14 @@ try {
   };
   const configured = await reloadedStore.load();
   const configuredOAuth = new MdmWebOAuth(pool, {
-    region: 'com', clientId: configured.clientId, clientSecret: configured.clientSecret,
-    clientGeneration: configured.generation, clientStore: reloadedStore,
-    webOrigin: 'http://localhost:3501', grantKey: Buffer.alloc(32, 21), fetchImpl: mockFetch,
+    region: 'com',
+    clientId: configured.clientId,
+    clientSecret: configured.clientSecret,
+    clientGeneration: configured.generation,
+    clientStore: reloadedStore,
+    webOrigin: 'http://localhost:3501',
+    grantKey: Buffer.alloc(32, 21),
+    fetchImpl: mockFetch,
   });
   await pool.query(
     "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='mdm.oauth.configure'",
@@ -176,9 +200,14 @@ try {
   );
   await pool.query('DELETE FROM mdm_oauth_pending');
   const staleOAuth = new MdmWebOAuth(pool, {
-    region: 'com', clientId: 'synthetic-config-id', clientSecret: 'synthetic-config-secret',
-    clientGeneration: oldGeneration, clientStore: reloadedStore,
-    webOrigin: 'http://localhost:3501', grantKey: Buffer.alloc(32, 21), fetchImpl: mockFetch,
+    region: 'com',
+    clientId: 'synthetic-config-id',
+    clientSecret: 'synthetic-config-secret',
+    clientGeneration: oldGeneration,
+    clientStore: reloadedStore,
+    webOrigin: 'http://localhost:3501',
+    grantKey: Buffer.alloc(32, 21),
+    fetchImpl: mockFetch,
   });
   await assert.rejects(staleOAuth.start(adminId, session.sessionId), {
     code: 'mdm_oauth_config_changed',

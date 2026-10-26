@@ -1,6 +1,7 @@
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { appendAudit } from './audit/index.js';
+import { resolveGpsDeviceScope } from './gps-device-scope.js';
 import type { DevicePrincipal } from './device-identity/session.js';
 import { ApiError } from './errors.js';
 import {
@@ -30,7 +31,7 @@ function conflict(code = 'event_conflict'): never {
 }
 
 interface Scope {
-  bindingId: string;
+  bindingId: string | null;
   tenantId: string;
   installationId: string;
 }
@@ -62,7 +63,7 @@ interface Effective {
   start_boot_id: string;
   start_anchor_id: string;
   tenant_id: string;
-  mdm_binding_id: string;
+  mdm_binding_id: string | null;
   installation_id: string;
 }
 interface Receipt {
@@ -117,25 +118,7 @@ export class GpsEventService {
     principal: DevicePrincipal,
     installationId: string,
   ): Promise<Scope> {
-    const device = await db.query<{ status: string }>(
-      'SELECT status FROM geops_device WHERE id=$1 FOR UPDATE',
-      [principal.deviceId],
-    );
-    if (device.rows[0]?.status !== 'ACTIVE')
-      throw new ApiError(403, 'device_inactive', 'Forbidden', true);
-    const binding = await db.query<{ id: string; customer_id: string }>(
-      "SELECT id,customer_id FROM mdm_binding WHERE geops_device_id=$1 AND state='ACTIVE' FOR SHARE",
-      [principal.deviceId],
-    );
-    const selected = binding.rows[0];
-    if (binding.rows.length !== 1 || !selected)
-      throw new ApiError(403, 'binding_inactive', 'Forbidden', true);
-    const install = await db.query(
-      'SELECT 1 FROM gps_device_installation WHERE device_id=$1 AND installation_id=$2 AND activation_binding_id=$3 AND activation_tenant_id=$4 AND retired_at IS NULL FOR SHARE',
-      [principal.deviceId, installationId, selected.id, selected.customer_id],
-    );
-    if (!install.rowCount) throw new ApiError(403, 'installation_inactive', 'Forbidden', true);
-    return { bindingId: selected.id, tenantId: selected.customer_id, installationId };
+    return resolveGpsDeviceScope(db, principal.deviceId, installationId);
   }
 
   private async anchor(
@@ -272,8 +255,8 @@ export class GpsEventService {
          AND e.effective_range @> $5::timestamptz LIMIT 2`,
       [deviceId, anchor.assignment_version, anchor.policy_id, anchor.policy_revision, at],
     );
-    if (assignment.rows.length !== 1) return null;
-    const row = assignment.rows[0]!;
+    const row = assignment.rows[0];
+    if (assignment.rows.length !== 1 || !row) return null;
     const time = Date.parse(at);
     const lower = Math.max(
       row.lower_at.getTime(),
@@ -309,8 +292,8 @@ export class GpsEventService {
     const windows = windowsForRange(spec, new Date(lower), new Date(upper)).filter(
       (window) => Date.parse(window.start_at) <= time && time < Date.parse(window.end_at),
     );
-    if (windows.length !== 1) return null;
-    const window = windows[0]!;
+    const window = windows[0];
+    if (windows.length !== 1 || !window) return null;
     await db.query(
       `INSERT INTO gps_scheduled_session(id,device_id,policy_id,revision,assignment_version,
        local_date,start_at,end_at,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'SCHEDULED')
@@ -1221,6 +1204,8 @@ export class GpsEventService {
     const visible = await this.pool.query(
       `SELECT 1 FROM mdm_binding WHERE geops_device_id=$1 AND state='ACTIVE'
        AND customer_id=ANY($2::text[]) UNION
+       SELECT 1 FROM geops_device_tenant WHERE device_id=$1
+         AND tenant_id=ANY($2::text[]) UNION
        SELECT 1 FROM gps_effective_session WHERE device_id=$1 AND tenant_id=ANY($2::text[]) LIMIT 1`,
       [deviceId, tenantIds],
     );
@@ -1264,7 +1249,9 @@ export class GpsEventService {
        WHERE s.device_id=$1 AND
          (e.id IS NOT NULL OR EXISTS(SELECT 1 FROM mdm_binding b
            WHERE b.geops_device_id=s.device_id AND b.state='ACTIVE'
-             AND b.customer_id=ANY($2::text[])))
+             AND b.customer_id=ANY($2::text[]))
+           OR EXISTS(SELECT 1 FROM geops_device_tenant t
+             WHERE t.device_id=s.device_id AND t.tenant_id=ANY($2::text[])))
          AND ($3::timestamptz IS NULL OR
            (s.start_at,coalesce(e.id,s.id))<($3::timestamptz,$4::uuid))
        ORDER BY s.start_at DESC,coalesce(e.id,s.id) DESC LIMIT $5`,
@@ -1336,6 +1323,8 @@ export class GpsEventService {
     const visible = await this.pool.query(
       `SELECT 1 FROM mdm_binding WHERE geops_device_id=$1 AND state='ACTIVE'
        AND customer_id=ANY($2::text[]) UNION
+       SELECT 1 FROM geops_device_tenant WHERE device_id=$1
+         AND tenant_id=ANY($2::text[]) UNION
        SELECT 1 FROM position_event WHERE device_id=$1 AND tenant_id=ANY($2::text[]) LIMIT 1`,
       [deviceId, tenantIds],
     );

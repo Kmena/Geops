@@ -6,6 +6,8 @@ out/
 tmp/
 temp/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 .gradle/
 .kotlin/
 .cxx/

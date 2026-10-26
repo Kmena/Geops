@@ -24,6 +24,8 @@ const ASSIGNABLE = new Set([
   'visit.result.read',
   'visit.evidence.read',
   'visit.evaluation.recompute',
+  'visit.device.read',
+  'visit.device.write',
 ]);
 const denied = () => new ApiError(403, 'gps_forbidden', 'Forbidden');
 const invalid = () => new ApiError(422, 'invalid_request', 'Invalid request');

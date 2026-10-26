@@ -10,7 +10,7 @@ interface WindowRow {
   id: string;
   device_id: string;
   tenant_id: string;
-  mdm_binding_id: string;
+  mdm_binding_id: string | null;
   installation_id: string;
   assignment_version: string;
   start_at: Date;
@@ -37,7 +37,7 @@ interface OpenAlert {
   id: string;
   tenant_id: string;
   device_id: string;
-  mdm_binding_id: string;
+  mdm_binding_id: string | null;
   installation_id: string;
   scheduled_session_id: string;
   reason_code: ContinuityReason;
@@ -212,7 +212,8 @@ export class GpsContinuityMonitor {
         [at],
       );
       const windows = await db.query<WindowRow>(
-        `SELECT s.id,s.device_id,b.customer_id AS tenant_id,b.id AS mdm_binding_id,
+        `SELECT s.id,s.device_id,COALESCE(b.customer_id,o.tenant_id) AS tenant_id,
+           b.id AS mdm_binding_id,
            i.installation_id,
            s.assignment_version,s.start_at,s.end_at,ds.changed_at,
            COALESCE(t.warning_after_s,300) AS warning_after_s,
@@ -221,23 +222,30 @@ export class GpsContinuityMonitor {
            COALESCE(t.policy_grace_s,300) AS policy_grace_s
          FROM gps_scheduled_session s
          JOIN geops_device d ON d.id=s.device_id AND d.status='ACTIVE'
-         JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
          JOIN gps_device_installation i ON i.device_id=d.id AND i.retired_at IS NULL
+         LEFT JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
+         LEFT JOIN geops_device_tenant o ON o.device_id=d.id
+           AND o.tenant_id=i.activation_tenant_id
          JOIN gps_device_assignment_state ds ON ds.device_id=d.id
          JOIN gps_effective_assignment a ON a.device_id=d.id AND a.superseded_at IS NULL
            AND a.policy_id=s.policy_id AND a.revision=s.revision
            AND a.assignment_version=s.assignment_version AND a.effective_range @> $1::timestamptz
          JOIN gps_policy p ON p.id=s.policy_id AND p.state='ACTIVE'
-         LEFT JOIN gps_continuity_threshold t ON t.tenant_id=b.customer_id
+         LEFT JOIN gps_continuity_threshold t
+           ON t.tenant_id=COALESCE(b.customer_id,o.tenant_id)
          WHERE s.state='SCHEDULED' AND s.start_at<=$1 AND $1<s.end_at
-         ORDER BY b.customer_id,s.device_id,s.start_at DESC`,
+           AND (b.id IS NOT NULL OR (o.device_id IS NOT NULL
+             AND i.activation_binding_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM mdm_binding active
+               WHERE active.geops_device_id=d.id AND active.state='ACTIVE')))
+         ORDER BY COALESCE(b.customer_id,o.tenant_id),s.device_id,s.start_at DESC`,
         [at],
       );
       const identity = (row: {
         scheduled_session_id?: string;
         id?: string;
         tenant_id: string;
-        mdm_binding_id: string;
+        mdm_binding_id: string | null;
         installation_id: string;
       }) =>
         `${row.scheduled_session_id ?? row.id}|${row.tenant_id}|${row.mdm_binding_id}|${row.installation_id}`;
@@ -245,11 +253,14 @@ export class GpsContinuityMonitor {
       const open = await db.query<OpenAlert>(
         `SELECT a.id,a.tenant_id,a.device_id,a.mdm_binding_id,a.installation_id,a.scheduled_session_id,
            a.reason_code,a.severity,
-           s.end_at,d.status AS device_status,b.state AS binding_state
+           s.end_at,d.status AS device_status,
+           COALESCE(b.state,CASE WHEN o.device_id IS NOT NULL THEN 'ACTIVE' ELSE 'MISSING' END)
+             AS binding_state
          FROM gps_continuity_alert a
          JOIN gps_scheduled_session s ON s.id=a.scheduled_session_id
          JOIN geops_device d ON d.id=a.device_id
-         JOIN mdm_binding b ON b.id=a.mdm_binding_id
+         LEFT JOIN mdm_binding b ON b.id=a.mdm_binding_id
+         LEFT JOIN geops_device_tenant o ON o.device_id=a.device_id AND o.tenant_id=a.tenant_id
          WHERE a.resolved_at IS NULL FOR UPDATE OF a`,
       );
       const active = new Map(open.rows.map((row) => [identity(row), row]));
@@ -414,38 +425,38 @@ export class GpsContinuityMonitor {
          (SELECT max(p.captured_at) FROM position_event p
           JOIN gps_effective_session e ON e.id=p.session_id AND e.device_id=p.device_id
           WHERE e.scheduled_session_id=$1 AND p.tenant_id=$2
-            AND p.mdm_binding_id=$6 AND p.installation_id=$7
+            AND p.mdm_binding_id IS NOT DISTINCT FROM $6 AND p.installation_id=$7
             AND p.captured_at >= $3 AND p.captured_at <= $4 AND p.received_at <= $4)
            AS last_position_captured_at,
          (SELECT max(p.received_at) FROM position_event p
           JOIN gps_effective_session e ON e.id=p.session_id AND e.device_id=p.device_id
           WHERE e.scheduled_session_id=$1 AND p.tenant_id=$2
-            AND p.mdm_binding_id=$6 AND p.installation_id=$7
+            AND p.mdm_binding_id IS NOT DISTINCT FROM $6 AND p.installation_id=$7
             AND p.captured_at >= $3 AND p.captured_at <= $4 AND p.received_at <= $4)
            AS last_position_received_at,
          (SELECT max(h.observed_at) FROM gps_device_health_event h
           WHERE h.scheduled_session_id=$1 AND h.tenant_id=$2
-            AND h.mdm_binding_id=$6 AND h.installation_id=$7
+            AND h.mdm_binding_id IS NOT DISTINCT FROM $6 AND h.installation_id=$7
             AND h.observed_at >= $3 AND h.observed_at <= $4 AND h.received_at <= $4)
            AS last_health_observed_at,
          (SELECT max(h.received_at) FROM gps_device_health_event h
           WHERE h.scheduled_session_id=$1 AND h.tenant_id=$2
-            AND h.mdm_binding_id=$6 AND h.installation_id=$7
+            AND h.mdm_binding_id IS NOT DISTINCT FROM $6 AND h.installation_id=$7
             AND h.observed_at >= $3 AND h.observed_at <= $4 AND h.received_at <= $4)
            AS last_health_received_at,
          (SELECT h.tracking_state FROM gps_device_health_event h
           WHERE h.scheduled_session_id=$1 AND h.tenant_id=$2
-            AND h.mdm_binding_id=$6 AND h.installation_id=$7
+            AND h.mdm_binding_id IS NOT DISTINCT FROM $6 AND h.installation_id=$7
             AND h.observed_at >= $3 AND h.observed_at <= $4 AND h.received_at <= $4
           ORDER BY h.observed_at DESC,h.event_id DESC LIMIT 1) AS observed_tracking_state,
          (SELECT max(e.received_at) FROM gps_session_event e
           WHERE e.scheduled_session_id=$1 AND e.tenant_id=$2
-            AND e.mdm_binding_id=$6 AND e.installation_id=$7
+            AND e.mdm_binding_id IS NOT DISTINCT FROM $6 AND e.installation_id=$7
             AND e.occurred_at >= $3 AND e.occurred_at <= $4 AND e.received_at <= $4)
            AS last_session_received_at,
          (SELECT max(d.fetched_at) FROM gps_policy_delivery d
           WHERE d.device_id=$5 AND d.installation_id=$7
-            AND d.health_mdm_binding_id=$6
+            AND d.health_mdm_binding_id IS NOT DISTINCT FROM $6
             AND d.fetched_at >= $3 AND d.fetched_at <= $4)
            AS last_config_fetched_at,
          NULL::timestamptz AS last_batch_persisted_at`,
@@ -590,10 +601,13 @@ export class GpsContinuityMonitor {
     }
     if (filters.device_id) {
       const visible = await this.pool.query(
-        `SELECT 1 FROM mdm_binding b
-         JOIN gps_data_tenant_access d ON d.admin_id=$2 AND d.tenant_id=b.customer_id AND d.revoked_at IS NULL
-         JOIN gps_health_tenant_access h ON h.admin_id=$2 AND h.tenant_id=b.customer_id AND h.revoked_at IS NULL
-         WHERE b.geops_device_id=$1 LIMIT 1`,
+        `SELECT 1 FROM (
+           SELECT customer_id AS tenant_id FROM mdm_binding WHERE geops_device_id=$1
+           UNION SELECT tenant_id FROM geops_device_tenant WHERE device_id=$1
+         ) owner
+         JOIN gps_data_tenant_access d ON d.admin_id=$2 AND d.tenant_id=owner.tenant_id AND d.revoked_at IS NULL
+         JOIN gps_health_tenant_access h ON h.admin_id=$2 AND h.tenant_id=owner.tenant_id AND h.revoked_at IS NULL
+         LIMIT 1`,
         [filters.device_id, adminId],
       );
       if (!visible.rowCount) {

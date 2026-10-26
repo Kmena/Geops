@@ -125,7 +125,26 @@ export class VisitEvaluationService {
     actor: string,
     why: string,
   ) {
-    await assertLabDatabase(db);
+    const operational = await db.query(
+      `SELECT 1 FROM route_assignment a JOIN agent_device_link l
+       ON l.tenant_id=a.tenant_id AND l.agent_id=a.agent_id AND l.state<>'REVOKED'
+       AND l.valid_from<a.ends_at AND coalesce(l.valid_to,'infinity'::timestamptz)>a.starts_at
+       WHERE a.tenant_id=$1 AND a.id=$2 LIMIT 1`,
+      [tenant, assignmentId],
+    );
+    let revision = 1;
+    if (operational.rowCount) {
+      const selected = await db.query<{ revision: number; scope: string }>(
+        `SELECT revision,scope FROM visit_algorithm_revision
+         WHERE algorithm_id='dwell-pair-v1'
+         AND (scope='APPROVED' OR (scope='TECHNICAL_ONLY' AND $1))
+         ORDER BY (scope='APPROVED') DESC,revision DESC LIMIT 1`,
+        [isSynthetic()],
+      );
+      if (!selected.rows[0]) throw new ApiError(409, 'algorithm_not_approved', 'Conflict');
+      if (selected.rows[0].scope !== 'APPROVED') await assertLabDatabase(db);
+      revision = Number(selected.rows[0].revision);
+    } else await assertLabDatabase(db);
     const assignment = await db.query(
       `SELECT 1 FROM route_assignment
       WHERE tenant_id=$1 AND id=$2 AND state='PLANNED'`,
@@ -134,10 +153,12 @@ export class VisitEvaluationService {
     if (!assignment.rowCount) throw missing();
     await db.query(
       `INSERT INTO visit_evaluation_job(tenant_id,assignment_id,algorithm_id,algorithm_revision,state,reason,requested_by)
-      VALUES($1,$2,'dwell-pair-v1',1,'PENDING',$3,$4)
+      VALUES($1,$2,'dwell-pair-v1',$5,'PENDING',$3,$4)
       ON CONFLICT(tenant_id,assignment_id) DO UPDATE SET state='PENDING',reason=EXCLUDED.reason,
-      requested_by=EXCLUDED.requested_by,requested_at=now(),started_at=NULL,finished_at=NULL,last_error_code=NULL`,
-      [tenant, assignmentId, why, actor],
+      requested_by=EXCLUDED.requested_by,algorithm_revision=EXCLUDED.algorithm_revision,
+      requested_at=now(),next_attempt_at=now(),attempts=0,
+      started_at=NULL,finished_at=NULL,last_error_code=NULL`,
+      [tenant, assignmentId, why, actor, revision],
     );
   }
 
@@ -208,14 +229,18 @@ export class VisitEvaluationService {
     tenant: string,
     assignment: Row,
     visit: Row,
+    operational: boolean,
   ): Promise<{ samples: DwellSample[]; barriers: string[]; watermark: string | null }> {
     const rows = await db.query<Row>(
       `SELECT p.device_id,p.event_id,p.session_id,l.id AS link_id,
       p.capture_anchor_id,p.boot_id,p.captured_at,p.received_at,p.payload_digest,p.accuracy_m,p.quality_state,
       ST_Distance(p.geom,ST_SetSRID(ST_MakePoint($3,$4),4326)::geography) AS distance_m,
       ST_Distance(p.geom,LAG(p.geom) OVER(PARTITION BY p.device_id ORDER BY p.captured_at,p.event_id)) AS move_distance_m
-      FROM position_event p JOIN visit_lab_agent_device_link l ON l.tenant_id=p.tenant_id
-        AND l.device_id=p.device_id AND l.agent_id=$2 AND p.captured_at>=l.valid_from AND p.captured_at<l.valid_to
+      FROM position_event p JOIN ${operational ? 'agent_device_link' : 'visit_lab_agent_device_link'} l
+        ON l.tenant_id=p.tenant_id AND l.device_id=p.device_id AND l.agent_id=$2
+        ${operational ? "AND l.state<>'REVOKED'" : ''}
+        AND p.captured_at>=l.valid_from
+        AND p.captured_at<${operational ? "coalesce(l.valid_to,'infinity'::timestamptz)" : 'l.valid_to'}
       JOIN gps_effective_session e ON e.id=p.session_id AND e.device_id=p.device_id AND e.tenant_id=p.tenant_id
         AND e.assignment_version=p.assignment_version AND p.captured_at>=e.started_at
         AND (e.stopped_at IS NULL OR p.captured_at<e.stopped_at)
@@ -280,6 +305,7 @@ export class VisitEvaluationService {
     algorithmId: string,
     algorithmRevision: number,
     actorId: string,
+    triggerReason: string,
   ): Promise<{ created: number; unchanged: number }> {
     const assignment = await this.assignment(db, tenant, assignmentId);
     if (assignment.state !== 'PLANNED') throw new ApiError(409, 'cancelled_assignment', 'Conflict');
@@ -289,20 +315,24 @@ export class VisitEvaluationService {
       [algorithmId, algorithmRevision],
     );
     if (!algorithm.rows[0]) throw missing();
-    if (algorithm.rows[0].scope === 'LAB_ONLY') await assertLabDatabase(db);
+    const operational = algorithm.rows[0].scope !== 'LAB_ONLY';
+    if (algorithm.rows[0].scope !== 'APPROVED') await assertLabDatabase(db);
     const params = validateDwellParameters(algorithm.rows[0].parameters);
     const visits = await db.query<Row>(
       `SELECT stop_id,geofence_revision,latitude,longitude,radius_m,min_dwell_effective_s
       FROM assignment_visit WHERE tenant_id=$1 AND assignment_id=$2 ORDER BY stop_id`,
       [tenant, assignmentId],
     );
-    const links = isSynthetic()
-      ? await db.query<Row>(
-          `SELECT id,device_id,valid_from,valid_to FROM visit_lab_agent_device_link
-      WHERE tenant_id=$1 AND agent_id=$2 AND valid_from<$4 AND valid_to>$3 ORDER BY valid_from,id`,
-          [tenant, assignment.agent_id, assignment.starts_at, assignment.ends_at],
-        )
-      : { rows: [] as Row[] };
+    const links = await db.query<Row>(
+      `SELECT id,device_id,valid_from,valid_to FROM
+      ${operational ? 'agent_device_link' : 'visit_lab_agent_device_link'}
+      WHERE tenant_id=$1 AND agent_id=$2
+      ${operational ? "AND state<>'REVOKED'" : ''}
+      AND valid_from<$4
+      AND ${operational ? "coalesce(valid_to,'infinity'::timestamptz)" : 'valid_to'}>$3
+      ORDER BY valid_from,id`,
+      [tenant, assignment.agent_id, assignment.starts_at, assignment.ends_at],
+    );
     let created = 0,
       unchanged = 0;
     const evaluationNow = this.now().toISOString();
@@ -314,7 +344,7 @@ export class VisitEvaluationService {
           : 'AFTER';
     for (const visit of visits.rows) {
       const evidence = links.rows.length
-        ? await this.samples(db, tenant, assignment, visit)
+        ? await this.samples(db, tenant, assignment, visit, operational)
         : { samples: [] as DwellSample[], barriers: [] as string[], watermark: null };
       const result = links.rows.length
         ? evaluateDwell({
@@ -400,15 +430,16 @@ export class VisitEvaluationService {
       );
       for (const [index, interval] of (result?.intervals ?? []).entries())
         await db.query(
-          `INSERT INTO visit_evaluation_interval(evaluation_id,interval_no,device_id,session_id,link_id,
+          `INSERT INTO visit_evaluation_interval(evaluation_id,interval_no,device_id,session_id,link_id,operational_link_id,
           event_id_a,event_id_b,from_at,to_at,observed_s,credited_s)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
           [
             evaluationId,
             index + 1,
             interval.deviceId,
             interval.sessionId,
-            interval.linkId,
+            operational ? null : interval.linkId,
+            operational ? interval.linkId : null,
             interval.eventIdA,
             interval.eventIdB,
             interval.fromAt,
@@ -435,6 +466,7 @@ export class VisitEvaluationService {
           stop_id: String(visit.stop_id),
           evaluation_no: evaluationNo,
           status: result?.status ?? 'UNATTRIBUTABLE',
+          reason: triggerReason,
         },
       });
       created++;
@@ -454,6 +486,7 @@ export class VisitEvaluationService {
       algorithm_id: string;
       algorithm_revision: number;
       requested_by: string;
+      reason: string;
     } | null = null;
     try {
       await db.query('BEGIN');
@@ -463,9 +496,11 @@ export class VisitEvaluationService {
         algorithm_id: string;
         algorithm_revision: number;
         requested_by: string;
+        reason: string;
       }>(
-        `SELECT tenant_id,assignment_id,algorithm_id,algorithm_revision,requested_by FROM visit_evaluation_job
-        WHERE state='PENDING' ORDER BY requested_at,assignment_id FOR UPDATE SKIP LOCKED LIMIT 1`,
+        `SELECT tenant_id,assignment_id,algorithm_id,algorithm_revision,requested_by,reason FROM visit_evaluation_job
+        WHERE state='PENDING' AND next_attempt_at<=now()
+        ORDER BY requested_at,assignment_id FOR UPDATE SKIP LOCKED LIMIT 1`,
       );
       if (!rows.rows[0]) {
         await db.query('COMMIT');
@@ -474,11 +509,14 @@ export class VisitEvaluationService {
       selected = rows.rows[0];
       const positionCount = await db.query<{ n: string }>(
         `SELECT count(*)::text AS n FROM route_assignment a
-        JOIN visit_lab_agent_device_link l ON l.tenant_id=a.tenant_id AND l.agent_id=a.agent_id
-          AND l.valid_from<a.ends_at AND l.valid_to>a.starts_at
+        JOIN ${Number(selected.algorithm_revision) === 1 ? 'visit_lab_agent_device_link' : 'agent_device_link'} l
+          ON l.tenant_id=a.tenant_id AND l.agent_id=a.agent_id
+          AND l.valid_from<a.ends_at
+          AND coalesce(l.valid_to,'infinity'::timestamptz)>a.starts_at
+          ${Number(selected.algorithm_revision) === 1 ? '' : "AND l.state<>'REVOKED'"}
         JOIN position_event p ON p.tenant_id=a.tenant_id AND p.device_id=l.device_id
           AND p.captured_at>=greatest(a.starts_at,l.valid_from)
-          AND p.captured_at<least(a.ends_at,l.valid_to)
+          AND p.captured_at<least(a.ends_at,coalesce(l.valid_to,'infinity'::timestamptz))
         WHERE a.tenant_id=$1 AND a.id=$2`,
         [selected.tenant_id, selected.assignment_id],
       );
@@ -494,6 +532,7 @@ export class VisitEvaluationService {
         selected.algorithm_id,
         Number(selected.algorithm_revision),
         selected.requested_by,
+        selected.reason,
       );
       await db.query(
         `UPDATE visit_evaluation_job SET state='DONE',finished_at=now(),last_error_code=NULL,
@@ -507,8 +546,11 @@ export class VisitEvaluationService {
       await db.query('ROLLBACK');
       if (selected)
         await db.query(
-          `UPDATE visit_evaluation_job SET state='FAILED',finished_at=now(),attempts=attempts+1,
-        last_error_code=$3 WHERE tenant_id=$1 AND assignment_id=$2 AND state='PENDING'`,
+          `UPDATE visit_evaluation_job SET
+          state=CASE WHEN attempts<2 THEN 'PENDING' ELSE 'FAILED' END,
+          finished_at=now(),attempts=attempts+1,
+          next_attempt_at=now()+make_interval(secs=>least(300,10*power(2,attempts)::int)),
+          last_error_code=$3 WHERE tenant_id=$1 AND assignment_id=$2 AND state='PENDING'`,
           [
             selected.tenant_id,
             selected.assignment_id,
@@ -555,7 +597,7 @@ export class VisitEvaluationService {
           AND p.captured_at>=greatest(a.starts_at,l.valid_from)
           AND p.captured_at<least(a.ends_at,l.valid_to)
         LEFT JOIN visit_evaluation_job j ON j.tenant_id=a.tenant_id AND j.assignment_id=a.id
-        WHERE a.state='PLANNED' AND (j.state IS NULL OR j.state='DONE')
+        WHERE a.state='PLANNED' AND (j.state IS NULL OR (j.state='DONE' AND j.algorithm_revision=1))
         GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count
         HAVING j.state IS NULL OR count(p.event_id)>j.position_count
         ORDER BY a.id LIMIT $1`,
@@ -568,7 +610,7 @@ export class VisitEvaluationService {
           VALUES($1,$2,'dwell-pair-v1',1,'PENDING','Synthetic evidence reconciliation',$3)
           ON CONFLICT(tenant_id,assignment_id) DO UPDATE SET state='PENDING',
           reason=EXCLUDED.reason,requested_by=EXCLUDED.requested_by,requested_at=now(),
-          started_at=NULL,finished_at=NULL,last_error_code=NULL
+          next_attempt_at=now(),attempts=0,started_at=NULL,finished_at=NULL,last_error_code=NULL
           WHERE visit_evaluation_job.state='DONE' AND visit_evaluation_job.position_count<$4`,
           [row.tenant_id, row.assignment_id, row.requested_by, row.evidence_count],
         );
@@ -593,6 +635,82 @@ export class VisitEvaluationService {
     }
   }
 
+  // Bounded asynchronous reconciliation over accepted GPS rows. No GPS ACK path
+  // calls this method. Captured timestamps, not receipt timestamps, select links.
+  async reconcileOperational(maxAssignments = 100): Promise<number> {
+    if (!Number.isInteger(maxAssignments) || maxAssignments < 1 || maxAssignments > 100)
+      throw invalid();
+    const db = await this.pool.connect();
+    try {
+      const selected = await db.query<{ revision: number; scope: string }>(
+        `SELECT revision,scope FROM visit_algorithm_revision
+         WHERE algorithm_id='dwell-pair-v1'
+         AND (scope='APPROVED' OR (scope='TECHNICAL_ONLY' AND $1))
+         ORDER BY (scope='APPROVED') DESC,revision DESC LIMIT 1`,
+        [isSynthetic()],
+      );
+      if (!selected.rows[0]) return 0;
+      if (selected.rows[0].scope !== 'APPROVED') await assertLabDatabase(db);
+      const revision = Number(selected.rows[0].revision);
+      await db.query('BEGIN');
+      const rows = await db.query<{
+        tenant_id: string;
+        assignment_id: string;
+        requested_by: string;
+        evidence_count: string;
+      }>(
+        `SELECT a.tenant_id,a.id AS assignment_id,a.created_by AS requested_by,
+        count(p.event_id)::text AS evidence_count
+        FROM route_assignment a JOIN agent_device_link l
+          ON l.tenant_id=a.tenant_id AND l.agent_id=a.agent_id AND l.state<>'REVOKED'
+          AND l.valid_from<a.ends_at
+          AND coalesce(l.valid_to,'infinity'::timestamptz)>a.starts_at
+        LEFT JOIN position_event p ON p.tenant_id=a.tenant_id AND p.device_id=l.device_id
+          AND p.captured_at>=greatest(a.starts_at,l.valid_from)
+          AND p.captured_at<least(a.ends_at,coalesce(l.valid_to,'infinity'::timestamptz))
+        LEFT JOIN visit_evaluation_job j ON j.tenant_id=a.tenant_id AND j.assignment_id=a.id
+        WHERE a.state='PLANNED' AND (j.state IS NULL OR
+          (j.state='DONE' AND j.algorithm_revision=$2))
+        GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count
+        HAVING j.state IS NULL OR count(p.event_id)>j.position_count
+        ORDER BY a.id LIMIT $1`,
+        [maxAssignments, revision],
+      );
+      let queued = 0;
+      for (const row of rows.rows) {
+        const result = await db.query(
+          `INSERT INTO visit_evaluation_job(tenant_id,assignment_id,algorithm_id,algorithm_revision,state,reason,requested_by)
+          VALUES($1,$2,'dwell-pair-v1',$5,'PENDING','Accepted GPS evidence reconciliation',$3)
+          ON CONFLICT(tenant_id,assignment_id) DO UPDATE SET state='PENDING',
+          algorithm_revision=EXCLUDED.algorithm_revision,reason=EXCLUDED.reason,
+          requested_by=EXCLUDED.requested_by,
+          requested_at=now(),next_attempt_at=now(),attempts=0,
+          started_at=NULL,finished_at=NULL,last_error_code=NULL
+          WHERE visit_evaluation_job.state='DONE' AND visit_evaluation_job.algorithm_revision=$5
+            AND visit_evaluation_job.position_count<$4`,
+          [row.tenant_id, row.assignment_id, row.requested_by, row.evidence_count, revision],
+        );
+        if (result.rowCount) {
+          queued++;
+          await appendAudit(db, {
+            actorType: 'SYSTEM',
+            action: 'visit.evaluation.operational.reconcile',
+            outcome: 'success',
+            correlationId: randomUUID(),
+            metadata: { tenant_id: row.tenant_id, assignment_id: row.assignment_id },
+          });
+        }
+      }
+      await db.query('COMMIT');
+      return queued;
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
+  }
+
   async assignmentResults(actor: string, assignmentId: string) {
     const id = uuid(assignmentId);
     return this.read(actor, 'visit.result.read', async (db, tenant) => {
@@ -600,10 +718,13 @@ export class VisitEvaluationService {
       const rows = await db.query<Row>(
         `SELECT v.stop_id,v.client_code,v.site_code,v.geofence_revision,
         v.min_dwell_effective_s AS required_s,e.id AS evaluation_id,e.evaluation_no,e.status,e.credited_s,e.percent,
-        e.first_qualified_at,e.last_qualified_at,e.completed_at,e.algorithm_id,e.algorithm_revision,e.evaluated_at
+        e.first_qualified_at,e.last_qualified_at,e.completed_at,e.algorithm_id,e.algorithm_revision,e.evaluated_at,
+        ar.scope AS algorithm_scope
         FROM assignment_visit v LEFT JOIN visit_evaluation_current c ON c.tenant_id=v.tenant_id
         AND c.assignment_id=v.assignment_id AND c.stop_id=v.stop_id
         LEFT JOIN visit_evaluation e ON e.id=c.evaluation_id
+        LEFT JOIN visit_algorithm_revision ar ON ar.algorithm_id=e.algorithm_id
+          AND ar.revision=e.algorithm_revision
         WHERE v.tenant_id=$1 AND v.assignment_id=$2 ORDER BY v.suggested_order NULLS LAST,v.stop_id`,
         [tenant, id],
       );
@@ -653,7 +774,11 @@ export class VisitEvaluationService {
         visits: rows.rows,
         physical_credited_s: physical,
         visit_credited_sum_s: rows.rows.reduce((sum, row) => sum + number(row.credited_s ?? 0), 0),
-        agent_device_integration: 'PENDING',
+        agent_device_integration: rows.rows.some((row) => row.algorithm_scope === 'APPROVED')
+          ? 'APPROVED'
+          : rows.rows.some((row) => row.algorithm_scope === 'TECHNICAL_ONLY')
+            ? 'TECHNICAL_ONLY'
+            : 'PENDING',
       };
     });
   }
@@ -668,11 +793,21 @@ export class VisitEvaluationService {
       );
       if (!exists.rowCount) throw missing();
       const rows = await db.query<Row>(
-        `SELECT id,evaluation_no,source_digest,algorithm_id,algorithm_revision,parameters,
-        status,required_s,credited_s,percent,first_qualified_at,last_qualified_at,completed_at,
-        sample_count,uncertain_count,gap_count,source_watermark,supersedes_id,evaluated_at
-        FROM visit_evaluation WHERE tenant_id=$1 AND assignment_id=$2 AND stop_id=$3
-        ORDER BY evaluation_no DESC LIMIT 100`,
+        `SELECT e.id,e.evaluation_no,e.source_digest,e.algorithm_id,e.algorithm_revision,e.parameters,
+        e.status,e.required_s,e.credited_s,e.percent,e.first_qualified_at,e.last_qualified_at,e.completed_at,
+        e.sample_count,e.uncertain_count,e.gap_count,e.source_watermark,e.supersedes_id,e.evaluated_at,
+        audit.metadata_redacted->>'reason' AS trigger_reason
+        FROM visit_evaluation e LEFT JOIN LATERAL (
+          SELECT metadata_redacted FROM audit_event
+          WHERE occurred_at=e.evaluated_at AND action='visit.evaluation.recomputed'
+            AND metadata_redacted->>'tenant_id'=e.tenant_id
+            AND metadata_redacted->>'assignment_id'=e.assignment_id::text
+            AND metadata_redacted->>'stop_id'=e.stop_id::text
+            AND metadata_redacted->>'evaluation_no'=e.evaluation_no::text
+          ORDER BY id LIMIT 1
+        ) audit ON true
+        WHERE e.tenant_id=$1 AND e.assignment_id=$2 AND e.stop_id=$3
+        ORDER BY e.evaluation_no DESC LIMIT 100`,
         [tenant, id, stop],
       );
       return { items: rows.rows };
@@ -698,10 +833,19 @@ export class VisitEvaluationService {
       );
       if (!exists.rowCount) throw missing();
       const rows = await db.query<Row>(
-        `SELECT interval_no,device_id,session_id,event_id_a,event_id_b,
-        from_at,to_at,observed_s,credited_s FROM visit_evaluation_interval
-        WHERE evaluation_id=$1 ORDER BY interval_no LIMIT 5000`,
-        [evaluation],
+        `SELECT i.interval_no,i.device_id,i.session_id,i.event_id_a,i.event_id_b,
+        i.from_at,i.to_at,i.observed_s,i.credited_s,
+        a.captured_at AS event_a_captured_at,a.received_at AS event_a_received_at,
+        a.accuracy_m AS event_a_accuracy_m,a.quality_state AS event_a_quality_state,
+        b.captured_at AS event_b_captured_at,b.received_at AS event_b_received_at,
+        b.accuracy_m AS event_b_accuracy_m,b.quality_state AS event_b_quality_state,
+        (a.event_id IS NOT NULL) AS event_a_available,
+        (b.event_id IS NOT NULL) AS event_b_available
+        FROM visit_evaluation_interval i
+        LEFT JOIN position_event a ON a.device_id=i.device_id AND a.event_id=i.event_id_a AND a.tenant_id=$2
+        LEFT JOIN position_event b ON b.device_id=i.device_id AND b.event_id=i.event_id_b AND b.tenant_id=$2
+        WHERE i.evaluation_id=$1 ORDER BY i.interval_no LIMIT 5000`,
+        [evaluation, tenant],
       );
       await appendAudit(db, {
         actorType: 'ADMIN',

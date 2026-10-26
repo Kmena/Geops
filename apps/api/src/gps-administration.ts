@@ -94,12 +94,15 @@ export class GpsAdministrationService {
       installation_id: string | null;
       assignment_version: string | null;
     }>(
-      `SELECT d.id AS device_id,d.display_label,b.customer_id AS tenant_id,i.installation_id,
+      `SELECT d.id AS device_id,d.display_label,coalesce(b.customer_id,t.tenant_id) AS tenant_id,i.installation_id,
          s.assignment_version FROM geops_device d
-       JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
-       JOIN gps_data_tenant_access g ON g.tenant_id=b.customer_id
+       LEFT JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
+       LEFT JOIN geops_device_tenant t ON t.device_id=d.id AND b.id IS NULL
+       JOIN gps_data_tenant_access g ON g.tenant_id=coalesce(b.customer_id,t.tenant_id)
          AND g.admin_id=$1 AND g.revoked_at IS NULL
        LEFT JOIN gps_device_installation i ON i.device_id=d.id AND i.retired_at IS NULL
+         AND i.activation_tenant_id=coalesce(b.customer_id,t.tenant_id)
+         AND (i.activation_binding_id=b.id OR (b.id IS NULL AND i.activation_binding_id IS NULL))
        LEFT JOIN gps_device_assignment_state s ON s.device_id=d.id
        WHERE d.status='ACTIVE' ORDER BY d.id LIMIT 100`,
       [adminId],

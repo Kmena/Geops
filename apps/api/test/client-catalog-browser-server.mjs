@@ -6,6 +6,7 @@ import { ClientCatalogService } from '../src/client-catalog.ts';
 import { RouteCatalogService } from '../src/route-catalog.ts';
 import { VisitScheduleService } from '../src/visit-schedule.ts';
 import { VisitEvaluationService } from '../src/visit-evaluation.ts';
+import { ComplianceDashboardService } from '../src/compliance-dashboard.ts';
 
 const url = process.env.DATABASE_URL;
 if (
@@ -28,6 +29,7 @@ const app = createApp({
   routeCatalog: new RouteCatalogService(pool, { max_radius_m: 500, max_dwell_s: 3600 }),
   visitSchedule: new VisitScheduleService(pool),
   visitEvaluation: new VisitEvaluationService(pool),
+  complianceDashboard: new ComplianceDashboardService(pool),
   secureCookie: false,
 });
 app.addHook('onClose', async () => pool.end());
