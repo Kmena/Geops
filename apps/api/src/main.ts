@@ -19,6 +19,10 @@ import { GpsEventService } from './gps-event-service.js';
 import { GpsAdministrationService } from './gps-administration.js';
 import { GpsScheduler } from './gps-scheduler.js';
 import { GpsContinuityMonitor } from './gps-continuity-monitor.js';
+import { ClientCatalogService } from './client-catalog.js';
+import { RouteCatalogService } from './route-catalog.js';
+import { VisitScheduleService } from './visit-schedule.js';
+import { VisitEvaluationService } from './visit-evaluation.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -91,6 +95,10 @@ async function main(): Promise<void> {
     gpsEvents,
     gpsAdministration: new GpsAdministrationService(pool, gpsPolicies),
     gpsContinuity,
+    clientCatalog: new ClientCatalogService(pool),
+    routeCatalog: new RouteCatalogService(pool),
+    visitSchedule: new VisitScheduleService(pool),
+    visitEvaluation: new VisitEvaluationService(pool),
     devices,
     enrollment: new EnrollmentService(pool, devices, config.invitationHmacKey),
     deviceSessions: new DeviceSessionService(pool),

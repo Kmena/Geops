@@ -12,7 +12,7 @@ if (!url || !/^geops_verify_[0-9]+$/.test(new URL(url).pathname.slice(1)) ||
 const pool = new pg.Pool({ connectionString: url });
 try {
   const catalog = await loadMigrations();
-  assert.equal(catalog.length, 23);
+  assert.equal(catalog.length, 27);
   assert.equal((await pool.query("SELECT to_regclass('geops_schema_migrations') AS name")).rows[0].name, null);
   const db = await pool.connect();
   try {
@@ -39,12 +39,12 @@ try {
     [adminId, randomUUID()]);
   await pool.query("INSERT INTO mdm_integration(id,provider,region,customer_id,status) VALUES($1,'manageengine','com','12345','DISCONNECTED')",
     [randomUUID()]);
-  assert.deepEqual(await applyMigrations(pool), ['0023_mdm_oauth_client.sql']);
+  assert.deepEqual(await applyMigrations(pool), catalog.slice(22).map((migration) => migration.version));
   assert.equal(await checkReadiness(pool), true);
   assert.equal((await pool.query("SELECT status FROM mdm_integration WHERE customer_id='12345'")).rows[0].status, 'DISCONNECTED');
   assert.equal((await pool.query("SELECT 1 FROM admin_user WHERE id=$1", [adminId])).rowCount, 1);
   assert.equal((await pool.query("SELECT to_regclass('mdm_oauth_client_config') AS name")).rows[0].name, 'mdm_oauth_client_config');
-  console.log('B22 22 -> 23 OAuth client migration: PASS');
+  console.log('B22 22 -> 27 OAuth client and SPEC-03 migration upgrade: PASS');
 } finally {
   await pool.end();
 }

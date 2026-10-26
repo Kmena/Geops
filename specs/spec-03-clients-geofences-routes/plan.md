@@ -1,0 +1,33 @@
+# Plan de waves e integración futura
+
+Estas waves de SPEC-03 son propias del módulo; no sustituyen la numeración histórica del PRD. Cada PASS exige evidencia registrada y revisión del gate correspondiente. Waves 1 y 2 tienen `TECHNICAL_PASS` local; Wave 3 tiene `WAVE3_PLANNING_TECHNICAL_PASS` con vínculo agente–dispositivo pendiente. No hay despliegue ni integración.
+
+**Actualización 2026-10-26:** Wave 1 alcanzó `TECHNICAL_PASS` local en la rama aislada `codex/spec03-wave1`; `DEPLOYED = NO`. La evidencia y la deuda externa de lint constan en [wave1-closure.md](wave1-closure.md). Esta actualización no cambia el estado de Waves 2–5.
+
+**Actualización Wave 2:** catálogo de rutas, paradas, versiones y constructor Web implementados en la misma rama aislada. Migración aditiva `0023_route_catalog.sql`, 76 comprobaciones de integración y 14 de navegador Wave 2, con regresión Wave 1 57 + 15 en la misma base descartable. Estado `TECHNICAL_PASS` local; ver [wave2-closure.md](wave2-closure.md). Waves 3–5 siguen pendientes.
+
+**Actualización Wave 3:** catálogo de agentes, asignaciones, snapshots, recurrencias, excepciones y calendario Web implementados en la misma rama aislada con migración aditiva `0024_agents_assignments.sql`. Integración 70/70 y E2E Chrome 20/20, con regresión Waves 1–2. La integración histórica agente–dispositivo queda pendiente por dependencia de identidad MDM. Ver [wave3-closure.md](wave3-closure.md); Waves 4–5 siguen pendientes.
+
+**Actualización Wave 4A:** `WAVE4A_ENGINE_TECHNICAL_PASS` local: motor `dwell-pair-v1` de laboratorio, cola acotada, reconciliador sintético, proyección e historia append-only, consultas administrativas y vínculo temporal sintético aislado en `0025_visit_dwell_engine.sql`. La activación productiva desde la ingestión y la identidad física quedan para Wave 4B/operaciones; los parámetros y retención requieren aprobación antes de datos reales. Ver [wave4a-closure.md](wave4a-closure.md). Wave 5 sigue pendiente.
+
+| Wave | Alcance y módulos previstos | Dependencia / migración conceptual | Pruebas y criterio PASS | Bloqueo / rollback |
+| --- | --- | --- | --- | --- |
+| 0 — auditoría y contratos | Este paquete; ADR, dominio, contratos, riesgos y trazabilidad. `specs/spec-03-*`, `specs/architecture/adr/` | HEAD y esquema real reconciliados; ninguna migración | Revisión cruzada de requisitos ↔ contrato ↔ pruebas; diagramas y referencias válidos; ADR aprobados para construir. **Estado actual: propuesta, no PASS.** | Cambios concurrentes/identidad sin decisión: mantener documentación aislada. Rollback: retirar propuesta documental sin tocar runtime. |
+| 1 — clientes y geozonas | Migraciones nuevas, servicio/rutas admin, Web mapa/editor, auditoría | Capacidad catalog y tenant operativo aprobados; tablas cliente/sede/revisión | CRUD, unicidad, desactivación histórica, radios/precisión, mapa accesible, pruebas tenant/CSRF/ETag. Evidencia: logs, SQL de DB desechable, capturas Web. | Binding de tenant real no definido; feature flag desactiva UI/API; conservar tablas y datos. |
+| 2 — rutas | Plantillas, paradas, versiones, API/Web; `TECHNICAL_PASS` local | Wave 1 y geozona publicada; migración 0023 | Orden libre, sedes del mismo cliente, cliente en varias rutas, snapshot histórico sellado, conflictos, E2E escritorio/móvil: 76 + 14 comprobaciones. | Sede sin zona activa, sede repetida y ruta sin obligatoria se rechazan. Rollback operativo: desactivar publicación, conservar revisiones. |
+| 3 — asignaciones | Agentes y vínculo histórico, calendario, regla semanal, excepciones, snapshots | Wave 2; entidad agente y fuente de identidad aprobadas; tablas agente/vínculo/asignación/regla | Solapes, DST, cancelación/reasignación, vínculo por `captured_at`, historial; calendario agente/ruta. Evidencia: DB y e2e. | Agente–dispositivo sin fuente autorizada: no asignar; desactivar materializador, preservar asignaciones. |
+| 4 — motor de permanencia | Worker lógico, outbox, evidencia, evaluación/reproceso | Wave 3; GPS aceptado, retención, umbrales calibrados, identidad histórica; tablas evaluación/outbox | Reenvío y permutación idénticos, múltiples entradas sumadas, huecos cero, tardío corrige historia, no cuenta fuera de jornada. Carga sintética y prueba física etiquetadas por separado. | Sin cobertura/retención/MDM-free ingest resueltos: resultados `UNVERIFIABLE`; desactivar worker, conservar GPS y proyecciones auditadas. |
+| 5 — cumplimiento | API agregada, dashboard, historial, métricas y alertas | Wave 4 y denominadores/cobertura aprobados | KPI reconciliable por visita/ruta/agente; permisos y privacidad; accesibilidad; observabilidad de lag. Evidencia e2e + consultas reconciliadas. | Sin calidad de evidencia: ocultar KPI concluyente y mostrar estado; rollback UI/feature flag. |
+
+## Orden de cambios y aislamiento
+
+Las migraciones locales 0022 y 0023 se asignaron tras revisar que los worktrees MDM/GPS llegaban hasta 0021. Antes de integrar se deben reconciliar numeración y checksums de nuevo, pues OAuth/MDM y staging avanzan en paralelo. Cada PR futuro toma la rama base acordada entonces, aplica migración aditiva sobre DB desechable, ejecuta suite GPS/seguridad/MDM/deploy como gates y solicita revisión de privacidad y seguridad. No se hacen merges, cherry-picks ni despliegues como parte de este plan.
+
+## Estrategia de staging futura
+
+1. Reconciliar HEAD, worktrees, migraciones aplicadas y contrato GPS aprobado en la fecha de integración; revisar especialmente 0015 y cambios de OAuth/MDM.
+2. Preparar migración con plan de backup/restore y gate de mantenimiento existentes; ensayo en clon aislado y checksums, nunca sobre producción para ensayo.
+3. Publicar API detrás de flag con worker apagado; verificar lectura de esquema, capacidades sin concesiones automáticas, y compatibilidad del binario anterior según gate. Activar Web de catálogo después.
+4. Habilitar evaluación con datos sintéticos históricos minimizados y shadow mode que no cambie KPI visibles; comparar resultados con oráculo manual y medir lag. Activar por tenant solo tras aprobación de umbrales, retención e identidad.
+5. Ejecutar validación física separada en dispositivos autorizados: continuidad GPS, offline, reinicio, precisión y jornadas. Registrar resultados; no inferir PASS físico de simulaciones.
+6. Si falla, apagar flags/worker, drenar o preservar outbox y corregir hacia adelante. Revertir binario o esquema solo con plan compatible aprobado; nunca downgrade automático de migraciones.

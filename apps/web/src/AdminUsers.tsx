@@ -14,6 +14,13 @@ const ASSIGNABLE = [
   'gps.installation.manage',
   'gps.tenant.grant',
   'mdm.oauth.configure',
+  'visit.catalog.read',
+  'visit.catalog.write',
+  'visit.schedule.read',
+  'visit.schedule.write',
+  'visit.result.read',
+  'visit.evidence.read',
+  'visit.evaluation.recompute',
 ];
 
 function message(error: unknown): string {

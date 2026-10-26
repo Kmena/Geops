@@ -105,6 +105,147 @@ export interface MdmStatus {
   sanitized_error_code: string | null;
 }
 
+export interface CatalogClient {
+  id: string;
+  tenant_id: string;
+  code: string;
+  name: string;
+  address: string;
+  state: 'ACTIVE' | 'INACTIVE';
+  version: number;
+  site_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CatalogSite {
+  id: string;
+  client_id: string;
+  tenant_id: string;
+  code: string;
+  name: string;
+  address: string;
+  state: 'ACTIVE' | 'INACTIVE';
+  version: number;
+  latitude: number;
+  longitude: number;
+}
+
+export interface CatalogGeofence {
+  tenant_id: string;
+  client_id: string;
+  site_id: string;
+  revision: number;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  min_dwell_s: number;
+  state: 'ACTIVE' | 'INACTIVE';
+  reason: string;
+  created_at: string;
+}
+
+export interface RouteStop {
+  stop_id: string;
+  client_id: string;
+  site_id: string;
+  geofence_revision: number;
+  required: boolean;
+  suggested_order: number | null;
+  min_dwell_s: number | null;
+  min_dwell_effective_s: number;
+  client_code: string;
+  client_name: string;
+  site_code: string;
+  site_name: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+}
+
+export interface CatalogRoute {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  state: 'ACTIVE' | 'INACTIVE';
+  version: number;
+  published_revision: number;
+  has_draft: boolean;
+  content?: 'DRAFT' | 'PUBLISHED';
+  stops?: RouteStop[];
+}
+
+export interface RouteRevision {
+  route_id: string;
+  revision: number;
+  code: string;
+  name: string;
+  description: string;
+  content_hash: string;
+  published_at: string;
+  stops: RouteStop[];
+}
+
+export interface ScheduleAgent {
+  id: string;
+  code: string;
+  name: string;
+  state: 'ACTIVE' | 'INACTIVE';
+  version: number;
+}
+
+export interface ScheduleAssignment {
+  id: string;
+  agent_id: string;
+  agent_code: string;
+  agent_name: string;
+  route_id: string;
+  route_revision: number;
+  route_code: string;
+  route_name: string;
+  local_date: string;
+  time_zone: string;
+  starts_at: string;
+  ends_at: string;
+  origin: 'MANUAL' | 'EXTRAORDINARY' | 'RECURRENCE';
+  state: 'PLANNED' | 'CANCELLED';
+  version: number;
+  visits?: RouteStop[];
+  snapshot_hash: string;
+}
+
+export interface ScheduleRule {
+  id: string;
+  agent_id: string;
+  route_id: string;
+  route_revision: number;
+  start_date: string;
+  end_date: string | null;
+  days_iso: number[];
+  time_zone: string;
+  starts_local: string;
+  ends_local: string;
+  state: 'ACTIVE' | 'INACTIVE';
+  version: number;
+  exceptions?: ScheduleException[];
+}
+
+export interface ScheduleException {
+  local_date: string;
+  action: 'SKIP' | 'CANCEL' | 'REPLACE';
+  replacement_route_id: string | null;
+  replacement_revision: number | null;
+  reason: string;
+}
+
+export type RouteStopInput = Pick<
+  RouteStop,
+  'stop_id' | 'site_id' | 'geofence_revision' | 'required' | 'suggested_order' | 'min_dwell_s'
+>;
+
 export class ApiClientError extends Error {
   constructor(
     readonly status: number,
@@ -135,6 +276,44 @@ async function read<T>(path: `/v1/${string}`, init?: RequestInit): Promise<T> {
   }
   return body as T;
 }
+
+async function readAll<T>(path: `/v1/${string}`): Promise<{ items: T[] }> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  const seen = new Set<string>();
+  do {
+    const query: string = `?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const result: { items: T[]; next_cursor: string | null } = await read<{
+      items: T[];
+      next_cursor: string | null;
+    }>(`${path}${query}`);
+    items.push(...result.items);
+    cursor = result.next_cursor;
+    if (cursor) {
+      if (seen.has(cursor)) throw new ApiClientError(502, 'invalid_pagination_response');
+      seen.add(cursor);
+    }
+  } while (cursor);
+  return { items };
+}
+
+const routeWrite = <T>(
+  path: `/v1/${string}`,
+  method: 'POST' | 'PATCH' | 'PUT',
+  body: unknown,
+  csrf: string,
+  version?: number,
+) =>
+  read<T>(path, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      'x-csrf-token': csrf,
+      'idempotency-key': crypto.randomUUID(),
+      ...(version === undefined ? {} : { 'if-match': `"${version}"` }),
+    },
+    body: JSON.stringify(body),
+  });
 
 export const api = {
   me: () => read<AdminProfile>('/v1/admin/auth/me'),
@@ -344,4 +523,235 @@ export const api = {
       headers: { 'x-csrf-token': csrf },
     }),
   gpsCapabilities: () => read<{ capabilities: string[] }>('/v1/admin/gps-capabilities'),
+  catalogCapabilities: () =>
+    read<{ capabilities: string[]; limits: { max_radius_m: number; max_dwell_s: number } }>(
+      '/v1/admin/client-capabilities',
+    ),
+  clients: (query: { q?: string; state?: string; cursor?: string; limit?: number } = {}) =>
+    read<{ items: CatalogClient[]; next_cursor: string | null }>(
+      `/v1/admin/clients?${new URLSearchParams(
+        Object.entries(query)
+          .filter(([, value]) => value !== undefined)
+          .map(([key, value]) => [key, String(value)]),
+      ).toString()}`,
+    ),
+  client: (id: string) => read<CatalogClient>(`/v1/admin/clients/${id}`),
+  createClient: (
+    input: {
+      code: string;
+      name: string;
+      address: string;
+      site: { code: string; name: string; address: string; latitude: number; longitude: number };
+    },
+    csrf: string,
+  ) =>
+    read<CatalogClient>('/v1/admin/clients', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        'idempotency-key': crypto.randomUUID(),
+      },
+      body: JSON.stringify(input),
+    }),
+  patchClient: (
+    id: string,
+    version: number,
+    input: Partial<Pick<CatalogClient, 'code' | 'name' | 'address' | 'state'>>,
+    csrf: string,
+  ) =>
+    read<CatalogClient>(`/v1/admin/clients/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        'idempotency-key': crypto.randomUUID(),
+        'if-match': `"${version}"`,
+      },
+      body: JSON.stringify(input),
+    }),
+  sites: (clientId: string) => readAll<CatalogSite>(`/v1/admin/clients/${clientId}/sites`),
+  createSite: (
+    clientId: string,
+    input: Pick<CatalogSite, 'code' | 'name' | 'address' | 'latitude' | 'longitude'>,
+    csrf: string,
+  ) =>
+    read<CatalogSite>(`/v1/admin/clients/${clientId}/sites`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        'idempotency-key': crypto.randomUUID(),
+      },
+      body: JSON.stringify(input),
+    }),
+  patchSite: (
+    clientId: string,
+    siteId: string,
+    version: number,
+    input: Partial<
+      Pick<CatalogSite, 'code' | 'name' | 'address' | 'latitude' | 'longitude' | 'state'>
+    >,
+    csrf: string,
+  ) =>
+    read<CatalogSite>(`/v1/admin/clients/${clientId}/sites/${siteId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        'idempotency-key': crypto.randomUUID(),
+        'if-match': `"${version}"`,
+      },
+      body: JSON.stringify(input),
+    }),
+  geofences: (clientId: string, siteId: string) =>
+    readAll<CatalogGeofence>(`/v1/admin/clients/${clientId}/sites/${siteId}/geofences`),
+  saveGeofence: (
+    clientId: string,
+    siteId: string,
+    revision: number,
+    input: Pick<
+      CatalogGeofence,
+      'latitude' | 'longitude' | 'radius_m' | 'min_dwell_s' | 'state' | 'reason'
+    >,
+    csrf: string,
+  ) =>
+    read<CatalogGeofence>(`/v1/admin/clients/${clientId}/sites/${siteId}/geofences`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf,
+        'idempotency-key': crypto.randomUUID(),
+        'if-match': `"${revision}"`,
+      },
+      body: JSON.stringify(input),
+    }),
+  routes: (query: { q?: string; state?: string; cursor?: string; limit?: number } = {}) =>
+    read<{ items: CatalogRoute[]; next_cursor: string | null }>(
+      `/v1/admin/routes?${new URLSearchParams(
+        Object.entries(query)
+          .filter(([, value]) => value !== undefined)
+          .map(([key, value]) => [key, String(value)]),
+      ).toString()}`,
+    ),
+  route: (id: string) => read<CatalogRoute>(`/v1/admin/routes/${id}`),
+  createRoute: (input: { code: string; name: string; description: string }, csrf: string) =>
+    routeWrite<CatalogRoute>('/v1/admin/routes', 'POST', input, csrf),
+  patchRoute: (
+    id: string,
+    version: number,
+    input: { code: string; name: string; description: string },
+    csrf: string,
+  ) => routeWrite<CatalogRoute>(`/v1/admin/routes/${id}`, 'PATCH', input, csrf, version),
+  saveRouteStops: (id: string, version: number, stops: RouteStopInput[], csrf: string) =>
+    routeWrite<CatalogRoute>(`/v1/admin/routes/${id}/draft/stops`, 'PUT', { stops }, csrf, version),
+  publishRoute: (id: string, version: number, csrf: string) =>
+    routeWrite<CatalogRoute>(`/v1/admin/routes/${id}/publish`, 'POST', {}, csrf, version),
+  setRouteState: (id: string, version: number, state: 'ACTIVE' | 'INACTIVE', csrf: string) =>
+    routeWrite<CatalogRoute>(
+      `/v1/admin/routes/${id}/${state === 'ACTIVE' ? 'activate' : 'deactivate'}`,
+      'POST',
+      {},
+      csrf,
+      version,
+    ),
+  routeRevisions: (id: string) =>
+    readAll<Omit<RouteRevision, 'stops' | 'route_id'>>(`/v1/admin/routes/${id}/revisions`),
+  routeRevision: (id: string, revision: number) =>
+    read<RouteRevision>(`/v1/admin/routes/${id}/revisions/${revision}`),
+  scheduleCapabilities: () =>
+    read<{
+      capabilities: string[];
+      materialization_max_days: number;
+      agent_device_integration: string;
+    }>('/v1/admin/schedule-capabilities'),
+  agents: () => readAll<ScheduleAgent>('/v1/admin/agents'),
+  agent: (id: string) => read<ScheduleAgent>(`/v1/admin/agents/${id}`),
+  createAgent: (input: { code: string; name: string }, csrf: string) =>
+    routeWrite<ScheduleAgent>('/v1/admin/agents', 'POST', input, csrf),
+  patchAgent: (id: string, version: number, input: Partial<ScheduleAgent>, csrf: string) =>
+    routeWrite<ScheduleAgent>(`/v1/admin/agents/${id}`, 'PATCH', input, csrf, version),
+  calendar: (query: {
+    from: string;
+    to: string;
+    agent_id?: string;
+    route_id?: string;
+    cursor?: string;
+  }) =>
+    read<{ items: ScheduleAssignment[]; next_cursor: string | null }>(
+      `/v1/admin/calendar?${new URLSearchParams(query).toString()}`,
+    ),
+  assignment: (id: string) => read<ScheduleAssignment>(`/v1/admin/assignments/${id}`),
+  createAssignment: (
+    input: {
+      agent_id: string;
+      route_id: string;
+      route_revision: number;
+      local_date: string;
+      time_zone: string;
+      starts_local: string;
+      ends_local: string;
+      reason: string;
+      origin?: 'MANUAL' | 'EXTRAORDINARY';
+    },
+    csrf: string,
+  ) => routeWrite<ScheduleAssignment>('/v1/admin/assignments', 'POST', input, csrf),
+  cancelAssignment: (id: string, version: number, reason: string, csrf: string) =>
+    routeWrite<ScheduleAssignment>(
+      `/v1/admin/assignments/${id}/cancel`,
+      'POST',
+      { reason },
+      csrf,
+      version,
+    ),
+  scheduleRules: () => readAll<ScheduleRule>('/v1/admin/schedule-rules'),
+  scheduleRule: (id: string) => read<ScheduleRule>(`/v1/admin/schedule-rules/${id}`),
+  createScheduleRule: (
+    input: {
+      agent_id: string;
+      route_id: string;
+      route_revision: number;
+      start_date: string;
+      end_date?: string | null;
+      days_iso: number[];
+      time_zone: string;
+      starts_local: string;
+      ends_local: string;
+      reason: string;
+    },
+    csrf: string,
+  ) => routeWrite<ScheduleRule>('/v1/admin/schedule-rules', 'POST', input, csrf),
+  patchScheduleRule: (
+    id: string,
+    version: number,
+    input: { state: 'ACTIVE' | 'INACTIVE'; reason: string },
+    csrf: string,
+  ) => routeWrite<ScheduleRule>(`/v1/admin/schedule-rules/${id}`, 'PATCH', input, csrf, version),
+  putScheduleException: (
+    id: string,
+    date: string,
+    version: number,
+    input: {
+      action: 'SKIP' | 'CANCEL' | 'REPLACE';
+      reason: string;
+      replacement_route_id?: string;
+      replacement_revision?: number;
+    },
+    csrf: string,
+  ) =>
+    routeWrite<ScheduleException>(
+      `/v1/admin/schedule-rules/${id}/exceptions/${date}`,
+      'PUT',
+      input,
+      csrf,
+      version,
+    ),
+  materializeScheduleRule: (id: string, version: number, from: string, to: string, csrf: string) =>
+    routeWrite<{ generated: number; cancelled: number; skipped: number; unchanged: number }>(
+      `/v1/admin/schedule-rules/${id}/materialize`,
+      'POST',
+      { from, to },
+      csrf,
+      version,
+    ),
 };

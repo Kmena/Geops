@@ -19,7 +19,7 @@ try {
   assert.match(identity.rows[0].name, /^geops_verify_[0-9]+$/);
   assert.equal(identity.rows[0].version_table, null, 'test needs an empty disposable database');
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 23);
+  assert.equal(migrations.length, 27);
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
@@ -106,6 +106,10 @@ try {
     '0021_gps_offline_policy_contract.sql',
     '0022_mdm_web_oauth.sql',
     '0023_mdm_oauth_client.sql',
+    '0024_client_geofences.sql',
+    '0025_route_catalog.sql',
+    '0026_agents_assignments.sql',
+    '0027_visit_dwell_engine.sql',
   ]);
   assert.equal(await checkReadiness(pool), true);
   assert.equal(
@@ -131,7 +135,7 @@ try {
   );
   assert.deepEqual(await applyMigrations(pool), []);
   console.log(
-    'gps-continuity migration PASS: 0016 -> 0023, alerts and resolution preserved, idempotent',
+    'gps-continuity migration PASS: 0016 -> 0027, alerts and resolution preserved, idempotent',
   );
 } finally {
   await pool.end();

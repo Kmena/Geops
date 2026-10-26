@@ -241,3 +241,72 @@ test('MDM OAuth controls keep grants off Web and inventory uses a bounded cursor
     globalThis.fetch = prior;
   }
 });
+
+test('catalog geofence save sends CSRF, revision precondition and meter values', async () => {
+  const prior = globalThis.fetch;
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), init: init ?? {} });
+    return Response.json({ revision: 2, radius_m: 200, min_dwell_s: 900 }, { status: 201 });
+  };
+  try {
+    await api.saveGeofence(
+      'client-id',
+      'site-id',
+      1,
+      {
+        latitude: 14.63,
+        longitude: -90.51,
+        radius_m: 200,
+        min_dwell_s: 900,
+        state: 'ACTIVE',
+        reason: 'Synthetic adjustment',
+      },
+      'synthetic-csrf',
+    );
+    const request = requests[0];
+    assert.ok(request);
+    assert.equal(request.url, '/v1/admin/clients/client-id/sites/site-id/geofences');
+    assert.equal(request.init.method, 'POST');
+    const headers = request.init.headers as Record<string, string>;
+    assert.equal(headers['x-csrf-token'], 'synthetic-csrf');
+    assert.equal(headers['if-match'], '"1"');
+    assert.match(headers['idempotency-key'] ?? '', /^[0-9a-f-]{36}$/);
+    assert.deepEqual(JSON.parse(request.init.body as string), {
+      latitude: 14.63,
+      longitude: -90.51,
+      radius_m: 200,
+      min_dwell_s: 900,
+      state: 'ACTIVE',
+      reason: 'Synthetic adjustment',
+    });
+  } finally {
+    globalThis.fetch = prior;
+  }
+});
+
+test('catalog site loader follows bounded opaque cursors', async () => {
+  const prior = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return Response.json(
+      urls.length === 1
+        ? { items: [{ id: 'first' }], next_cursor: 'cursor+value' }
+        : { items: [{ id: 'second' }], next_cursor: null },
+    );
+  };
+  try {
+    const result = await api.sites('client-id');
+    assert.deepEqual(
+      result.items.map((item) => item.id),
+      ['first', 'second'],
+    );
+    assert.deepEqual(urls, [
+      '/v1/admin/clients/client-id/sites?limit=100',
+      '/v1/admin/clients/client-id/sites?limit=100&cursor=cursor%2Bvalue',
+    ]);
+  } finally {
+    globalThis.fetch = prior;
+  }
+});

@@ -23,6 +23,9 @@ import { DeviceManagement } from './DeviceManagement.js';
 import { ActivateAdmin, AdminUsers } from './AdminUsers.js';
 import { MdmOnly, mdmEnabled } from './MdmAvailability.js';
 import { mdmInventoryAvailability } from './MdmInventoryAvailability.js';
+import { ClientCatalog } from './ClientCatalog.js';
+import { RouteCatalog } from './RouteCatalog.js';
+import { VisitSchedule } from './VisitSchedule.js';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {
@@ -185,7 +188,24 @@ function Shell({ children }: { children: React.ReactNode }) {
                 Integración MDM
               </Link>
             </MdmOnly>
-            <span className="sidebar-heading">Administración GPS · W1-D</span>
+            <Link
+              aria-current={location.pathname.startsWith('/clients') ? 'page' : undefined}
+              to="/clients"
+            >
+              Clientes y geozonas
+            </Link>
+            <Link
+              aria-current={location.pathname.startsWith('/routes') ? 'page' : undefined}
+              to="/routes"
+            >
+              Rutas reutilizables
+            </Link>
+            <Link
+              aria-current={location.pathname === '/schedule' ? 'page' : undefined}
+              to="/schedule"
+            >
+              Agentes y calendario
+            </Link>
             {canManageUsers && (
               <Link
                 aria-current={location.pathname === '/admin/users' ? 'page' : undefined}
@@ -194,6 +214,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 Usuarios y permisos
               </Link>
             )}
+            <span className="sidebar-heading">Administración GPS · W1-D</span>
             {(
               [
                 ['/gps/policies', 'Políticas GPS'],
@@ -940,6 +961,36 @@ function AppRoutes() {
         element={
           <Protected>
             <Inventory />
+          </Protected>
+        }
+      />
+      <Route
+        path="/clients/:id?"
+        element={
+          <Protected>
+            <Shell>
+              <ClientCatalog />
+            </Shell>
+          </Protected>
+        }
+      />
+      <Route
+        path="/routes/:id?"
+        element={
+          <Protected>
+            <Shell>
+              <RouteCatalog />
+            </Shell>
+          </Protected>
+        }
+      />
+      <Route
+        path="/schedule"
+        element={
+          <Protected>
+            <Shell>
+              <VisitSchedule />
+            </Shell>
           </Protected>
         }
       />

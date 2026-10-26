@@ -21,7 +21,9 @@ if (
 
 const pool = new pg.Pool({ connectionString: url, max: 8 });
 try {
-  assert.equal((await applyMigrations(pool)).at(-1), '0023_mdm_oauth_client.sql');
+  const applied = await applyMigrations(pool);
+  assert.ok(applied.includes('0023_mdm_oauth_client.sql'));
+  assert.equal(applied.at(-1), '0027_visit_dwell_engine.sql');
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
     csrfKey: Buffer.alloc(32, 12),

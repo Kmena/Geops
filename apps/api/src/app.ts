@@ -35,6 +35,14 @@ import {
 } from './gps-administration.js';
 import { registerGpsContinuityRoutes } from './gps-continuity-routes.js';
 import type { GpsContinuityMonitor } from './gps-continuity-monitor.js';
+import { registerClientCatalogRoutes } from './client-catalog-routes.js';
+import type { ClientCatalogService } from './client-catalog.js';
+import { registerRouteCatalogRoutes } from './route-catalog-routes.js';
+import type { RouteCatalogService } from './route-catalog.js';
+import { registerVisitScheduleRoutes } from './visit-schedule-routes.js';
+import type { VisitScheduleService } from './visit-schedule.js';
+import { registerVisitEvaluationRoutes } from './visit-evaluation-routes.js';
+import type { VisitEvaluationService } from './visit-evaluation.js';
 
 export interface AppOptions {
   readinessProbe: ReadinessProbe;
@@ -62,6 +70,10 @@ export interface AppOptions {
   gpsEvents?: GpsEventService;
   gpsAdministration?: GpsAdministrationService;
   gpsContinuity?: GpsContinuityMonitor;
+  clientCatalog?: ClientCatalogService;
+  routeCatalog?: RouteCatalogService;
+  visitSchedule?: VisitScheduleService;
+  visitEvaluation?: VisitEvaluationService;
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
@@ -110,6 +122,14 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerGpsAdministrationRoutes(app, options.adminAuth, options.gpsAdministration);
     if (options.gpsContinuity)
       registerGpsContinuityRoutes(app, options.adminAuth, options.gpsContinuity);
+    if (options.clientCatalog)
+      registerClientCatalogRoutes(app, options.adminAuth, options.clientCatalog);
+    if (options.routeCatalog)
+      registerRouteCatalogRoutes(app, options.adminAuth, options.routeCatalog);
+    if (options.visitSchedule)
+      registerVisitScheduleRoutes(app, options.adminAuth, options.visitSchedule);
+    if (options.visitEvaluation)
+      registerVisitEvaluationRoutes(app, options.adminAuth, options.visitEvaluation);
     if (options.devices) {
       registerInventoryRoutes(
         app,
