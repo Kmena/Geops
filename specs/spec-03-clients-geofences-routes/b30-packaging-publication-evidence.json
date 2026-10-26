@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "kind": "B30_PUBLICATION_DRAFT",
+  "applicationCommit": "15f77a0d1904b77833972d8e2fd628a6cb97678f",
+  "candidateManifestSha256": "02c83a5293db7a5e6452342c5b1649bcd85d3b9ac334647b5489564257200a5f",
+  "sqlListSha256": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6",
+  "provenance": {
+    "apiDockerfileSha256": "c3f9f22ce30c12a155b5de1f2534e5890a21b9d726fec2bab7558e0d2dff39d1",
+    "webDockerfileSha256": "f3498a680f575c60d4883cac4b3d716f7c83ad1dd7b24684f49994bde817504d",
+    "packageLockSha256": "7cfc1b07976515308adf1ef208d087b136b1f3fc6c97076f67e7bbc80f4e30fa",
+    "nodeBaseId": "sha256:d9e872c3ee59358dc71c3c99957c2d8ccd3f21419fee87b742faddcf00a6ecee",
+    "webBaseId": "sha256:47ce8258a10e28ce4b4498588c25ef77ae328f4c56cbe3e8d5dcf4f6d8019997"
+  },
+  "controller": {
+    "file": "controller-b30-lab.tar.gz",
+    "bytes": 175037,
+    "sha256": "2e3f3cd8d3f7bf104bf44693564975365bd70593b7b1a72c7cc09fb69987bc4b",
+    "scope": "LAB_ONLY"
+  },
+  "images": {
+    "api": {
+      "tag": "geops-b30-packaging-api:15f77a0",
+      "imageId": "sha256:de7b3f5ed3203f1e17b5b885f9ecee48fcc16347cee0e1547118c52dd1077d8e",
+      "architecture": "amd64",
+      "repoDigests": [],
+      "archive": "api-b30.tar",
+      "bytes": 265327104,
+      "sha256": "50c8c05fc143b691a5193e582646a10f8fd5d586b7c8d1f6ad13f773d6a86e55",
+      "layers": 14,
+      "registryDigest": null
+    },
+    "web": {
+      "tag": "geops-b30-packaging-web:15f77a0",
+      "imageId": "sha256:d9e6d51e49946f1fd71710d22a0e0bb3487b791ec6a8d33dda9da0a70c1df432",
+      "architecture": "amd64",
+      "repoDigests": [],
+      "archive": "web-b30.tar",
+      "bytes": 50411520,
+      "sha256": "303f57fb5eef1a62d563007942f8e2cea939d37b04b0789d56b5d6654bf7fce8",
+      "layers": 11,
+      "registryDigest": null
+    }
+  },
+  "publicationReady": false,
+  "publishAuthorized": false
+}

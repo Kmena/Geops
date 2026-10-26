@@ -19,6 +19,8 @@ gradlew text eol=lf
 *.bat text eol=crlf
 gradlew.bat text eol=crlf
 *.ps1 text eol=crlf
+scripts/deploy/b30-packaging/*.py text eol=lf
+scripts/deploy/b30-packaging/sudoers text eol=lf
 
 *.jar binary
 *.png binary
