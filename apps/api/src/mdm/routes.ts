@@ -399,39 +399,6 @@ function registerDiscoveredTenantRoutes(
           : null,
       };
     });
-    app.put<{ Body: { client_id: string; client_secret: string } }>(
-      '/v1/admin/mdm/oauth/config',
-      {
-        schema: {
-          body: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['client_id', 'client_secret'],
-            properties: {
-              client_id: { type: 'string', minLength: 1, maxLength: 2048 },
-              client_secret: { type: 'string', minLength: 1, maxLength: 2048 },
-            },
-          },
-        },
-      },
-      async (request, reply) => {
-        const admin = await requireAdmin(request, auth, true);
-        await requireInstallationCapability(
-          devices,
-          admin.id,
-          request.id,
-          'mdm.oauth.config.write',
-        );
-        await clientStore.save(
-          admin.id,
-          request.id,
-          request.body.client_id,
-          request.body.client_secret,
-        );
-        reply.header('Cache-Control', 'no-store');
-        return { configured: true };
-      },
-    );
   }
   app.get('/v1/admin/mdm/status', async (request) => {
     const admin = await requireAdmin(request, auth);

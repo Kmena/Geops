@@ -10,17 +10,11 @@ import { FakeMdmProvider } from '../src/mdm/provider.js';
 import { MdmTenantRuntime } from '../src/mdm/tenant-runtime.js';
 import type { MdmOAuthClientStore } from '../src/mdm/oauth-client-store.js';
 
-test('OAuth client configuration requires admin Origin and CSRF and never returns secrets', async () => {
+test('OAuth application identity status is readable but cannot be configured through Web', async () => {
   const pool = { query: async () => ({ rowCount: 1, rows: [{ one: 1 }] }) } as unknown as Pool;
-  let saved = false;
   const store = {
     webOrigin: 'https://example.invalid',
-    status: async () => ({ configured: saved, source: saved ? 'admin' : 'none', region: 'com' }),
-    save: async (_admin: string, _request: string, clientId: string, secret: string) => {
-      assert.equal(clientId, 'synthetic-client');
-      assert.equal(secret, 'synthetic-secret');
-      saved = true;
-    },
+    status: async () => ({ configured: true, source: 'admin', region: 'com' }),
   } as unknown as MdmOAuthClientStore;
   const auth = {
     cookieName: 'geops_admin',
@@ -47,21 +41,14 @@ test('OAuth client configuration requires admin Origin and CSRF and never return
   });
   try {
     await app.ready();
-    const body = { client_id: 'synthetic-client', client_secret: 'synthetic-secret' };
     const base = { cookie: 'geops_admin=session', origin: 'https://example.invalid' };
-    const put = (headers: Record<string, string>) =>
-      app.inject({
-        method: 'PUT',
-        url: '/v1/admin/mdm/oauth/config',
-        headers,
-        payload: body,
-      });
-    assert.equal((await put(base)).statusCode, 403);
-    assert.equal(
-      (await put({ ...base, origin: 'https://evil.invalid', 'x-csrf-token': 'csrf' })).statusCode,
-      403,
-    );
-    assert.equal((await put({ ...base, 'x-csrf-token': 'csrf' })).statusCode, 200);
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/v1/admin/mdm/oauth/config',
+      headers: { ...base, 'x-csrf-token': 'csrf' },
+      payload: { client_id: 'synthetic-client', client_secret: 'synthetic-secret' },
+    });
+    assert.equal(put.statusCode, 404);
     const read = await app.inject({
       method: 'GET',
       url: '/v1/admin/mdm/oauth/config',

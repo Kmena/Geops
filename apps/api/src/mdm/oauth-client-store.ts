@@ -129,6 +129,7 @@ export class MdmOAuthClientStore {
     correlationId: string,
     clientId: string,
     clientSecret: string,
+    onlyIfMissing = false,
   ): Promise<void> {
     if (!validOAuthClientValue(clientId) || !validOAuthClientValue(clientSecret))
       throw new ApiError(400, 'mdm_oauth_client_invalid', 'Invalid request');
@@ -138,6 +139,14 @@ export class MdmOAuthClientStore {
       await db.query('SELECT pg_advisory_xact_lock($1)', [LOCK]);
       await this.tenant(db);
       await this.requireAdmin(adminId, db);
+      if (onlyIfMissing) {
+        const existing = await db.query(
+          `SELECT 1 FROM mdm_oauth_client_config WHERE tenant_id=$1 AND region=$2 FOR UPDATE`,
+          [TENANT, this.region],
+        );
+        if (existing.rowCount)
+          throw new ApiError(409, 'mdm_oauth_client_already_configured', 'Conflict');
+      }
       const limit = await db.query(
         `INSERT INTO mdm_oauth_config_rate(tenant_id,admin_id,next_allowed_at)
          VALUES($1,$2,now()+interval '15 seconds')

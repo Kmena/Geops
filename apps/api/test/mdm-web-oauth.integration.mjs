@@ -72,6 +72,11 @@ try {
   assert.deepEqual(await reloadedStore.status(), {
     configured: true, source: 'admin', region: 'com',
   });
+  await assert.rejects(
+    reloadedStore.save(adminId, randomUUID(), 'unexpected-id', 'unexpected-secret', true),
+    { code: 'mdm_oauth_client_already_configured' },
+  );
+  assert.equal((await reloadedStore.load()).clientId, 'synthetic-config-id');
   const oldGeneration = (await clientStore.load()).generation;
   await pool.query("UPDATE mdm_oauth_config_rate SET next_allowed_at=now()-interval '1 second'");
   await clientStore.save(adminId, randomUUID(), 'synthetic-new-id', 'synthetic-new-secret');
@@ -244,6 +249,7 @@ try {
   await runtime.removePersistedGrant();
   assert.equal(await grants.load(), null);
   assert.equal(await control.isConnected(), false);
+  assert.equal((await reloadedStore.status()).configured, true);
   customerMode = 'none';
   const empty = await browser.start(adminId, activeSession.sessionId);
   await assert.rejects(

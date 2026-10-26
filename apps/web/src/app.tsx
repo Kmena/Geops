@@ -414,8 +414,8 @@ function Inventory() {
             ) : mdm.error instanceof ApiClientError &&
               mdm.error.code === 'mdm_oauth_unconfigured' ? (
               <p className="empty">
-                Configuración OAuth pendiente. El inventario MDM estará disponible después de
-                conectar ManageEngine.
+                Servicio ManageEngine sin configurar. El inventario MDM estará disponible después de
+                la configuración inicial del servicio.
               </p>
             ) : mdm.error instanceof ApiClientError && mdm.error.code === 'mdm_disconnected' ? (
               <p className="empty">
@@ -456,11 +456,7 @@ function Status() {
   const location = useLocation();
   const navigate = useNavigate();
   const state = useLoad(api.mdmStatus);
-  const oauthConfig = useLoad(api.mdmOAuthConfig, mdmEnabled);
   const [busy, setBusy] = useState(false);
-  const [showOAuthForm, setShowOAuthForm] = useState(false);
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
@@ -518,25 +514,6 @@ function Status() {
       setBusy(false);
     }
   }
-  async function saveOAuthConfig(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!profile || busy) return;
-    setBusy(true);
-    setActionError('');
-    try {
-      await api.mdmSaveOAuthConfig(clientId, clientSecret, profile.csrf_token);
-      setClientId('');
-      setClientSecret('');
-      setShowOAuthForm(false);
-      setNotice('Cliente OAuth guardado. Puedes conectar ManageEngine.');
-      oauthConfig.refresh();
-      state.refresh();
-    } catch (error) {
-      setActionError(mdmErrorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
   async function disconnect() {
     if (!profile || busy) return;
     setBusy(true);
@@ -564,63 +541,14 @@ function Status() {
       </p>
       <section className="panel status-panel" aria-labelledby="status-title">
         <h2 id="status-title">Estado de la conexión</h2>
-        {state.data?.provider === 'manageengine' && !authorized && (
-          <div className="mdm-oauth-config">
-            <h3>
-              {state.data.oauth_configured
-                ? 'Cliente OAuth configurado'
-                : 'ManageEngine — Configuración pendiente'}
-            </h3>
-            {oauthConfig.data?.callback_url && (
-              <p>
-                URI de callback HTTPS: <code>{oauthConfig.data.callback_url}</code>
-              </p>
-            )}
-            {!showOAuthForm ? (
-              <button type="button" disabled={busy} onClick={() => setShowOAuthForm(true)}>
-                {state.data.oauth_configured ? 'Reemplazar credenciales' : 'Configurar OAuth'}
-              </button>
-            ) : (
-              <form onSubmit={(event) => void saveOAuthConfig(event)} autoComplete="off">
-                <label>
-                  Client ID
-                  <input
-                    value={clientId}
-                    onChange={(event) => setClientId(event.target.value)}
-                    required
-                    maxLength={2048}
-                    autoComplete="off"
-                  />
-                </label>
-                <label>
-                  Client Secret
-                  <input
-                    type="password"
-                    value={clientSecret}
-                    onChange={(event) => setClientSecret(event.target.value)}
-                    required
-                    maxLength={2048}
-                    autoComplete="new-password"
-                  />
-                </label>
-                <button type="submit" disabled={busy}>
-                  {busy ? 'Guardando…' : 'Guardar configuración'}
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setClientId('');
-                    setClientSecret('');
-                    setShowOAuthForm(false);
-                  }}
-                >
-                  Cancelar
-                </button>
-              </form>
-            )}
-          </div>
-        )}
+        {state.data?.provider === 'manageengine' &&
+          !authorized &&
+          state.data.oauth_configured === false && (
+            <p role="status">
+              Servicio ManageEngine sin configurar. El responsable de la instalación debe
+              provisionar la identidad OAuth de GEOPS una sola vez.
+            </p>
+          )}
         {callbackResult === 'failed' && (
           <p role="alert">No se completó la autorización de ManageEngine. Vuelve a intentarlo.</p>
         )}
@@ -670,7 +598,7 @@ function Status() {
                 {authorized
                   ? 'Autorizada'
                   : state.data.oauth_configured === false
-                    ? 'Configuración OAuth pendiente'
+                    ? 'Servicio sin configurar'
                     : 'ManageEngine no conectado'}{' '}
                 ·{' '}
                 {state.data.connected ? 'Consulta real confirmada' : 'Sin consulta real confirmada'}
@@ -731,12 +659,8 @@ function Status() {
               <button type="button" onClick={() => void disconnect()} disabled={busy || !profile}>
                 {busy ? 'Reintentando…' : 'Reintentar desconexión'}
               </button>
-            ) : !authorized && callbackResult !== 'select' ? (
-              <button
-                type="button"
-                onClick={() => void connect()}
-                disabled={busy || !profile || state.data.oauth_configured === false}
-              >
+            ) : !authorized && callbackResult !== 'select' && state.data.oauth_configured ? (
+              <button type="button" onClick={() => void connect()} disabled={busy || !profile}>
                 {busy ? 'Preparando autorización…' : 'Conectar ManageEngine'}
               </button>
             ) : !authorized ? null : confirmDisconnect ? (

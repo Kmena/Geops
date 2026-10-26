@@ -173,38 +173,26 @@ test('MDM admin mutations use session credentials and CSRF without browser OAuth
   }
 });
 
-test('OAuth client configuration is sent only to the authenticated API with CSRF', async () => {
+test('OAuth application status never transmits client credentials', async () => {
   const prior = globalThis.fetch;
   const requests: Array<{ url: string; init: RequestInit }> = [];
   globalThis.fetch = async (url, init) => {
     requests.push({ url: String(url), init: init ?? {} });
-    return Response.json(
-      requests.length === 1
-        ? { configured: true }
-        : {
-            configured: true,
-            source: 'admin',
-            region: 'com',
-            callback_url: 'https://example.invalid/v1/admin/mdm/oauth/callback',
-          },
-    );
+    return Response.json({
+      configured: true,
+      source: 'admin',
+      region: 'com',
+      callback_url: 'https://example.invalid/v1/admin/mdm/oauth/callback',
+    });
   };
   try {
-    await api.mdmSaveOAuthConfig('synthetic-client', 'synthetic-secret', 'synthetic-csrf');
     const status = await api.mdmOAuthConfig();
-    const saved = requests[0];
-    assert.ok(saved);
     assert.equal(status.configured, true);
-    assert.equal(saved.url, '/v1/admin/mdm/oauth/config');
-    assert.equal(saved.init.method, 'PUT');
-    assert.equal(saved.init.credentials, 'same-origin');
-    assert.equal((saved.init.headers as Record<string, string>)['x-csrf-token'], 'synthetic-csrf');
-    assert.deepEqual(JSON.parse(saved.init.body as string), {
-      client_id: 'synthetic-client',
-      client_secret: 'synthetic-secret',
-    });
-    assert.equal(requests[1]?.url, '/v1/admin/mdm/oauth/config');
-    assert.equal(requests[1]?.init.body, undefined);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.url, '/v1/admin/mdm/oauth/config');
+    assert.equal(requests[0]?.init.credentials, 'same-origin');
+    assert.equal(requests[0]?.init.body, undefined);
+    assert.doesNotMatch(JSON.stringify(requests), /client_secret|synthetic-secret/i);
   } finally {
     globalThis.fetch = prior;
   }

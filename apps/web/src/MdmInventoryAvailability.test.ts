@@ -18,7 +18,7 @@ test('inventory waits for OAuth configuration and authorization before requestin
   assert.deepEqual(mdmInventoryAvailability(null), { loadDevices: false, message: null });
   assert.deepEqual(mdmInventoryAvailability(status), {
     loadDevices: false,
-    message: 'Configuración OAuth pendiente.',
+    message: 'Servicio ManageEngine sin configurar.',
   });
   assert.deepEqual(mdmInventoryAvailability({ ...status, oauth_configured: true }), {
     loadDevices: false,
