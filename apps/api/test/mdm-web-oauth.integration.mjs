@@ -134,7 +134,7 @@ try {
       });
     }
     if (path === '/oauth/v2/revoke/token') return Response.json({ status: 'success' });
-    if (path === '/customers')
+    if (path === '/api/v1/customers')
       return Response.json({
         customers:
           customerMode === 'none'

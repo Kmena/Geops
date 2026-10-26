@@ -87,7 +87,7 @@ export async function discoverCustomers(
 ): Promise<MdmCustomer[]> {
   if (!['com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk'].includes(region))
     throw new ApiError(400, 'mdm_region_invalid', 'Invalid request');
-  const url = new URL('/customers', `https://mdm.manageengine.${region}`);
+  const url = new URL('/api/v1/customers', `https://mdm.manageengine.${region}`);
   let response: Response;
   try {
     response = await fetchImpl(url, {

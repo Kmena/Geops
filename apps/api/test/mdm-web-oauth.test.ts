@@ -200,7 +200,7 @@ test('Web OAuth discovers one MSP customer without preconfigured identity and re
           scope: 'MDMOnDemand.MDMInventory.READ,MDMOnDemand.MDMAdmin.READ',
         });
       }
-      if (url.endsWith('/customers')) {
+      if (url === 'https://mdm.manageengine.com/api/v1/customers') {
         assert.equal(new Headers(init?.headers).get('X-CUSTOMER'), null);
         return Response.json({ customers: [{ customer_id: '12345', customer_name: 'Test MSP' }] });
       }
