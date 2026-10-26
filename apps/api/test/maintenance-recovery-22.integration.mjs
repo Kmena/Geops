@@ -82,7 +82,7 @@ try {
     22,
   );
   assert.equal((await readGate(gatePath)).phase, 'maintenance');
-  assert.equal(await recoverMaintenance(pool, gatePath, authorization()), 22);
+  assert.equal(await recoverMaintenance(pool, gatePath, authorization()), 23);
   assert.equal(await gateAllowsTraffic(pool, gatePath), true);
   assert.equal(await checkReadiness(pool), true);
   const after = (
@@ -93,7 +93,7 @@ try {
       (SELECT count(*)::int FROM geops_device) AS devices,
       (SELECT epoch::text FROM security_epoch WHERE singleton=true) AS epoch`)
   ).rows[0];
-  assert.deepEqual(after, { ...before, migrations: 22 });
+  assert.deepEqual(after, { ...before, migrations: 23 });
   assert.ok((await pool.query("SELECT to_regclass('mdm_oauth_pending') AS rel")).rows[0].rel);
   assert.ok(
     (await pool.query("SELECT to_regclass('mdm_oauth_one_pending_tenant') AS rel")).rows[0].rel,
@@ -102,7 +102,7 @@ try {
     recoverMaintenance(pool, gatePath, authorization()),
     'open gate rejects replay',
   );
-  console.log('Disposable A21 to B22 supervised recovery: PASS');
+  console.log('Disposable A21 to B23 supervised recovery with 0022 interruption: PASS');
 } finally {
   await pool.end();
   await rm(directory, { recursive: true, force: true });

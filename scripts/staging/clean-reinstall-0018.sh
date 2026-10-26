@@ -87,12 +87,13 @@ assert c["volumes"]["stage_backups"]["name"] == "geops_spec02_stage_backups"
 docker network inspect geops_spec02_stage_edge >/dev/null
 
 # The published catalog is immutable for this reinstall. A21 remains the default;
-# B22-safe requires an explicit profile and the reviewed A21 prefix plus 0022.
+# Later catalogs require an explicit profile and retain the reviewed prefixes.
 migration_files=("$root"/apps/api/src/db/migrations/*.sql)
 catalog_profile=${GEOPS_CATALOG_PROFILE:-A21}
 case $catalog_profile in
   A21) expected_count=21; expected_hash=cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e ;;
   B22-safe) expected_count=22; expected_hash=aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2 ;;
+  B23-safe) expected_count=23; expected_hash=90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d ;;
   *) echo 'Perfil de catálogo no permitido' >&2; exit 1 ;;
 esac
 [[ ${#migration_files[@]} -eq $expected_count ]] || { echo 'Cantidad de migraciones incompatible con el perfil' >&2; exit 1; }
@@ -105,12 +106,19 @@ expected_migrations=$(for file in "${migration_files[@]}"; do
 done)
 catalog_hash=$(printf '%s' "$expected_migrations" | sha256sum | cut -d' ' -f1)
 [[ $catalog_hash == "$expected_hash" ]] || { echo 'Hash del catálogo no coincide con el perfil revisado' >&2; exit 1; }
-if [[ $catalog_profile == B22-safe ]]; then
+if [[ $catalog_profile == B22-safe || $catalog_profile == B23-safe ]]; then
   a21_migrations=$(for file in "${migration_files[@]:0:21}"; do
     printf '%s|%s\n' "$(basename -- "$file")" "$(sha256sum -- "$file" | cut -d' ' -f1)"
   done)
   a21_hash=$(printf '%s' "$a21_migrations" | sha256sum | cut -d' ' -f1)
   [[ $a21_hash == cd308f751512b86926116856185b7aa870f849235161e5e23c904c4d28813d8e ]] || { echo 'Prefijo A21 alterado' >&2; exit 1; }
+fi
+if [[ $catalog_profile == B23-safe ]]; then
+  b22_migrations=$(for file in "${migration_files[@]:0:22}"; do
+    printf '%s|%s\n' "$(basename -- "$file")" "$(sha256sum -- "$file" | cut -d' ' -f1)"
+  done)
+  b22_hash=$(printf '%s' "$b22_migrations" | sha256sum | cut -d' ' -f1)
+  [[ $b22_hash == aca17d3d9155351596a98ca412fe02b37dca575f2b8b6e8441d7466ed81abaf2 ]] || { echo 'Prefijo B22 alterado' >&2; exit 1; }
 fi
 
 for pair in 'stage_db geops_spec02_stage_db' 'stage_app geops_spec02_stage_app'; do
@@ -273,9 +281,13 @@ actual_migrations=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geop
 [[ $actual_migrations == "$expected_migrations" ]] || { echo 'Ledger o checksums no coinciden con el catálogo revisado' >&2; exit 1; }
 structure=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc "SELECT (PostGIS_Version() IS NOT NULL AND to_regclass('gps_continuity_alert') IS NOT NULL AND to_regclass('gps_continuity_alert_page') IS NOT NULL AND to_regclass('mdm_inventory_device') IS NOT NULL AND to_regclass('mdm_sync_run') IS NOT NULL)")
 [[ $structure == t ]] || { echo 'Estructura 0016–0018 incompleta' >&2; exit 1; }
-if [[ $catalog_profile == B22-safe ]]; then
+if [[ $catalog_profile == B22-safe || $catalog_profile == B23-safe ]]; then
   oauth_table=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc "SELECT to_regclass('mdm_oauth_pending') IS NOT NULL")
   [[ $oauth_table == t ]] || { echo 'Estructura 0022 incompleta' >&2; exit 1; }
+fi
+if [[ $catalog_profile == B23-safe ]]; then
+  oauth_client_table=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc "SELECT to_regclass('mdm_oauth_client_config') IS NOT NULL")
+  [[ $oauth_client_table == t ]] || { echo 'Estructura 0023 incompleta' >&2; exit 1; }
 fi
 identities=$("${compose[@]}" exec -T geops-db psql -U geops_stage -d geops_dev -Atc 'SELECT (SELECT count(*) FROM admin_user)+(SELECT count(*) FROM geops_device)+(SELECT count(*) FROM security_epoch)')
 [[ $identities == 0 ]] || { echo 'Base no está vacía; gate no inicializado' >&2; exit 1; }

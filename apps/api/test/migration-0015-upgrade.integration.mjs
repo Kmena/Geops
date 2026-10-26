@@ -173,6 +173,7 @@ try {
       '0020_gps_mixed_batch_receipt.sql',
       '0021_gps_offline_policy_contract.sql',
       '0022_mdm_web_oauth.sql',
+      '0023_mdm_oauth_client.sql',
     ]);
     const rows = await pool.query(
       'SELECT permission FROM admin_permission WHERE admin_id=$1 AND revoked_at IS NULL',
@@ -190,7 +191,7 @@ try {
     );
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
-      22,
+      23,
     );
     assert.equal((await pool.query('SELECT epoch FROM security_epoch')).rows[0].epoch, epoch);
     assert.equal(
@@ -253,7 +254,7 @@ try {
       ).rows[0].consumed_at,
       null,
     );
-    console.log('Migrations 0015-0022 upgrade from populated 14-migration database: PASS');
+    console.log('Migrations 0015-0023 upgrade from populated 14-migration database: PASS');
   }
 } finally {
   await pool.end();

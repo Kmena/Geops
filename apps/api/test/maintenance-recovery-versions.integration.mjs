@@ -185,7 +185,7 @@ try {
       (SELECT count(*)::int FROM admin_permission WHERE revoked_at IS NULL) AS permissions,
       (SELECT epoch::text FROM security_epoch WHERE singleton=true) AS epoch`)
   ).rows[0];
-  assert.deepEqual(after, { ...before, migrations: 22 }, 'identity, grants and epoch retained');
+  assert.deepEqual(after, { ...before, migrations: 23 }, 'identity, grants and epoch retained');
   if (initialVersion >= 15)
     assert.equal(
       (await pool.query('SELECT tenant_id FROM geops_operating_tenant')).rows[0].tenant_id,
@@ -215,7 +215,7 @@ try {
     );
   }
   await assert.rejects(recoverMaintenance(pool, path, request()), 'open gate rejects replay');
-  console.log(`Supervised schema ${initialVersion} -> 22 recovery: PASS`);
+  console.log(`Supervised schema ${initialVersion} -> 23 recovery: PASS`);
 } finally {
   await pool.end();
   await rm(root, { recursive: true, force: true });

@@ -68,6 +68,7 @@ catalog_count=$(find "$root/apps/api/src/db/migrations" -maxdepth 1 -name '*.sql
 case $catalog_count in
   21) catalog_profile=A21 ;;
   22) catalog_profile=B22-safe ;;
+  23) catalog_profile=B23-safe ;;
   *) echo 'Unexpected migration catalog size' >&2; exit 1 ;;
 esac
 printf 'GEOPS_STAGE_IMAGE_TAG=%s\nGEOPS_STAGE_ORIGIN=https://geops-staging.duckdns.org\nGEOPS_STAGE_SECRET_GID=%s\n' \
@@ -182,7 +183,7 @@ old_api_container=
 docker image rm "$old_api_image" >/dev/null
 old_api_image=
 
-if [[ $catalog_profile == B22-safe ]] &&
+if [[ $catalog_profile == B22-safe || $catalog_profile == B23-safe ]] &&
    sudo -u "$operator" -g "$group" -- bash scripts/staging/clean-reinstall-0018.sh check "$sha" "$env_file" >/dev/null 2>&1; then
   echo 'B22 catalog accepted without explicit profile' >&2; exit 1
 fi
