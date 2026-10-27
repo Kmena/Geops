@@ -6,7 +6,7 @@ Fecha local: 2026-10-27. Publicación GHCR y firma completadas; staging no se mo
 
 - Rama aislada: `codex/b30-packaging-readiness`; HEAD al construir: `7d59d558f172cf1c918275e28600a019a619b140`.
 - Commit de aplicación fijado por el controlador: `2f89b87f1f636feb7e21d7e09af03959ee95f68d`. `git diff` entre este commit y HEAD sobre API, Web, contratos, Dockerfiles, lockfile y `.dockerignore` no mostró cambios.
-- `git archive HEAD` dio un contexto limpio de 761 archivos, SHA-256 `499341e53e7fe2df25030fdd5f5492fee32a77f4760e5847f274aadbb95910bb`; no incluyó archivos `.pem`, `.key`, `.p12` ni `.pfx`.
+- `git archive HEAD` dio un contexto limpio de 761 archivos, SHA-256 `499341e53e7fe2df25030fdd5f5492fee32a77f4760e5847f274aadbb95910bb`; se conservó como `artifacts/b30-packaging/b30-source-7d59d55.tar`. No incluyó archivos `.pem`, `.key`, `.p12` ni `.pfx`.
 - Dockerfiles API/Web: SHA-256 `c3f9f22ce30c12a155b5de1f2534e5890a21b9d726fec2bab7558e0d2dff39d1` / `f3498a680f575c60d4883cac4b3d716f7c83ad1dd7b24684f49994bde817504d`. `package-lock.json`: `7cfc1b07976515308adf1ef208d087b136b1f3fc6c97076f67e7bbc80f4e30fa`.
 
 ## B. Confianza
@@ -36,6 +36,8 @@ El operador proporcionó por consulta de solo lectura los hashes del B23 instala
 
 El firmador offline generó `controller-b30-staging-ready.sig`, 64 bytes, SHA-256 `aa52a8e55f9d581d0be1389dad3157adc3ea9cf463fca3b7ca0ce9b648f02667`. La verificación independiente con la clave pública aprobada pasó sobre el mensaje `GEOPS-B30-STAGING-PACKAGE-SHA256\n<hash-del-paquete>\n`; un mensaje alterado fue rechazado. La clave pública exportada `controller-b30-staging-approved-public.pem` tiene SHA-256 `d01423d005fe09fbec30be0b6ed8a66d144ffc5f44c3869f64aa84756a814a27`. La clave privada permanece en el almacén local protegido y fuera de Git.
 
+OpenSSL 3.3.3, ejecutado en un contenedor Linux descartable sin red y con los artefactos montados en solo lectura, devolvió `Signature Verified Successfully` usando `pkeyutl -verify -pubin -rawin`, el mismo mecanismo del instalador.
+
 ## E. Controlador
 
 El bundle incluye `controller.py`, `guard.py`, `install.py`, `sudoers-ready` y la política de compatibilidad B23→B30. El controlador exige las referencias GHCR por digest, etiquetas OCI de la revisión de aplicación, variante `B30-integrated`, Web con MDM y recuperación máxima de esquema 30. No se modificó su lógica en esta ejecución. El render de Compose con los digests reales confirmó API, Web y `geops-migrate` en sus referencias correctas, con MDM habilitado; no se iniciaron servicios.
@@ -57,8 +59,9 @@ La imagen API descargada de GHCR por digest contiene 30 archivos SQL con hash de
 - Bundle `READY`: parser del instalador PASS con 22 miembros, dos referencias GHCR por digest, clave aprobada, hashes B23 y política 23→30.
 - Reproducción del bundle: PASS; dos construcciones con SHA-256 `e3d46085cd0abe99133f7e818dd040385df3cb2e0dcacdcaca8fa1d5eda30151`.
 - Firma Ed25519 real: PASS; verificación independiente y rechazo de mensaje alterado.
+- Verificación OpenSSL Linux del paquete y firma reales: PASS.
 - Compose con digests API/Web/migrador y MDM: PASS; solo render de configuración.
-- Manifiesto final `b30-final-publication-manifest.json`: SHA-256 `b3a4ba3436cf1c9247ed8c37dc9221c223952064c70f5f78ae9f9dc50d68d0be`; registra commits, procedencia, hashes, digests, firma y compatibilidad. `verify-final-publication.mjs` contrastó sus valores con el tar firmado, los 22 miembros y las imágenes descargadas: PASS.
+- Manifiesto final `b30-final-publication-manifest.json`: SHA-256 `8dd00bea95c993ad094798d548fc2f6384110c412704765ffd5afbb63a47de56`; registra commits, procedencia, hashes, digests, firma y compatibilidad. `verify-final-publication.mjs` contrastó sus valores con la fuente archivada, el tar firmado, los 22 miembros y las imágenes descargadas: PASS.
 
 ## H. Seguridad
 

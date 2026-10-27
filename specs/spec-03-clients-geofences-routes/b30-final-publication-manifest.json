@@ -4,6 +4,7 @@
   "source": {
     "releaseCommit": "7d59d558f172cf1c918275e28600a019a619b140",
     "applicationCommit": "2f89b87f1f636feb7e21d7e09af03959ee95f68d",
+    "sourceArchiveFile": "artifacts/b30-packaging/b30-source-7d59d55.tar",
     "sourceArchiveSha256": "499341e53e7fe2df25030fdd5f5492fee32a77f4760e5847f274aadbb95910bb",
     "candidateManifestSha256": "3685814d172901cab4435caee5cfa6cbf17259f738d6b904df6f3b143cd74c2b",
     "apiDockerfileSha256": "c3f9f22ce30c12a155b5de1f2534e5890a21b9d726fec2bab7558e0d2dff39d1",
@@ -72,6 +73,7 @@
     "pullByDigestVerified": true,
     "bundleSigned": true,
     "bundleSignatureVerified": true,
+    "linuxOpenSSLVerified": true,
     "stagingChanged": false,
     "stagingDeploymentPending": true,
     "spec03OperationalPass": false,

@@ -1,5 +1,7 @@
 # B30 — Clave de confianza y preparación GHCR
 
+> Estado histórico de preparación. La publicación GHCR y la firma se completaron después; consultar `b30-final-publication-report.md` y `b30-final-publication-manifest.json` para el estado vigente.
+
 Fecha de comprobación local: 2026-10-27. Rama aislada: `codex/b30-packaging-readiness`.
 
 `B30_STAGING_CONTROLLER_TECHNICAL_PASS` (evidencia previa en `b30-staging-controller-replica-validation.md`)

@@ -29,6 +29,7 @@ assert.equal(manifest.state.ghcrPublished, true);
 assert.equal(manifest.state.bundleSigned, true);
 assert.equal(manifest.state.stagingChanged, false);
 assert.equal(manifest.source.applicationCommit, '2f89b87f1f636feb7e21d7e09af03959ee95f68d');
+assert.equal(hash(local(manifest.source.sourceArchiveFile)), manifest.source.sourceArchiveSha256);
 assert.equal(
   hash(local('specs/spec-03-clients-geofences-routes/b30-staging-candidate.json')),
   manifest.source.candidateManifestSha256,
