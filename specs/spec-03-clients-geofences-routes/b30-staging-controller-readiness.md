@@ -1,5 +1,7 @@
 # B30 — Compatibilidad técnica del controlador de staging
 
+**Corte histórico:** la réplica Docker real y el cierre técnico posterior están documentados en `b30-staging-controller-replica-validation.md`. El estado parcial de este informe corresponde a la evaluación anterior a esa prueba.
+
 **Corte local:** 2026-10-27. **Rama aislada:** `codex/b30-packaging-readiness`.
 
 `B30_STAGING_CONTROLLER_TECHNICAL_PASS = NO`

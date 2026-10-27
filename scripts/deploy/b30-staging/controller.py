@@ -421,8 +421,7 @@ class Controller:
         if mdm:
             files.append(FILES[2])
         files.append(FILES[1])
-        if migration:
-            files.append(FILES[3])
+        files.append(FILES[3])
         args = ['/usr/bin/docker', 'compose', '--profile', 'maintenance']
         for name in files:
             args += ['-f', str(self.v2 / 'bundle' / name)]
