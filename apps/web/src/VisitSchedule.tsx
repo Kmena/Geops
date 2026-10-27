@@ -4,6 +4,9 @@ import {
   api,
   ApiClientError,
   type CatalogRoute,
+  type AgentDeviceCandidate,
+  type AgentIdentity,
+  type AgentResponsibility,
   type ScheduleAgent,
   type ScheduleAssignment,
   type ScheduleRule,
@@ -83,6 +86,16 @@ export function VisitSchedule() {
   const [selected, setSelected] = useState<ScheduleAssignment | null>(null);
   const [agentCode, setAgentCode] = useState('');
   const [agentName, setAgentName] = useState('');
+  const [registrationDevice, setRegistrationDevice] = useState('');
+  const [registrationResponsible, setRegistrationResponsible] = useState('');
+  const [deviceCandidates, setDeviceCandidates] = useState<AgentDeviceCandidate[]>([]);
+  const [deviceAccess, setDeviceAccess] = useState(false);
+  const [identity, setIdentity] = useState<AgentIdentity | null>(null);
+  const [responsibilityHistory, setResponsibilityHistory] = useState<AgentResponsibility[]>([]);
+  const [responsibleName, setResponsibleName] = useState('');
+  const [responsibleReason, setResponsibleReason] = useState('');
+  const [reconciliationDevice, setReconciliationDevice] = useState('');
+  const [reconciliationReason, setReconciliationReason] = useState('');
   const [agentEdit, setAgentEdit] = useState('');
   const [agentEditName, setAgentEditName] = useState('');
   const [assignmentAgent, setAssignmentAgent] = useState('');
@@ -144,6 +157,17 @@ export function VisitSchedule() {
     } while (cursor);
     setAssignments(items);
   }, [range, agentFilter, routeFilter]);
+  const loadDevices = useCallback(async () => {
+    try {
+      const result = await api.availableAgentDevices();
+      setDeviceCandidates(result.items);
+      setDeviceAccess(true);
+    } catch (failure) {
+      setDeviceAccess(false);
+      if (!(failure instanceof ApiClientError && failure.status === 403))
+        setError(message(failure));
+    }
+  }, []);
   useEffect(() => {
     if (!profile) return;
     let live = true;
@@ -167,12 +191,29 @@ export function VisitSchedule() {
     if (!canRead) return;
     void loadCalendar().catch((failure) => setError(message(failure)));
   }, [canRead, loadCalendar]);
+  useEffect(() => {
+    if (canRead) void loadDevices();
+  }, [canRead, loadDevices]);
   const refresh = async () => {
     await Promise.all([
       loadCatalog(),
       loadCalendar(),
+      loadDevices(),
       ruleId ? api.scheduleRule(ruleId).then(setRuleDetail) : Promise.resolve(),
     ]);
+  };
+  const inspectAgent = async (agentId: string) => {
+    try {
+      const [nextIdentity, history] = await Promise.all([
+        api.agentIdentity(agentId),
+        api.agentResponsibilityHistory(agentId),
+      ]);
+      setIdentity(nextIdentity);
+      setResponsibilityHistory(history.items);
+      setResponsibleName(nextIdentity.responsible?.person_name ?? '');
+    } catch (failure) {
+      setError(message(failure));
+    }
   };
   const perform = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -197,10 +238,52 @@ export function VisitSchedule() {
   const createAgent = (event: FormEvent) => {
     event.preventDefault();
     void perform(async () => {
-      await api.createAgent({ code: agentCode, name: agentName }, csrf);
+      const created = await api.registerAgentDevice(
+        {
+          device_id: registrationDevice,
+          code: agentCode,
+          name: agentName,
+          ...(registrationResponsible.trim()
+            ? { person_name: registrationResponsible.trim() }
+            : {}),
+          reason: 'Registro administrativo del dispositivo operativo',
+        },
+        csrf,
+      );
       setAgentCode('');
       setAgentName('');
-      setNotice('Agente creado.');
+      setRegistrationDevice('');
+      setRegistrationResponsible('');
+      await inspectAgent(created.id);
+      setNotice('Dispositivo registrado como agente operativo.');
+    });
+  };
+  const changeResponsible = (event: FormEvent) => {
+    event.preventDefault();
+    if (!identity?.device) return;
+    void perform(async () => {
+      await api.setAgentResponsible(identity.agent.id, responsibleName, responsibleReason, csrf);
+      await inspectAgent(identity.agent.id);
+      setResponsibleReason('');
+      setNotice('Responsable actualizado; el historial anterior se conserva.');
+    });
+  };
+  const reconcileAgent = (event: FormEvent) => {
+    event.preventDefault();
+    if (!identity || !reconciliationDevice) return;
+    void perform(async () => {
+      await api.linkAgentDevice(
+        identity.agent.id,
+        reconciliationDevice,
+        reconciliationReason,
+        csrf,
+      );
+      await inspectAgent(identity.agent.id);
+      setReconciliationDevice('');
+      setReconciliationReason('');
+      setNotice(
+        'Dispositivo vinculado al agente existente; las asignaciones históricas se conservaron.',
+      );
     });
   };
   const saveAgent = (event: FormEvent) => {
@@ -304,8 +387,11 @@ export function VisitSchedule() {
 
   return (
     <div className="schedule-page">
-      <h1>Agentes y calendario</h1>
-      <p className="lead">Planifica rutas publicadas por agente, fecha y horario civil.</p>
+      <h1>Dispositivos / agentes y calendario</h1>
+      <p className="lead">
+        El dispositivo es el agente operativo. La persona responsable puede cambiar sin alterar sus
+        rutas ni visitas históricas.
+      </p>
       {error && (
         <p role="alert" className="notice error">
           {error}
@@ -321,7 +407,7 @@ export function VisitSchedule() {
       ) : (
         <>
           <section className="panel schedule-section" aria-labelledby="agents-title">
-            <h2 id="agents-title">Agentes</h2>
+            <h2 id="agents-title">Dispositivos / agentes</h2>
             <ul className="schedule-agent-list">
               {agents.map((agent) => (
                 <li key={agent.id}>
@@ -329,6 +415,15 @@ export function VisitSchedule() {
                     {agent.code} · {agent.name}
                   </strong>{' '}
                   <span>{agent.state === 'ACTIVE' ? 'Activo' : 'Inactivo'}</span>
+                  {deviceAccess && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => void inspectAgent(agent.id)}
+                    >
+                      Ver dispositivo y responsable
+                    </button>
+                  )}
                   {canWrite && (
                     <button
                       type="button"
@@ -362,10 +457,30 @@ export function VisitSchedule() {
                 </li>
               ))}
             </ul>
-            {canWrite && (
+            {canWrite && !deviceAccess && (
+              <p>
+                Para registrar dispositivos como agentes se requieren los permisos de dispositivo.
+              </p>
+            )}
+            {canWrite && deviceAccess && (
               <form onSubmit={createAgent} className="schedule-form">
                 <label>
-                  Código de agente
+                  Dispositivo GEOPS existente
+                  <select
+                    required
+                    value={registrationDevice}
+                    onChange={(event) => setRegistrationDevice(event.target.value)}
+                  >
+                    <option value="">Selecciona un dispositivo autorizado</option>
+                    {deviceCandidates.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.display_label} · {device.id.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Código operativo del dispositivo
                   <input
                     required
                     value={agentCode}
@@ -373,17 +488,134 @@ export function VisitSchedule() {
                   />
                 </label>
                 <label>
-                  Nombre de agente
+                  Nombre visible del agente
                   <input
                     required
                     value={agentName}
                     onChange={(event) => setAgentName(event.target.value)}
                   />
                 </label>
+                <label>
+                  Responsable actual (opcional)
+                  <input
+                    maxLength={160}
+                    value={registrationResponsible}
+                    onChange={(event) => setRegistrationResponsible(event.target.value)}
+                  />
+                </label>
                 <button type="submit" disabled={busy}>
-                  Crear agente
+                  Registrar dispositivo como agente
                 </button>
               </form>
+            )}
+            {identity && deviceAccess && (
+              <div className="panel" aria-live="polite">
+                <h3>
+                  {identity.agent.code} · {identity.agent.name}
+                </h3>
+                {identity.device ? (
+                  <>
+                    <p>
+                      Dispositivo: {identity.device.display_label} ({identity.device.device_id}) ·{' '}
+                      {identity.device.status}
+                    </p>
+                    <p>
+                      MDM:{' '}
+                      {identity.device.mdm_provider
+                        ? `${identity.device.mdm_provider} · ${identity.device.mdm_device_id}`
+                        : 'Sin vinculación MDM activa'}
+                    </p>
+                    <p>
+                      Última comunicación:{' '}
+                      {identity.device.last_communication_at
+                        ? new Date(identity.device.last_communication_at).toLocaleString('es-GT')
+                        : 'Sin evidencia'}
+                    </p>
+                    <p>Responsable actual: {identity.responsible?.person_name ?? 'Sin asignar'}</p>
+                    <p>
+                      Rutas en el período visible:{' '}
+                      {assignments.filter((item) => item.agent_id === identity.agent.id).length}
+                    </p>
+                    {canWrite && (
+                      <form onSubmit={changeResponsible} className="schedule-form">
+                        <label>
+                          Nuevo responsable
+                          <input
+                            required
+                            maxLength={160}
+                            value={responsibleName}
+                            onChange={(event) => setResponsibleName(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Motivo del cambio
+                          <input
+                            required
+                            minLength={8}
+                            maxLength={240}
+                            value={responsibleReason}
+                            onChange={(event) => setResponsibleReason(event.target.value)}
+                          />
+                        </label>
+                        <button type="submit" disabled={busy}>
+                          Guardar responsable
+                        </button>
+                      </form>
+                    )}
+                    <h4>Historial de responsables</h4>
+                    <ul>
+                      {responsibilityHistory.map((entry) => (
+                        <li key={entry.id}>
+                          {entry.person_name} · {new Date(entry.valid_from).toLocaleString('es-GT')}
+                          {' — '}
+                          {entry.valid_to
+                            ? new Date(entry.valid_to).toLocaleString('es-GT')
+                            : 'actual'}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      Agente B30 sin dispositivo conciliado. Sus rutas y visitas históricas se
+                      conservan.
+                    </p>
+                    {canWrite && (
+                      <form onSubmit={reconcileAgent} className="schedule-form">
+                        <label>
+                          Dispositivo GEOPS existente
+                          <select
+                            required
+                            value={reconciliationDevice}
+                            onChange={(event) => setReconciliationDevice(event.target.value)}
+                          >
+                            <option value="">Selecciona un dispositivo</option>
+                            {deviceCandidates.map((device) => (
+                              <option key={device.id} value={device.id}>
+                                {device.display_label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Motivo de conciliación
+                          <input
+                            required
+                            minLength={8}
+                            maxLength={240}
+                            value={reconciliationReason}
+                            onChange={(event) => setReconciliationReason(event.target.value)}
+                          />
+                        </label>
+                        <button type="submit" disabled={busy}>
+                          Vincular dispositivo
+                        </button>
+                      </form>
+                    )}
+                  </>
+                )}
+              </div>
             )}
             {canWrite && agentEdit && (
               <form onSubmit={saveAgent} className="schedule-form">
@@ -406,12 +638,12 @@ export function VisitSchedule() {
               <h2 id="planning-title">Planificación</h2>
               <div className="schedule-form">
                 <label>
-                  Agente
+                  Dispositivo / agente
                   <select
                     value={assignmentAgent}
                     onChange={(event) => setAssignmentAgent(event.target.value)}
                   >
-                    <option value="">Selecciona agente</option>
+                    <option value="">Selecciona dispositivo / agente</option>
                     {agents
                       .filter((item) => item.state === 'ACTIVE')
                       .map((agent) => (

@@ -37,6 +37,8 @@ import { registerGpsContinuityRoutes } from './gps-continuity-routes.js';
 import type { GpsContinuityMonitor } from './gps-continuity-monitor.js';
 import { registerClientCatalogRoutes } from './client-catalog-routes.js';
 import type { ClientCatalogService } from './client-catalog.js';
+import { registerGeocodingRoutes } from './geocoding-routes.js';
+import type { GeocodingSearchService } from './geocoding-search.js';
 import { registerRouteCatalogRoutes } from './route-catalog-routes.js';
 import type { RouteCatalogService } from './route-catalog.js';
 import { registerVisitScheduleRoutes } from './visit-schedule-routes.js';
@@ -75,6 +77,7 @@ export interface AppOptions {
   gpsAdministration?: GpsAdministrationService;
   gpsContinuity?: GpsContinuityMonitor;
   clientCatalog?: ClientCatalogService;
+  geocoding?: GeocodingSearchService;
   routeCatalog?: RouteCatalogService;
   visitSchedule?: VisitScheduleService;
   visitEvaluation?: VisitEvaluationService;
@@ -130,6 +133,7 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerGpsContinuityRoutes(app, options.adminAuth, options.gpsContinuity);
     if (options.clientCatalog)
       registerClientCatalogRoutes(app, options.adminAuth, options.clientCatalog);
+    if (options.geocoding) registerGeocodingRoutes(app, options.adminAuth, options.geocoding);
     if (options.routeCatalog)
       registerRouteCatalogRoutes(app, options.adminAuth, options.routeCatalog);
     if (options.visitSchedule)

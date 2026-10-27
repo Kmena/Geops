@@ -26,7 +26,7 @@ async (page) => {
     'route drilldown opens matching visits');
   await page.goto(`http://127.0.0.1:3501/compliance?from=${date}&to=${date}`);
   await page.locator('.compliance-tile').first().waitFor();
-  await page.getByRole('tab', { name: 'Agentes' }).click();
+  await page.getByRole('tab', { name: 'Dispositivos / agentes' }).click();
   check(await page.locator('.compliance-cards article').count() === response.agents.length,
     'agent breakdown');
   await page.getByRole('tab', { name: 'Clientes' }).click();
@@ -54,7 +54,7 @@ async (page) => {
   check(evaluatedIndex < 0 || await page.getByRole('heading', { name: 'Intervalos acreditados' }).count() === 1,
     'evidence request audited and displayed');
   await page.getByRole('button', { name: 'Cerrar detalle' }).click();
-  await page.getByLabel('Agente', { exact: true }).fill(response.items[0].agent_id);
+  await page.getByLabel('Dispositivo / agente', { exact: true }).fill(response.items[0].agent_id);
   await page.getByRole('button', { name: 'Aplicar filtros' }).click();
   await page.waitForURL(/agent_id=/);
   check((await page.locator('.compliance-table-wrap tbody tr').count()) > 0,
@@ -62,7 +62,7 @@ async (page) => {
   await page.reload();
   await page.locator('.compliance-tile').first().waitFor();
   check(page.url().includes(`agent_id=${response.items[0].agent_id}`), 'filter survives reload');
-  await page.getByLabel('Agente', { exact: true }).fill('');
+  await page.getByLabel('Dispositivo / agente', { exact: true }).fill('');
   await page.getByLabel('Desde').fill('2030-01-01');
   await page.getByLabel('Hasta').fill('2030-01-01');
   await page.getByRole('button', { name: 'Aplicar filtros' }).click();

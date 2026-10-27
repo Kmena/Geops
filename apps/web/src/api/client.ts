@@ -147,6 +147,13 @@ export interface CatalogGeofence {
   created_at: string;
 }
 
+export interface GeocodingResult {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface RouteStop {
   stop_id: string;
   client_id: string;
@@ -195,6 +202,36 @@ export interface ScheduleAgent {
   name: string;
   state: 'ACTIVE' | 'INACTIVE';
   version: number;
+}
+
+export interface AgentDeviceCandidate {
+  id: string;
+  display_label: string;
+  status: string;
+}
+
+export interface AgentResponsibility {
+  id: string;
+  device_id: string;
+  person_name: string;
+  valid_from: string;
+  valid_to: string | null;
+  recorded_by: string;
+  ended_by?: string | null;
+  reason: string | null;
+}
+
+export interface AgentIdentity {
+  agent: ScheduleAgent;
+  device: {
+    device_id: string;
+    display_label: string;
+    status: string;
+    mdm_provider: string | null;
+    mdm_device_id: string | null;
+    last_communication_at: string | null;
+  } | null;
+  responsible: AgentResponsibility | null;
 }
 
 export interface ScheduleAssignment {
@@ -703,6 +740,8 @@ export const api = {
     read<{ capabilities: string[]; limits: { max_radius_m: number; max_dwell_s: number } }>(
       '/v1/admin/client-capabilities',
     ),
+  geocodingSearch: (query: string) =>
+    read<{ items: GeocodingResult[] }>(`/v1/admin/geocoding/search?q=${encodeURIComponent(query)}`),
   clients: (query: { q?: string; state?: string; cursor?: string; limit?: number } = {}) =>
     read<{ items: CatalogClient[]; next_cursor: string | null }>(
       `/v1/admin/clients?${new URLSearchParams(
@@ -843,6 +882,37 @@ export const api = {
     }>('/v1/admin/schedule-capabilities'),
   agents: () => readAll<ScheduleAgent>('/v1/admin/agents'),
   agent: (id: string) => read<ScheduleAgent>(`/v1/admin/agents/${id}`),
+  availableAgentDevices: () =>
+    read<{ items: AgentDeviceCandidate[] }>('/v1/admin/agent-devices/available'),
+  agentIdentity: (id: string) => read<AgentIdentity>(`/v1/admin/agents/${id}/identity`),
+  agentResponsibilityHistory: (id: string) =>
+    read<{ agent_id: string; items: AgentResponsibility[] }>(
+      `/v1/admin/agents/${id}/responsibilities`,
+    ),
+  registerAgentDevice: (
+    input: { device_id: string; code: string; name: string; person_name?: string; reason: string },
+    csrf: string,
+  ) =>
+    routeWrite<ScheduleAgent & { device_id: string }>(
+      '/v1/admin/agent-devices',
+      'POST',
+      input,
+      csrf,
+    ),
+  linkAgentDevice: (agent_id: string, device_id: string, reason: string, csrf: string) =>
+    routeWrite<{ id: string; agent_id: string; device_id: string }>(
+      '/v1/admin/agent-device-links',
+      'POST',
+      { agent_id, device_id, reason, establish_identity: true },
+      csrf,
+    ),
+  setAgentResponsible: (id: string, person_name: string, reason: string, csrf: string) =>
+    routeWrite<AgentResponsibility>(
+      `/v1/admin/agents/${id}/responsibilities`,
+      'POST',
+      { person_name, reason },
+      csrf,
+    ),
   createAgent: (input: { code: string; name: string }, csrf: string) =>
     routeWrite<ScheduleAgent>('/v1/admin/agents', 'POST', input, csrf),
   patchAgent: (id: string, version: number, input: Partial<ScheduleAgent>, csrf: string) =>

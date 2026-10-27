@@ -205,7 +205,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               aria-current={location.pathname === '/schedule' ? 'page' : undefined}
               to="/schedule"
             >
-              Agentes y calendario
+              Dispositivos / agentes y calendario
             </Link>
             <Link
               aria-current={location.pathname === '/compliance' ? 'page' : undefined}

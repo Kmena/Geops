@@ -9,6 +9,7 @@ import {
 } from './api/client.js';
 import { useAuth } from './auth.js';
 import { CatalogMap } from './CatalogMap.js';
+import { LocationSearch } from './LocationSearch.js';
 
 type LocationFields = { latitude: string; longitude: string };
 const emptyLocation: LocationFields = { latitude: '', longitude: '' };
@@ -333,6 +334,18 @@ export function ClientCatalog() {
   const mapLatitude = zoneForm.latitude.trim() === '' ? null : Number(zoneForm.latitude);
   const mapLongitude = zoneForm.longitude.trim() === '' ? null : Number(zoneForm.longitude);
   const mapRadius = Number(zoneForm.radius_m);
+  const selectSiteLocation = (latitude: number, longitude: number) => {
+    setSiteForm((current) => ({
+      ...current,
+      latitude: String(latitude),
+      longitude: String(longitude),
+    }));
+    setZoneForm((current) => ({
+      ...current,
+      latitude: String(latitude),
+      longitude: String(longitude),
+    }));
+  };
 
   if (permissionLoading)
     return (
@@ -479,6 +492,17 @@ export function ClientCatalog() {
                   </label>
                 </div>
                 <h3>Sede principal</h3>
+                <LocationSearch
+                  onSelect={selectSiteLocation}
+                  onUseAddress={(address) => {
+                    setSiteForm((current) => ({ ...current, address }));
+                    setClientForm((current) => ({
+                      ...current,
+                      address: current.address.trim() ? current.address : address,
+                    }));
+                  }}
+                  addressButtonLabel="Usar esta dirección en cliente y sede"
+                />
                 <div className="catalog-fields">
                   <label>
                     Código de sede
@@ -539,14 +563,8 @@ export function ClientCatalog() {
                 <CatalogMap
                   latitude={siteForm.latitude ? Number(siteForm.latitude) : null}
                   longitude={siteForm.longitude ? Number(siteForm.longitude) : null}
-                  radius={0}
-                  onSelect={(latitude, longitude) =>
-                    setSiteForm((current) => ({
-                      ...current,
-                      latitude: String(latitude),
-                      longitude: String(longitude),
-                    }))
-                  }
+                  radius={Number(zoneForm.radius_m)}
+                  onSelect={selectSiteLocation}
                 />
                 <div className="catalog-actions">
                   <button disabled={busy} type="submit">
@@ -668,6 +686,14 @@ export function ClientCatalog() {
                 )}
                 {(site || newSite) && (
                   <form onSubmit={(event) => void saveSite(event)}>
+                    {canWrite && (
+                      <LocationSearch
+                        onSelect={selectSiteLocation}
+                        onUseAddress={(address) =>
+                          setSiteForm((current) => ({ ...current, address }))
+                        }
+                      />
+                    )}
                     <div className="catalog-fields">
                       <label>
                         Código
@@ -733,6 +759,16 @@ export function ClientCatalog() {
                         />
                       </label>
                     </div>
+                    <p>
+                      Selecciona o arrastra el marcador para ajustar la sede. Guarda la geozona por
+                      separado.
+                    </p>
+                    <CatalogMap
+                      latitude={siteForm.latitude ? Number(siteForm.latitude) : null}
+                      longitude={siteForm.longitude ? Number(siteForm.longitude) : null}
+                      radius={Number(zoneForm.radius_m)}
+                      onSelect={canWrite ? selectSiteLocation : undefined}
+                    />
                     {canWrite && (
                       <div className="catalog-actions">
                         <button disabled={busy} type="submit">

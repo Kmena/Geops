@@ -25,6 +25,11 @@ const reason = (value: unknown): string => {
     throw invalid();
   return value.trim();
 };
+const person = (value: unknown): string => {
+  if (typeof value !== 'string' || value.trim().length < 1 || value.trim().length > 160)
+    throw invalid();
+  return value.trim();
+};
 const instant = (value: unknown): string => {
   if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(value))
     throw invalid();
@@ -334,10 +339,78 @@ export class AgentDeviceLinkService {
       );
   }
 
+  /** Creates a device-backed agent atomically; the older agent endpoint remains for legacy data. */
+  async registerAgentDevice(ctx: DeviceLinkMutation, input: unknown): Promise<Result> {
+    const value = body(
+      input,
+      ['device_id', 'code', 'name', 'person_name', 'reason'],
+      ['device_id', 'code', 'name', 'reason'],
+    );
+    const deviceId = id(value.device_id);
+    const code = typeof value.code === 'string' ? value.code.trim().toUpperCase() : '';
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(code)) throw invalid();
+    const name = person(value.name);
+    const responsible = value.person_name === undefined ? null : person(value.person_name);
+    const why = reason(value.reason);
+    return this.mutate(ctx, input, async (db, tenant) => {
+      const schedulePermission = await db.query(
+        "SELECT 1 FROM admin_permission WHERE admin_id=$1 AND permission='visit.schedule.write' AND revoked_at IS NULL",
+        [ctx.actorId],
+      );
+      if (!schedulePermission.rowCount) throw new ApiError(403, 'schedule_forbidden', 'Forbidden');
+      await this.eligibleDevice(db, tenant, deviceId, ctx.actorId);
+      const already = await db.query(
+        'SELECT 1 FROM agent_operational_identity WHERE device_id=$1',
+        [deviceId],
+      );
+      if (already.rowCount) throw new ApiError(409, 'operational_identity_conflict', 'Conflict');
+      const agentId = randomUUID(),
+        linkId = randomUUID();
+      const agent = await db.query<Json>(
+        `INSERT INTO agent(id,tenant_id,code,name,created_by,updated_by)
+         VALUES($1,$2,$3,$4,$5,$5)
+         RETURNING id,code,name,state,version,created_at,updated_at`,
+        [agentId, tenant, code, name, ctx.actorId],
+      );
+      await db.query(
+        `INSERT INTO agent_operational_identity(tenant_id,agent_id,device_id,established_by,source)
+         VALUES($1,$2,$3,$4,'ADMIN_LINK')`,
+        [tenant, agentId, deviceId, ctx.actorId],
+      );
+      await db.query(
+        `INSERT INTO agent_device_link(id,tenant_id,agent_id,device_id,valid_from,state,created_by,create_reason)
+         VALUES($1,$2,$3,$4,$5,'ACTIVE',$6,$7)`,
+        [linkId, tenant, agentId, deviceId, this.now(), ctx.actorId, why],
+      );
+      if (responsible)
+        await db.query(
+          `INSERT INTO agent_responsibility(id,tenant_id,agent_id,device_id,person_name,valid_from,recorded_by,reason)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [randomUUID(), tenant, agentId, deviceId, responsible, this.now(), ctx.actorId, why],
+        );
+      await appendAudit(db, {
+        actorType: 'ADMIN',
+        actorId: ctx.actorId,
+        deviceId,
+        action: 'visit.agent.device.register',
+        outcome: 'success',
+        correlationId: ctx.requestId,
+        metadata: {
+          tenant_id: tenant,
+          agent_id: agentId,
+          device_id: deviceId,
+          link_id: linkId,
+          reason: why,
+        },
+      });
+      return { status: 201, body: { ...first(agent.rows), device_id: deviceId }, etag: etag(1) };
+    });
+  }
+
   async link(ctx: DeviceLinkMutation, input: unknown): Promise<Result> {
     const value = body(
       input,
-      ['agent_id', 'device_id', 'valid_from', 'reason'],
+      ['agent_id', 'device_id', 'valid_from', 'reason', 'establish_identity'],
       ['agent_id', 'device_id', 'reason'],
     );
     const agentId = id(value.agent_id),
@@ -345,9 +418,25 @@ export class AgentDeviceLinkService {
     const from =
       value.valid_from === undefined ? this.now().toISOString() : instant(value.valid_from);
     const why = reason(value.reason);
+    if (value.establish_identity !== undefined && typeof value.establish_identity !== 'boolean')
+      throw invalid();
     return this.mutate(ctx, input, async (db, tenant) => {
       await this.activeAgent(db, tenant, agentId);
       await this.eligibleDevice(db, tenant, deviceId, ctx.actorId);
+      const existingIdentity = await db.query<{ agent_id: string; device_id: string }>(
+        'SELECT agent_id,device_id FROM agent_operational_identity WHERE agent_id=$1 OR device_id=$2 FOR UPDATE',
+        [agentId, deviceId],
+      );
+      if (
+        existingIdentity.rows.some((row) => row.agent_id !== agentId || row.device_id !== deviceId)
+      )
+        throw new ApiError(409, 'operational_identity_conflict', 'Conflict');
+      if (value.establish_identity === true && existingIdentity.rows.length === 0)
+        await db.query(
+          `INSERT INTO agent_operational_identity(tenant_id,agent_id,device_id,established_by,source)
+           VALUES($1,$2,$3,$4,'ADMIN_LINK')`,
+          [tenant, agentId, deviceId, ctx.actorId],
+        );
       const linkId = randomUUID();
       const rows = await db.query<Json>(
         `INSERT INTO agent_device_link(id,tenant_id,agent_id,device_id,valid_from,state,created_by,create_reason)
@@ -421,6 +510,12 @@ export class AgentDeviceLinkService {
       precondition(ctx.ifMatch, Number(current.version));
       if (current.state !== 'ACTIVE' || current.agent_id === target)
         throw new ApiError(409, 'device_link_conflict', 'Conflict');
+      const stableIdentity = await db.query(
+        'SELECT 1 FROM agent_operational_identity WHERE device_id=$1 OR agent_id=$2',
+        [current.device_id, target],
+      );
+      if (stableIdentity.rowCount)
+        throw new ApiError(409, 'operational_identity_immutable', 'Conflict');
       if (Date.parse(at) <= current.valid_from.getTime()) throw invalid();
       await this.activeAgent(db, tenant, target);
       await this.eligibleDevice(db, tenant, current.device_id, ctx.actorId);
@@ -499,6 +594,127 @@ export class AgentDeviceLinkService {
         [tenant, agentId],
       );
       return { agent_id: agentId, items: rows.rows };
+    });
+  }
+
+  async identity(actor: string, agentId: string) {
+    return this.read(actor, async (db, tenant) => {
+      const agent = await db.query<{ id: string; code: string; name: string; state: string }>(
+        'SELECT id,code,name,state FROM agent WHERE tenant_id=$1 AND id=$2',
+        [tenant, id(agentId)],
+      );
+      if (!agent.rows[0]) throw missing();
+      const device = await db.query<Json>(
+        `SELECT i.device_id,d.display_label,d.status,m.provider AS mdm_provider,
+                m.mdm_device_id,
+                (SELECT max(received_at) FROM (
+                  SELECT max(received_at) AS received_at FROM gps_device_health_event WHERE device_id=d.id AND tenant_id=$1
+                  UNION ALL SELECT max(received_at) FROM gps_session_event WHERE device_id=d.id AND tenant_id=$1
+                  UNION ALL SELECT max(received_at) FROM position_event WHERE device_id=d.id AND tenant_id=$1
+                ) communication) AS last_communication_at
+         FROM agent_operational_identity i
+         JOIN geops_device d ON d.id=i.device_id
+         LEFT JOIN LATERAL (
+           SELECT provider,mdm_device_id FROM mdm_binding
+           WHERE geops_device_id=d.id AND customer_id=$1 AND state='ACTIVE'
+           ORDER BY version DESC LIMIT 1
+         ) m ON true
+         WHERE i.tenant_id=$1 AND i.agent_id=$2`,
+        [tenant, agentId],
+      );
+      const current = await db.query<Json>(
+        `SELECT id,person_name,valid_from,valid_to,recorded_by,reason
+         FROM agent_responsibility WHERE tenant_id=$1 AND agent_id=$2 AND valid_to IS NULL
+         ORDER BY valid_from DESC LIMIT 1`,
+        [tenant, agentId],
+      );
+      return {
+        agent: agent.rows[0],
+        device: device.rows[0] ?? null,
+        responsible: current.rows[0] ?? null,
+      };
+    });
+  }
+
+  async responsibilityHistory(actor: string, agentId: string) {
+    return this.read(actor, async (db, tenant) => {
+      const agent = await db.query('SELECT 1 FROM agent WHERE tenant_id=$1 AND id=$2', [
+        tenant,
+        id(agentId),
+      ]);
+      if (!agent.rowCount) throw missing();
+      const rows = await db.query<Json>(
+        `SELECT id,device_id,person_name,valid_from,valid_to,recorded_by,ended_by,reason,created_at
+         FROM agent_responsibility WHERE tenant_id=$1 AND agent_id=$2
+         ORDER BY valid_from DESC,id LIMIT 100`,
+        [tenant, agentId],
+      );
+      return { agent_id: agentId, items: rows.rows };
+    });
+  }
+
+  async setResponsible(ctx: DeviceLinkMutation, agentId: string, input: unknown): Promise<Result> {
+    const value = body(input, ['person_name', 'reason'], ['person_name']);
+    const personName = value.person_name;
+    if (
+      typeof personName !== 'string' ||
+      personName.trim().length < 1 ||
+      personName.trim().length > 160
+    )
+      throw invalid();
+    const why = value.reason === undefined ? null : reason(value.reason);
+    return this.mutate(ctx, input, async (db, tenant) => {
+      const identity = await db.query<{ device_id: string }>(
+        'SELECT device_id FROM agent_operational_identity WHERE tenant_id=$1 AND agent_id=$2 FOR UPDATE',
+        [tenant, id(agentId)],
+      );
+      if (!identity.rows[0]) throw new ApiError(409, 'agent_device_required', 'Conflict');
+      const current = await db.query<{ id: string; valid_from: Date }>(
+        `SELECT id,valid_from FROM agent_responsibility
+         WHERE tenant_id=$1 AND agent_id=$2 AND valid_to IS NULL FOR UPDATE`,
+        [tenant, agentId],
+      );
+      const at = new Date(
+        Math.max(this.now().getTime(), (current.rows[0]?.valid_from.getTime() ?? 0) + 1),
+      );
+      if (current.rows[0])
+        await db.query('UPDATE agent_responsibility SET valid_to=$2,ended_by=$3 WHERE id=$1', [
+          current.rows[0].id,
+          at,
+          ctx.actorId,
+        ]);
+      const responsibilityId = randomUUID();
+      const rows = await db.query<Json>(
+        `INSERT INTO agent_responsibility(id,tenant_id,agent_id,device_id,person_name,valid_from,recorded_by,reason)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+         RETURNING id,device_id,person_name,valid_from,valid_to,recorded_by,reason`,
+        [
+          responsibilityId,
+          tenant,
+          agentId,
+          identity.rows[0].device_id,
+          personName.trim(),
+          at,
+          ctx.actorId,
+          why,
+        ],
+      );
+      await appendAudit(db, {
+        actorType: 'ADMIN',
+        actorId: ctx.actorId,
+        deviceId: identity.rows[0].device_id,
+        action: 'visit.agent.responsibility.change',
+        outcome: 'success',
+        correlationId: ctx.requestId,
+        metadata: {
+          tenant_id: tenant,
+          agent_id: agentId,
+          responsibility_id: responsibilityId,
+          ...(current.rows[0] ? { previous_responsibility_id: current.rows[0].id } : {}),
+          ...(why ? { reason: why } : {}),
+        },
+      });
+      return { status: 201, body: first(rows.rows) };
     });
   }
 

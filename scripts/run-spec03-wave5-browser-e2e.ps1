@@ -11,6 +11,7 @@ $testFile = Join-Path $root 'apps/web/test/client-catalog.e2e.js'
 $routeTestFile = Join-Path $root 'apps/web/test/route-catalog.e2e.js'
 $scheduleTestFile = Join-Path $root 'apps/web/test/visit-schedule.e2e.js'
 $complianceTestFile = Join-Path $root 'apps/web/test/compliance-dashboard.e2e.js'
+$postB30TestFile = Join-Path $root 'apps/web/test/post-b30-adjustments.e2e.js'
 $apiProcess = $null
 $webProcess = $null
 $containerStarted = $false
@@ -92,6 +93,11 @@ try {
   $result = ($output | Out-String).Trim() | ConvertFrom-Json
   if ($result.result -ne 'PASS' -or $result.checks -ne 15) { throw "Unexpected browser E2E result: $output" }
   Write-Output "SPEC-03 browser E2E: $($result.checks) checks passed (desktop and 390 px mobile)."
+  $postB30Output = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $postB30TestFile
+  if ($LASTEXITCODE -ne 0) { throw "Post-B30 browser E2E failed: $postB30Output" }
+  $postB30Result = ($postB30Output | Out-String).Trim() | ConvertFrom-Json
+  if ($postB30Result.result -ne 'PASS' -or $postB30Result.checks -ne 15) { throw "Unexpected post-B30 browser E2E result: $postB30Output" }
+  Write-Output "Post-B30 browser E2E: $($postB30Result.checks) checks passed (desktop and 390 px mobile)."
   $routeOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $routeTestFile
   if ($LASTEXITCODE -ne 0) { throw "Route browser E2E failed: $routeOutput" }
   $routeResult = ($routeOutput | Out-String).Trim() | ConvertFrom-Json
@@ -100,7 +106,7 @@ try {
   $scheduleOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $scheduleTestFile
   if ($LASTEXITCODE -ne 0) { throw "Schedule browser E2E failed: $scheduleOutput" }
   $scheduleResult = ($scheduleOutput | Out-String).Trim() | ConvertFrom-Json
-  if ($scheduleResult.result -ne 'PASS' -or $scheduleResult.checks -ne 20) { throw "Unexpected schedule browser E2E result: $scheduleOutput" }
+  if ($scheduleResult.result -ne 'PASS' -or $scheduleResult.checks -ne 23) { throw "Unexpected schedule browser E2E result: $scheduleOutput" }
   Write-Output "SPEC-03 Wave 3 browser E2E: $($scheduleResult.checks) checks passed (desktop and 390 px mobile)."
   $complianceOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $complianceTestFile
   if ($LASTEXITCODE -ne 0) { throw "Compliance browser E2E failed: $complianceOutput" }

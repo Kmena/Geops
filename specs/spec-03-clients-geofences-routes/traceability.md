@@ -96,3 +96,13 @@ El estado final y los 17 controles están en [wave4b-closure.md](wave4b-closure.
 | Física, retención, cierre final | Fuera de Wave 5; protocolo Wave 4B | Sin dispositivos reales ni política aprobada | PENDING operacional |
 
 Ver [wave5-closure.md](wave5-closure.md) para conteos, limitaciones y estado final.
+## Trazabilidad post-B30
+
+| Requisito | Implementación | Evidencia |
+| --- | --- | --- |
+| Dispositivo como agente estable | 0031 `agent_operational_identity`; API `/agent-devices` | `post-b30-agent.integration.mjs`; upgrade B30→0031 |
+| Persona temporal y auditoría | 0031 `agent_responsibility`; API `/responsibilities` | `post-b30-agent.integration.mjs`; Chrome calendario |
+| Asignaciones y GPS históricos | Sin mutación de contratos; vínculo por `captured_at` | Regresiones calendario, evaluación y vínculo GPS |
+| Búsqueda OpenStreetMap | API geocoding con cuota/caché; `LocationSearch` | `post-b30-geocoding.integration.mjs`; Chrome post-B30 |
+| Selección y ajuste visual | `CatalogMap` Leaflet con marcador y círculo | Chrome post-B30, escritorio/móvil |
+| B30 intacto | Migración 0031 aditiva | `post-b30-migration-upgrade.integration.mjs` |

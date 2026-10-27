@@ -846,6 +846,69 @@ h2 {
   position: relative;
   margin: 14px 0 20px;
 }
+.catalog-pin {
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #0f546f;
+  box-shadow: 0 2px 8px #123c5680;
+  display: grid;
+  place-items: center;
+}
+.catalog-pin span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0f546f;
+}
+.location-search {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  min-width: 0;
+}
+.location-search > label {
+  font-weight: 700;
+  color: #304b5c;
+}
+.location-search-input {
+  display: flex;
+  gap: 8px;
+}
+.location-search .location-search-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #9eb5c2;
+  border-radius: 8px;
+}
+.location-search-note {
+  font-size: 0.85rem;
+  color: #526879;
+}
+.location-search-results {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 5px;
+  max-height: 220px;
+  overflow: auto;
+}
+.catalog-page .location-search-results button {
+  width: 100%;
+  text-align: left;
+  background: #e8f0f3;
+  color: #164e62;
+}
+.location-search-suggestion {
+  border-left: 3px solid #126b83;
+  padding-left: 12px;
+}
+@media (max-width: 620px) {
+  .location-search-input {
+    flex-direction: column;
+  }
+}
 .catalog-map {
   min-height: 330px;
   border-radius: 12px;

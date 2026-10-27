@@ -42,6 +42,9 @@ export function registerAgentDeviceLinkRoutes(
     const admin = await requireAdmin(request, auth);
     return service.unassignedAgents(admin.id);
   });
+  app.post('/v1/admin/agent-devices', async (request, reply) =>
+    send(reply, await service.registerAgentDevice(await mutation(request), request.body)),
+  );
   app.get<{ Params: Params }>('/v1/admin/agents/:agentId/device-link', async (request) => {
     const admin = await requireAdmin(request, auth);
     return service.current(admin.id, request.params.agentId);
@@ -50,6 +53,22 @@ export function registerAgentDeviceLinkRoutes(
     const admin = await requireAdmin(request, auth);
     return service.history(admin.id, request.params.agentId);
   });
+  app.get<{ Params: Params }>('/v1/admin/agents/:agentId/identity', async (request) => {
+    const admin = await requireAdmin(request, auth);
+    return service.identity(admin.id, request.params.agentId);
+  });
+  app.get<{ Params: Params }>('/v1/admin/agents/:agentId/responsibilities', async (request) => {
+    const admin = await requireAdmin(request, auth);
+    return service.responsibilityHistory(admin.id, request.params.agentId);
+  });
+  app.post<{ Params: Params }>(
+    '/v1/admin/agents/:agentId/responsibilities',
+    async (request, reply) =>
+      send(
+        reply,
+        await service.setResponsible(await mutation(request), request.params.agentId, request.body),
+      ),
+  );
   app.post('/v1/admin/agent-device-links', async (request, reply) =>
     send(reply, await service.link(await mutation(request), request.body)),
   );

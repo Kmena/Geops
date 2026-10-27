@@ -129,7 +129,7 @@ function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () =
           </dd>
         </div>
         <div>
-          <dt>Agente</dt>
+          <dt>Dispositivo / agente</dt>
           <dd>{visit.agent_name}</dd>
         </div>
         <div>
@@ -345,7 +345,7 @@ export function ComplianceDashboard() {
   const indicators = page?.indicators;
   const tiles = indicators
     ? ([
-        ['Agentes con rutas', indicators.agents_with_routes],
+        ['Dispositivos con rutas', indicators.agents_with_routes],
         ['Rutas programadas', indicators.scheduled_routes],
         ['Visitas programadas', indicators.scheduled_visits],
         ['Completadas', indicators.completed_visits],
@@ -388,7 +388,7 @@ export function ComplianceDashboard() {
           />
         </label>
         <label>
-          Agente
+          Dispositivo / agente
           <input
             list="compliance-agents"
             value={draft.agent_id}
@@ -492,7 +492,7 @@ export function ComplianceDashboard() {
               [
                 ['visits', 'Visitas'],
                 ['routes', 'Rutas'],
-                ['agents', 'Agentes'],
+                ['agents', 'Dispositivos / agentes'],
                 ['clients', 'Clientes'],
                 ['map', 'Mapa'],
               ] as const
@@ -519,7 +519,7 @@ export function ComplianceDashboard() {
                   <thead>
                     <tr>
                       <th>Fecha</th>
-                      <th>Agente</th>
+                      <th>Dispositivo / agente</th>
                       <th>Ruta</th>
                       <th>Cliente / sede</th>
                       <th>Permanencia</th>

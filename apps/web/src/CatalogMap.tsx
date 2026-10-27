@@ -14,7 +14,7 @@ export function CatalogMap({
   latitude: number | null;
   longitude: number | null;
   radius: number;
-  onSelect: (latitude: number, longitude: number) => void;
+  onSelect?: ((latitude: number, longitude: number) => void) | undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<Leaflet.Map | null>(null);
@@ -44,7 +44,10 @@ export function CatalogMap({
             instance,
           );
         instance.on('click', (event) =>
-          select.current(Number(event.latlng.lat.toFixed(6)), Number(event.latlng.lng.toFixed(6))),
+          select.current?.(
+            Number(event.latlng.lat.toFixed(6)),
+            Number(event.latlng.lng.toFixed(6)),
+          ),
         );
         if (typeof ResizeObserver !== 'undefined') {
           resize = new ResizeObserver(() => instance?.invalidateSize());
@@ -76,13 +79,20 @@ export function CatalogMap({
       return;
     const L = engine.current;
     const center: Leaflet.LatLngExpression = [latitude, longitude];
-    L.circleMarker(center, {
-      radius: 6,
-      color: '#0f546f',
-      weight: 2,
-      fillColor: '#ffffff',
-      fillOpacity: 1,
+    const marker = L.marker(center, {
+      draggable: Boolean(select.current),
+      icon: L.divIcon({
+        className: 'catalog-pin',
+        html: '<span aria-hidden="true"></span>',
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      }),
+      title: 'Centro de la geozona',
     }).addTo(overlay.current);
+    marker.on('dragend', () => {
+      const point = marker.getLatLng();
+      select.current?.(Number(point.lat.toFixed(6)), Number(point.lng.toFixed(6)));
+    });
     if (Number.isFinite(radius) && radius > 0) {
       L.circle(center, {
         radius,

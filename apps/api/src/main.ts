@@ -20,6 +20,7 @@ import { GpsAdministrationService } from './gps-administration.js';
 import { GpsScheduler } from './gps-scheduler.js';
 import { GpsContinuityMonitor } from './gps-continuity-monitor.js';
 import { ClientCatalogService } from './client-catalog.js';
+import { GeocodingSearchService } from './geocoding-search.js';
 import { RouteCatalogService } from './route-catalog.js';
 import { VisitScheduleService } from './visit-schedule.js';
 import { VisitEvaluationService } from './visit-evaluation.js';
@@ -98,6 +99,7 @@ async function main(): Promise<void> {
     gpsAdministration: new GpsAdministrationService(pool, gpsPolicies),
     gpsContinuity,
     clientCatalog: new ClientCatalogService(pool),
+    geocoding: new GeocodingSearchService(pool),
     routeCatalog: new RouteCatalogService(pool),
     visitSchedule: new VisitScheduleService(pool),
     visitEvaluation: new VisitEvaluationService(pool),

@@ -56,3 +56,9 @@ El porcentaje publicado por la API es **acreditado provisional** porque P-05/P-0
 | RC-03 | Retención de posiciones, evidencia derivada, evaluación y auditoría sigue sin aprobación. | Decisión de privacidad y prueba de purga/reprocesamiento coherente. |
 | RC-04 | Precisión, permanencia, huecos e histéresis son parámetros de laboratorio. | Calibración con dispositivos y visitas físicas autorizadas. |
 | RC-05 | El laboratorio Compose cubre PostgreSQL/PostGIS y suites locales; no ejecuta imágenes API/Web B30 ni instalador remoto. | Ensayo supervisado integral con imágenes locales verificadas antes de staging. |
+## Riesgos post-B30
+
+- La cuota y disponibilidad del Nominatim público son externas; el backend responde 429/503 y el catálogo conserva el ingreso manual. Una carga administrativa mayor requerirá proveedor o instancia diferente.
+- La consulta de lugar puede contener una dirección. Se envía al servicio público únicamente tras Buscar, con aviso visible y autorización expresa del usuario; no hay autocompletado.
+- Agentes B30 sin vínculo activo no se convierten automáticamente en dispositivos. Requieren conciliación administrativa para evitar asignaciones inventadas.
+- La identidad nueva exige permisos `visit.device.read/write` y `visit.schedule.write`; el despliegue posterior debe revisar las concesiones del personal sin añadirlas por migración.

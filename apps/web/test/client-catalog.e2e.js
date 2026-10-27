@@ -112,8 +112,9 @@ async (page) => {
     'radius restored after reload',
   );
   check(
-    (await zone.locator('.leaflet-overlay-pane path').count()) >= 2,
-    'Leaflet renders center and circle',
+    (await zone.locator('.leaflet-overlay-pane path').count()) >= 1 &&
+      (await zone.locator('.catalog-pin').count()) === 1,
+    'Leaflet renders draggable center and circle',
   );
   await zone.getByRole('spinbutton', { name: 'Radio en metros' }).fill('250');
   await zone.getByRole('textbox', { name: 'Motivo del cambio' }).fill('Ajuste E2E de radio');

@@ -1,5 +1,9 @@
 # Arquitectura y motor de permanencia
 
+## Ajuste post-B30
+
+ADR-030 fija `agent` como identidad operativa estable del dispositivo GEOPS y `agent_responsibility` como relación temporal con la persona. `agent_device_link` y `captured_at` siguen gobernando la atribución GPS histórica. El buscador de sedes envía una petición a Nominatim solo tras la acción Buscar; Leaflet mantiene la selección manual y el radio visual. Ningún componente Android, GPS o MDM cambia.
+
 ## Límites
 
 ```mermaid
