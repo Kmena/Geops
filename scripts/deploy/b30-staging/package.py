@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import re
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -24,6 +25,7 @@ EXTRA = (
     'scripts/deploy/b30-staging/install.py',
     'scripts/deploy/b30-staging/package.py',
     'scripts/deploy/b30-staging/candidate.py',
+    'scripts/deploy/b30-staging/verify-trust-key.mjs',
     'scripts/deploy/b30-staging/sudoers',
     'scripts/deploy/b30-staging/sudoers-ready',
     'scripts/deploy/remote/geops_deploy_v2.py',
@@ -64,7 +66,7 @@ def sha(body):
     return hashlib.sha256(body).hexdigest()
 
 
-def ready_fields(public_key, api, web, wrapper_sha, policy_sha, region):
+def ready_fields(public_key, approved_key_sha, api, web, wrapper_sha, policy_sha, region):
     check_source()
     digest = re.compile(r'^ghcr\.io/kmena/geops-(api|web)@sha256:[a-f0-9]{64}$')
     if (not digest.fullmatch(api) or not api.startswith('ghcr.io/kmena/geops-api@') or
@@ -76,6 +78,9 @@ def ready_fields(public_key, api, web, wrapper_sha, policy_sha, region):
     key = regular(Path(public_key))
     if not key.startswith(b'-----BEGIN PUBLIC KEY-----'):
         raise ValueError('Ed25519 public key required')
+    subprocess.run(['node', str(HERE / 'verify-trust-key.mjs'), public_key,
+                    approved_key_sha], check=True, stdin=subprocess.DEVNULL,
+                   stdout=subprocess.DEVNULL, timeout=10)
     return key, {'kind': 'B30_STAGING_READY', 'activation': 'READY',
                  'publicationReady': True, 'trustKeySha256': sha(key),
                  'registryDigests': {'api': api, 'web': web},
@@ -128,8 +133,8 @@ def build(output, ready=None):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in (2, 9) or (len(sys.argv) == 9 and sys.argv[1] != '--ready'):
-        raise SystemExit('Usage: package.py OUTPUT.tar.gz | --ready OUTPUT PUBLIC API WEB B23_WRAPPER_SHA B23_POLICY_SHA MDM_REGION')
+    if len(sys.argv) not in (2, 10) or (len(sys.argv) == 10 and sys.argv[1] != '--ready'):
+        raise SystemExit('Usage: package.py OUTPUT.tar.gz | --ready OUTPUT PUBLIC APPROVED_KEY_SHA256 API WEB B23_WRAPPER_SHA B23_POLICY_SHA MDM_REGION')
     if len(sys.argv) == 2:
         result = build(Path(sys.argv[1]).resolve())
     else:

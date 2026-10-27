@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "kind": "B30_GHCR_PUBLICATION_INTENT_NOT_AUTHORIZED",
+  "applicationCommit": "2f89b87f1f636feb7e21d7e09af03959ee95f68d",
+  "candidateManifestSha256": "3685814d172901cab4435caee5cfa6cbf17259f738d6b904df6f3b143cd74c2b",
+  "database": {
+    "sourceSchema": 23,
+    "targetSchema": 30,
+    "targetListSha256": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6"
+  },
+  "controller": {
+    "preparedPackage": "artifacts/b30-packaging/controller-b30-staging-prepared-key-gated.tar.gz",
+    "preparedPackageSha256": "bc69f81b2a9b11c19e821ce2abea902fea3d9f6ea01f7787d0ce46b6a16eb205",
+    "activation": "DISABLED",
+    "stagingTrustKeySha256": null,
+    "stagingSignatureSha256": null
+  },
+  "images": {
+    "api": {
+      "localTag": "geops-b30-staging-api:2f89b87",
+      "localImageId": "sha256:37f9e5488f73230304adf8de90bfefff997391abb57299c92e5eca06b77b830f",
+      "targetRepository": "ghcr.io/kmena/geops-api",
+      "registryDigest": null
+    },
+    "web": {
+      "localTag": "geops-b30-staging-web:2f89b87",
+      "localImageId": "sha256:59c8175259358dc3335eb153c6697730fdf1e2faf8f2577362dae1cff2424522",
+      "targetRepository": "ghcr.io/kmena/geops-web",
+      "registryDigest": null
+    }
+  },
+  "authorizations": {
+    "publishImages": false,
+    "installController": false,
+    "updateStaging": false
+  },
+  "publicationReadiness": "PARTIAL",
+  "ghcrPublished": false,
+  "stagingChanged": false
+}
