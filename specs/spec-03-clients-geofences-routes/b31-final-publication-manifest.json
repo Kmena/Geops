@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "kind": "B31_STAGING_PUBLICATION_MANIFEST",
+  "environment": "geops-spec02-staging",
+  "applicationCommit": "eba9b3ba3cf1927dcbf032070322fa32dbfe4db3",
+  "controllerCommit": "f965b82aa6454ac2e376265da40fe654038e100c",
+  "candidateManifestSha256": "2cebd7f253f87efbc936d1ae08b429de0b5ddbd3a6d44d243d3520a99aae7061",
+  "sourceB30": {
+    "wrapperSha256": "acc2d33361a27ba30f2639e0cb9c21f0b65bd0601d0cbef22300e439a21c9136",
+    "policySha256": "9fa338195b9a121df31421771f706fbc4d779b2b197b64650d77ae87f81c9752",
+    "packageSha256": "e3cb0e42d3ab5018f9df2fe83a6decfdb5b771bb26f11936707fc2d3bedccea0",
+    "ledgerSha256": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6"
+  },
+  "targetB31": {
+    "ledgerSha256": "17cf75b6e88193552efb799ab33b94d44d3a17bc19c0eb15e6c9f0a77d7e9ea0",
+    "api": {
+      "reference": "ghcr.io/kmena/geops-api@sha256:14e004b341ba6a4173a66ffe506fa8d2d7ca4f22dc5a033248f7af775f38c17c",
+      "imageId": "sha256:e7d55b182906623813ba6f0978198af18e8afd75900f8ea59768ae7857c98ba1",
+      "architecture": "amd64"
+    },
+    "web": {
+      "reference": "ghcr.io/kmena/geops-web@sha256:6467721d823c142257205927d2ab6d31d916ac941c15645815db692a2f524ff8",
+      "imageId": "sha256:86db6993530167e2640bb0f1aea9ba71d46a2f7d54e05d9925dcc4e965dea74b",
+      "architecture": "amd64"
+    }
+  },
+  "bundle": {
+    "path": "artifacts/b31-staging/controller-b31-staging-ready-v3.tar.gz",
+    "sha256": "b510ecb71b6b79cbc46fb1e2f1dd5a2985cf0edc1c04899042dd754f79deba03",
+    "signaturePath": "artifacts/b31-staging/controller-b31-staging-ready-v3.sig",
+    "signatureSha256": "324523ddaf8f76febccb350c8d2c33b040a3d8e75e5e540f93a4f5c333e2813f",
+    "trustKeySha256": "d01423d005fe09fbec30be0b6ed8a66d144ffc5f44c3869f64aa84756a814a27",
+    "signatureDomain": "GEOPS-B31-STAGING-PACKAGE-SHA256",
+    "members": 17,
+    "policySha256": "75bbaf0a2cb9a57a4aecd05ea00ae46b96430a6d2f24f39e2baae6262be931a0"
+  },
+  "publication": {
+    "ghcr": "PUBLISHED",
+    "staging": "PENDING"
+  }
+}
