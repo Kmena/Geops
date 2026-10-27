@@ -26,11 +26,21 @@ class Fake(module.Controller):
         self.policy = {'registryDigests': {'api': API, 'web': WEB}}
         self.policy_bytes = b'synthetic-policy'
         self.gate_phase = 'open'
+        self.gate_nonce = '66666666-7777-8888-9999-000000000000'
+        self.fail_gate_start = False
         self.schema = 30
         self.statuses = {'api': 'running', 'web': 'running', 'db': 'running'}
         self.approved = False
         self.recovery_approved = False
         self.starts = []
+        self.b30_journal.parent.mkdir(parents=True)
+        self.b30_journal.write_text(json.dumps({
+            'phase': 'complete',
+            'gateEpoch': '11111111-2222-3333-4444-555555555555',
+            'gateNonce': self.gate_nonce,
+        }, sort_keys=True))
+        self.b30_rule.parent.mkdir(parents=True)
+        self.b30_rule.write_bytes(module.B30_RULE)
 
     def load_policy(self):
         return self.policy
@@ -39,7 +49,7 @@ class Fake(module.Controller):
         return None
 
     def source(self):
-        return SOURCE_TARGET.copy(), H
+        return SOURCE_TARGET.copy(), module.sha(self.b30_journal.read_bytes())
 
     def release(self, identity):
         if identity != 'releaseB3100000001':
@@ -54,7 +64,7 @@ class Fake(module.Controller):
 
     def gate(self):
         return {'phase': self.gate_phase, 'epoch': '11111111-2222-3333-4444-555555555555',
-                'nonce': '66666666-7777-8888-9999-000000000000'}
+                'nonce': self.gate_nonce}
 
     def container(self, name):
         return {'status': self.statuses[name],
@@ -76,7 +86,10 @@ class Fake(module.Controller):
 
     def compose(self, api, web, *, command=None, **kwargs):
         if command and 'maintenance-start' in command:
+            if self.fail_gate_start:
+                raise module.Blocked('Synthetic gate command failed')
             self.gate_phase = 'maintenance'
+            self.gate_nonce = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
         elif command and 'geops-migrate' in command:
             self.schema = 31
         return ''
@@ -127,7 +140,40 @@ def run():
         assert control.execute('verify')['result'] == 'B31_STAGING_VERIFIED'
         assert control.execute('recover', 'recoveryB310000001')['result'] == 'ALREADY_COMPLETE'
         assert control.starts == [module.APP_COMMIT]
-        return {'result': 'B31_CONTROLLER_STATE_MACHINE_PASS', 'checks': 11}
+    for stale_nonce in (False, True):
+        with tempfile.TemporaryDirectory(prefix='b31-draining-', dir='/opt') as folder:
+            control = Fake(Path(folder))
+            control.approved = True
+            control.fail_gate_start = True
+            try:
+                control.execute('begin', 'releaseB3100000001', 'approvalB310000001',
+                                'restoreB3100000001')
+            except module.Blocked:
+                pass
+            else:
+                raise AssertionError('Synthetic gate failure was ignored')
+            assert control.journal_data()['phase'] == 'draining'
+            assert control.statuses['api'] == control.statuses['web'] == 'exited'
+            if stale_nonce:
+                journal = control.journal_data()
+                journal['gateNonce'] = control.gate_nonce
+                control.save(journal)
+            control.gate_nonce = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+            try:
+                control.execute('recover', 'recoveryB310000001')
+            except module.Blocked:
+                pass
+            else:
+                raise AssertionError('Mismatched B30 gate nonce was accepted')
+            assert not control.starts and control.statuses['api'] == 'exited'
+            control.gate_nonce = '66666666-7777-8888-9999-000000000000'
+            assert control.execute('recover', 'recoveryB310000001')['result'] == (
+                'B30_STAGING_RESTORED_BEFORE_MAINTENANCE')
+            assert control.statuses['api'] == control.statuses['web'] == 'running'
+            assert control.journal_data()['phase'] == 'aborted'
+            assert control.b30_rule.read_bytes() == module.B30_RULE
+            assert control.execute('recover', 'recoveryB310000001')['result'] == 'ALREADY_ABORTED'
+    return {'result': 'B31_CONTROLLER_STATE_MACHINE_PASS', 'checks': 23}
 
 
 if __name__ == '__main__':

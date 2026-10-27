@@ -350,16 +350,28 @@ class Controller(base.Controller):
             ledger, gate = self.ledger(), self.gate()
             if gate['epoch'] != journal['gateEpoch']:
                 raise Blocked('Security epoch changed during B31 promotion')
-            if 'gateNonce' not in journal and gate.get('nonce'):
-                journal['gateNonce'] = gate['nonce']
-                self.save(journal)
-            if (journal['phase'] == 'draining' and 'gateNonce' not in journal and
-                    gate['phase'] == 'open' and ledger == {'count': 30, 'sha256': B30}):
+            # An open B30 gate already has a nonce from the previous promotion.
+            # It is not proof that this B31 attempt entered maintenance. During
+            # draining, compare it with the pinned B30 source journal first.
+            if (journal['phase'] == 'draining' and gate['phase'] == 'open' and
+                    ledger == {'count': 30, 'sha256': B30}):
+                source_body = self.b30_journal.read_bytes()
+                if sha(source_body) != journal['sourceStateSha256']:
+                    raise Blocked('B30 source journal changed during recovery')
+                source_journal = json.loads(source_body)
+                if (source_journal.get('phase') != 'complete' or
+                        source_journal.get('gateNonce') != gate.get('nonce') or
+                        source_journal.get('gateEpoch') != gate['epoch'] or
+                        journal.get('gateNonce', gate.get('nonce')) != gate.get('nonce')):
+                    raise Blocked('Open B30 gate does not match source journal')
                 self.start(journal, journal['source'])
                 atomic(self.b30_rule, B30_RULE, 0o440)
                 journal['phase'] = 'aborted'
                 self.save(journal)
                 return {'result': 'B30_STAGING_RESTORED_BEFORE_MAINTENANCE'}
+            if 'gateNonce' not in journal and gate.get('nonce'):
+                journal['gateNonce'] = gate['nonce']
+                self.save(journal)
             if gate['phase'] != 'open':
                 return {'result': 'AWAITING_SUPERVISED_GATE_RECOVERY',
                         'ledger': ledger, 'gate': gate['phase']}
