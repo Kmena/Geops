@@ -263,10 +263,10 @@ def install(archive_path, signature_path, public_path, expected_sha):
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) != 4:
+        if len(sys.argv) != 5:
             raise Blocked('Usage: install.py PACKAGE.tar.gz PACKAGE.sig APPROVED_PUBLIC.pem PACKAGE_SHA256')
-        print(json.dumps(install(Path(sys.argv[0]), Path(sys.argv[1]),
-                                 Path(sys.argv[2]), sys.argv[3]), sort_keys=True))
+        print(json.dumps(install(Path(sys.argv[1]), Path(sys.argv[2]),
+                                 Path(sys.argv[3]), sys.argv[4]), sort_keys=True))
     except Exception as error:
         print('GEOPS B31 staging installer BLOCKED: ' + str(error), file=sys.stderr)
         sys.exit(1)

@@ -1,4 +1,4 @@
-"""Exercise the signed B31 installer in a disposable Linux root filesystem."""
+"""Exercise signed B31 installer and CLI in a disposable Linux root filesystem."""
 import importlib.util
 import json
 import shutil
@@ -20,8 +20,13 @@ for source, name in ((archive, 'bundle.tar.gz'), (signature, 'bundle.sig'),
 spec = importlib.util.spec_from_file_location('b31_install', paths[3])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module.preflight = lambda policy: {'sourceController': 'B30_STAGING_VERIFIED', 'sourceSchema': 30}
 expected = module.sha(paths[0].read_bytes())
+cli = subprocess.run(['/usr/bin/python3', '-I', str(paths[3]), str(paths[0]),
+                      str(paths[1]), str(paths[2]), expected],
+                     capture_output=True, text=True, check=False)
+assert cli.returncode == 1 and 'Usage:' not in cli.stderr
+assert 'geops-b30-staging' in cli.stderr
+module.preflight = lambda policy: {'sourceController': 'B30_STAGING_VERIFIED', 'sourceSchema': 30}
 first = module.install(paths[0], paths[1], paths[2], expected)
 second = module.install(paths[0], paths[1], paths[2], expected)
 assert first == second and first['result'] == 'B31_STAGING_PACKAGE_READY'
@@ -30,5 +35,5 @@ doctor = subprocess.run(['/usr/bin/python3', '/usr/local/sbin/geops-b31-staging'
 assert json.loads(doctor.stdout)['result'] == 'B31_STAGING_PACKAGE_VERIFIED'
 subprocess.run(['/usr/sbin/visudo', '-c'], capture_output=True, check=True)
 assert Path('/etc/sudoers.d/geops-b31-staging').read_bytes() == module.RULE
-print(json.dumps({'result': 'B31_INSTALLER_ISOLATED_PASS',
+print(json.dumps({'result': 'B31_INSTALLER_ISOLATED_PASS', 'cli': 'PASS',
                   'packageSha256': expected, 'idempotent': True, 'sudoers': 'PASS'}))
