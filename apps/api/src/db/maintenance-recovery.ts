@@ -31,8 +31,33 @@ const versions = [
   '0021_gps_offline_policy_contract.sql',
   '0022_mdm_web_oauth.sql',
   '0023_mdm_oauth_client.sql',
+  '0024_client_geofences.sql',
+  '0025_route_catalog.sql',
+  '0026_agents_assignments.sql',
+  '0027_visit_dwell_engine.sql',
+  '0028_agent_device_links.sql',
+  '0029_geops_gps_identity.sql',
+  '0030_gps_continuity_geops_owner.sql',
 ] as const;
-type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23;
+type SchemaVersion =
+  | 14
+  | 15
+  | 16
+  | 17
+  | 18
+  | 19
+  | 20
+  | 21
+  | 22
+  | 23
+  | 24
+  | 25
+  | 26
+  | 27
+  | 28
+  | 29
+  | 30;
+export const RECOVERY_TARGET_SCHEMA = 30;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -95,7 +120,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(actual.size) ||
+    ![14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30].includes(actual.size) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -135,6 +160,30 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_oauth_pending_expiry', 22, 'i'],
     ['mdm_oauth_client_config', 23, 'r'],
     ['mdm_oauth_config_rate', 23, 'r'],
+    ['client', 24, 'r'],
+    ['client_site', 24, 'r'],
+    ['client_geofence_revision', 24, 'r'],
+    ['client_catalog_idempotency', 24, 'r'],
+    ['route_template', 25, 'r'],
+    ['route_draft_stop', 25, 'r'],
+    ['route_revision', 25, 'r'],
+    ['route_stop_revision', 25, 'r'],
+    ['route_catalog_idempotency', 25, 'r'],
+    ['agent', 26, 'r'],
+    ['route_schedule_rule', 26, 'r'],
+    ['route_schedule_exception', 26, 'r'],
+    ['route_assignment', 26, 'r'],
+    ['assignment_visit', 26, 'r'],
+    ['route_schedule_occurrence', 26, 'r'],
+    ['visit_schedule_idempotency', 26, 'r'],
+    ['visit_algorithm_revision', 27, 'r'],
+    ['visit_lab_agent_device_link', 27, 'r'],
+    ['visit_evaluation_job', 27, 'r'],
+    ['visit_evaluation', 27, 'r'],
+    ['visit_evaluation_current', 27, 'r'],
+    ['visit_evaluation_interval', 27, 'r'],
+    ['geops_device_tenant', 28, 'r'],
+    ['agent_device_link', 28, 'r'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -337,6 +386,43 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     )
       throw new Error('MDM OAuth pending structure mismatch');
   }
+  if (state >= 26) {
+    const overlap = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_constraint
+       WHERE conrelid='route_assignment'::regclass
+         AND conname='route_assignment_agent_no_overlap' AND contype='x'`,
+    );
+    if (overlap.rows[0]?.n !== 1) throw new Error('Assignment overlap protection missing');
+  }
+  if (state >= 28) {
+    const links = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_constraint
+       WHERE conrelid='agent_device_link'::regclass
+         AND conname IN ('agent_device_no_device_overlap','agent_device_no_agent_overlap')
+         AND contype='x'`,
+    );
+    if (links.rows[0]?.n !== 2) throw new Error('Agent-device overlap protection missing');
+  }
+  if (state >= 29) {
+    const owner = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_trigger
+       WHERE tgname IN ('gps_position_owner','gps_session_event_owner','gps_effective_owner')
+         AND NOT tgisinternal`,
+    );
+    if (owner.rows[0]?.n !== 3) throw new Error('GEOPS GPS owner guards missing');
+  }
+  if (state >= 30) {
+    const continuity = await db.query<{ definition: string; guard: number }>(
+      `SELECT pg_get_indexdef('gps_continuity_alert_one_open'::regclass) AS definition,
+         (SELECT count(*)::int FROM pg_trigger WHERE tgname='gps_continuity_owner'
+          AND NOT tgisinternal) AS guard`,
+    );
+    if (
+      !continuity.rows[0]?.definition.includes('NULLS NOT DISTINCT') ||
+      continuity.rows[0].guard !== 1
+    )
+      throw new Error('GEOPS continuity owner or uniqueness guard missing');
+  }
   return state;
 }
 
@@ -473,7 +559,7 @@ export async function recoverMaintenance(
       throw error;
     }
     await onStage?.('authorized');
-    for (let next = before + 1; next <= 23; next++) {
+    for (let next = before + 1; next <= RECOVERY_TARGET_SCHEMA; next++) {
       const migration = catalog[next - 1];
       if (!migration) throw new Error('Recovery migration missing');
       await db.query('BEGIN');
@@ -504,12 +590,13 @@ export async function recoverMaintenance(
         throw new Error('Identity or permission inventory changed during recovery');
     }
     await checkIdentity(db, path, auth);
-    if ((await schemaState(db, catalog)) !== 23) throw new Error('Schema 23 not committed');
+    if ((await schemaState(db, catalog)) !== RECOVERY_TARGET_SCHEMA)
+      throw new Error('Schema 30 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
     try {
-      await audit(db, auth, 'maintenance.recovery.validated', 23);
+      await audit(db, auth, 'maintenance.recovery.validated', RECOVERY_TARGET_SCHEMA);
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
@@ -518,7 +605,7 @@ export async function recoverMaintenance(
     await onStage?.('audited');
     const gate = await checkIdentity(db, path, auth);
     if (
-      (await schemaState(db, catalog)) !== 23 ||
+      (await schemaState(db, catalog)) !== RECOVERY_TARGET_SCHEMA ||
       identities !== (await identityFingerprint(db, before))
     )
       throw new Error('Final maintenance integrity check failed');
