@@ -1,7 +1,8 @@
 #!/usr/bin/python3 -I
-"""Read-only B30 staging package guard. No upgrade or service commands."""
+"""Pinned B30 staging wrapper; commands require an activated signed package."""
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -37,13 +38,25 @@ def doctor(root=ROOT):
         raise RuntimeError('Staging policy pin differs')
     policy = json.loads(body)
     if (policy.get('schemaVersion') != 1 or
-            policy.get('kind') != 'B30_STAGING_PREPARED' or
+            policy.get('kind') not in ('B30_STAGING_PREPARED', 'B30_STAGING_READY') or
             policy.get('environment') != 'geops-spec02-staging' or
-            policy.get('activation') != 'DISABLED' or
-            policy.get('publicationReady') is not False or
-            policy.get('trustKey') != 'PENDING_OPERATOR_VERIFICATION' or
             not isinstance(policy.get('files'), dict)):
-        raise RuntimeError('Staging policy is not a prepared-only policy')
+        raise RuntimeError('Unrecognized B30 staging policy')
+    prepared = policy['kind'] == 'B30_STAGING_PREPARED'
+    if prepared:
+        if (policy.get('activation') != 'DISABLED' or
+                policy.get('publicationReady') is not False or
+                policy.get('trustKey') != 'PENDING_OPERATOR_VERIFICATION' or
+                policy.get('bundleSignature') != 'PENDING'):
+            raise RuntimeError('Prepared policy restrictions changed')
+    else:
+        protected(root / 'public.pem')
+    if not prepared and (policy.get('activation') != 'READY' or
+          policy.get('publicationReady') is not True or
+          not SHA.fullmatch(policy.get('trustKeySha256', '')) or
+          hashlib.sha256((root / 'public.pem').read_bytes()).hexdigest() !=
+          policy['trustKeySha256']):
+        raise RuntimeError('Ready policy trust key differs')
     for name, digest in policy['files'].items():
         member = Path(name)
         if member.is_absolute() or '..' in member.parts or not SHA.fullmatch(digest):
@@ -52,15 +65,30 @@ def doctor(root=ROOT):
         protected(path)
         if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise RuntimeError('Staging package checksum differs')
-    return {'result': 'B30_STAGING_PACKAGE_VERIFIED', 'activation': 'DISABLED',
-            'publicationReady': False, 'files': len(policy['files'])}
+    return {'result': 'B30_STAGING_PACKAGE_VERIFIED',
+            'activation': policy['activation'],
+            'publicationReady': policy['publicationReady'], 'files': len(policy['files'])}
 
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) != 2 or sys.argv[1] != 'doctor':
-            raise RuntimeError('Only doctor is available before operator activation')
-        print(json.dumps(doctor(), sort_keys=True))
+        args = sys.argv[1:]
+        counts = {'doctor': 0, 'status': 0, 'prepare': 1,
+                  'begin': 3, 'migrate': 0, 'recover': 1, 'verify': 0}
+        if not args or args[0] not in counts or len(args) - 1 != counts[args[0]]:
+            raise RuntimeError('Unknown B30 staging command or argument count')
+        verified = doctor()
+        if args[0] == 'doctor':
+            print(json.dumps(verified, sort_keys=True))
+        else:
+            if verified['activation'] != 'READY':
+                raise RuntimeError('Staging activation remains disabled')
+            source = ROOT / 'scripts/deploy/b30-staging/controller.py'
+            protected(source)
+            spec = importlib.util.spec_from_file_location('b30_stage_controller', source)
+            controller = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(controller)
+            controller.main(args)
     except Exception as error:
         print('GEOPS B30 staging guard BLOCKED: ' + str(error), file=sys.stderr)
         sys.exit(1)

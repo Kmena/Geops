@@ -1,5 +1,7 @@
 # B30 — preparación del instalador privilegiado para staging
 
+**Actualización posterior:** la adaptación de controlador y la nueva evidencia están en `b30-staging-controller-readiness.md`. Este informe conserva el corte inicial y su paquete preparado anterior como evidencia histórica.
+
 **Corte:** 2026-10-27. **Rama:** `codex/b30-packaging-readiness`. **HEAD inicial:** `30d9ba2485205b9bb4d1a7fe412fdeb0ee5a96fd`.
 
 `B30_STAGING_INSTALLER_TECHNICAL_PASS = NO` · `B30_STAGING_INSTALLER_TECHNICAL_PARTIAL = YES`

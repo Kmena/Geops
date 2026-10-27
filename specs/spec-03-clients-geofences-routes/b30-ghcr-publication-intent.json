@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "kind": "B30_GHCR_PUBLICATION_COMPLETED",
+  "applicationCommit": "2f89b87f1f636feb7e21d7e09af03959ee95f68d",
+  "candidateManifestSha256": "3685814d172901cab4435caee5cfa6cbf17259f738d6b904df6f3b143cd74c2b",
+  "database": {
+    "sourceSchema": 23,
+    "targetSchema": 30,
+    "targetListSha256": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6"
+  },
+  "sourceB23": {
+    "wrapperSha256": "070a2e7f058d75a601f4d3cc0f021f46c3d854066272a161822b7e0121a23ad2",
+    "policySha256": "b6c04a11c5bd6a8503f4670eb470223c82b3272213658d7f92acc35a691b6311"
+  },
+  "controller": {
+    "preparedPackage": "artifacts/b30-packaging/controller-b30-staging-prepared-key-gated.tar.gz",
+    "preparedPackageSha256": "bc69f81b2a9b11c19e821ce2abea902fea3d9f6ea01f7787d0ce46b6a16eb205",
+    "readyPackage": "artifacts/b30-packaging/controller-b30-staging-ready.tar.gz",
+    "readyPackageSha256": "e3d46085cd0abe99133f7e818dd040385df3cb2e0dcacdcaca8fa1d5eda30151",
+    "activation": "READY",
+    "stagingTrustKeySha256": "d01423d005fe09fbec30be0b6ed8a66d144ffc5f44c3869f64aa84756a814a27",
+    "stagingSignatureSha256": "aa52a8e55f9d581d0be1389dad3157adc3ea9cf463fca3b7ca0ce9b648f02667"
+  },
+  "images": {
+    "api": {
+      "localTag": "geops-b30-publication-api:2f89b87",
+      "localImageId": "sha256:322eb6e8bae3f974c246b226db5161153c12ea11ccef26ff9625d1b0934b7515",
+      "targetRepository": "ghcr.io/kmena/geops-api",
+      "registryDigest": "sha256:42c1eeb392f8e8b23199a2536724910dc32721074c9c0784a3fcb9207a9ffe9d"
+    },
+    "web": {
+      "localTag": "geops-b30-publication-web:2f89b87",
+      "localImageId": "sha256:c0ce64b98edc1f8789b34ee0137dbcd5a29cb6f66436c7f856f94616d53dfe7d",
+      "targetRepository": "ghcr.io/kmena/geops-web",
+      "registryDigest": "sha256:2b59828bf0d50c29eaf87bb2f7fa3499e03da814d66ca56dd76971adb1a15483"
+    }
+  },
+  "authorizations": {
+    "publishImages": true,
+    "installController": false,
+    "updateStaging": false
+  },
+  "publicationReadiness": "YES",
+  "ghcrPublished": true,
+  "stagingChanged": false
+}

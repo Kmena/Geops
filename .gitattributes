@@ -23,6 +23,9 @@ scripts/deploy/b30-packaging/*.py text eol=lf
 scripts/deploy/b30-packaging/sudoers text eol=lf
 scripts/deploy/b30-staging/*.py text eol=lf
 scripts/deploy/b30-staging/sudoers text eol=lf
+scripts/deploy/b30-staging/sudoers-ready text eol=lf
+scripts/deploy/b30-staging/replica-lab/*.py text eol=lf
+scripts/deploy/b30-staging/replica-lab/Dockerfile text eol=lf
 
 *.jar binary
 *.png binary

@@ -22,16 +22,20 @@ V2_RULE = (b'Defaults!/usr/local/sbin/geops-deploy-v2 env_reset\n'
 STAGING_RULE = (b'Defaults!/usr/local/sbin/geops-b30-staging env_reset\n'
                 b'Defaults!/usr/local/sbin/geops-b30-staging secure_path="/usr/sbin:/usr/bin:/sbin:/bin"\n'
                 b'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-b30-staging doctor\n')
+STAGING_READY_RULE = (b'Defaults!/usr/local/sbin/geops-b30-staging env_reset\n'
+                      b'Defaults!/usr/local/sbin/geops-b30-staging secure_path="/usr/sbin:/usr/bin:/sbin:/bin"\n'
+                      b'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-b30-staging\n')
 REQUIRED = {
     'scripts/deploy/b30-staging/guard.py',
+    'scripts/deploy/b30-staging/controller.py',
+    'scripts/deploy/b30-staging/sudoers-ready',
     'scripts/deploy/b30-staging/install.py',
     'scripts/deploy/b30-staging/package.py',
+    'scripts/deploy/b30-staging/candidate.py',
     'scripts/deploy/b30-staging/sudoers',
-    'scripts/deploy/b30-lab/controller.mjs',
     'scripts/deploy/remote/geops_deploy_v2.py',
     'scripts/deploy/remote/install-v2.py',
-    'specs/spec-03-clients-geofences-routes/release-candidate-manifest.json',
-    'node_modules/pg/package.json',
+    'specs/spec-03-clients-geofences-routes/b30-staging-candidate.json',
 }
 
 
@@ -115,18 +119,34 @@ def archive_items(archive):
             raise Blocked('Archive metadata or paths invalid')
         items = {item.name: source.extractfile(item).read() for item in members}
     policy = json.loads(items['policy.json'])
-    if (policy.get('schemaVersion') != 1 or
-            policy.get('kind') != 'B30_STAGING_PREPARED' or
+    prepared = policy.get('kind') == 'B30_STAGING_PREPARED'
+    ready = policy.get('kind') == 'B30_STAGING_READY'
+    if (policy.get('schemaVersion') != 1 or not (prepared or ready) or
             policy.get('environment') != 'geops-spec02-staging' or
-            policy.get('activation') != 'DISABLED' or
-            policy.get('trustKey') != 'PENDING_OPERATOR_VERIFICATION' or
-            policy.get('bundleSignature') != 'PENDING' or
-            policy.get('publicationReady') is not False or
-            policy.get('registryDigests') != {'api': None, 'web': None} or
+            (prepared and (policy.get('activation') != 'DISABLED' or
+                           policy.get('trustKey') != 'PENDING_OPERATOR_VERIFICATION' or
+                           policy.get('bundleSignature') != 'PENDING' or
+                           policy.get('publicationReady') is not False or
+                           policy.get('registryDigests') != {'api': None, 'web': None})) or
+            (ready and (policy.get('activation') != 'READY' or
+                        policy.get('publicationReady') is not True or
+                        not SHA.fullmatch(policy.get('trustKeySha256', '')) or
+                        not isinstance(policy.get('sourceB23'), dict) or
+                        set(policy['sourceB23']) != {'wrapperSha256', 'policySha256'} or
+                        any(not SHA.fullmatch(value) for value in policy['sourceB23'].values()) or
+                        not isinstance(policy.get('registryDigests'), dict) or
+                        set(policy['registryDigests']) != {'api', 'web'} or
+                        any(not isinstance(policy['registryDigests'][name], str) or
+                            not re.fullmatch(rf'ghcr\.io/kmena/geops-{name}@sha256:[a-f0-9]{{64}}',
+                                             policy['registryDigests'][name])
+                            for name in ('api', 'web')) or
+                        policy.get('mdmRegion') not in
+                        ('com', 'eu', 'in', 'com.au', 'jp', 'ca', 'cn', 'sa', 'uk') or
+                        sha(items.get('public.pem', b'')) != policy['trustKeySha256'])) or
             policy.get('applicationCommit') !=
-            '15f77a0d1904b77833972d8e2fd628a6cb97678f' or
+            '2f89b87f1f636feb7e21d7e09af03959ee95f68d' or
             policy.get('candidateManifestSha256') !=
-            '02c83a5293db7a5e6452342c5b1649bcd85d3b9ac334647b5489564257200a5f' or
+            '3685814d172901cab4435caee5cfa6cbf17259f738d6b904df6f3b143cd74c2b' or
             policy.get('migrations') != {
                 'sourceCount': 23,
                 'sourceListSha256': '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d',
@@ -135,17 +155,20 @@ def archive_items(archive):
             } or not isinstance(policy.get('files'), dict) or
             set(policy['files']) != set(items) - {'policy.json'} or
             items.get('scripts/deploy/b30-staging/sudoers') != STAGING_RULE or
+            items.get('scripts/deploy/b30-staging/sudoers-ready') != STAGING_READY_RULE or
             not REQUIRED.issubset(items)):
         raise Blocked('Unsupported B23→B30 staging compatibility policy')
     for name, body in items.items():
         if name == 'policy.json':
             continue
-        if (not name.startswith(('scripts/deploy/', 'infrastructure/compose/',
-                                 'specs/spec-03-clients-geofences-routes/', 'node_modules/')) or
+        if (name != 'public.pem' and
+                not name.startswith(('scripts/deploy/', 'infrastructure/compose/',
+                                     'infrastructure/nginx/', 'infrastructure/staging/',
+                                     'specs/spec-03-clients-geofences-routes/')) or
                 not SHA.fullmatch(policy['files'][name]) or
                 sha(body) != policy['files'][name]):
             raise Blocked('Staging package inventory checksum invalid')
-    if sha(items['specs/spec-03-clients-geofences-routes/release-candidate-manifest.json']) != \
+    if sha(items['specs/spec-03-clients-geofences-routes/b30-staging-candidate.json']) != \
             policy['candidateManifestSha256']:
         raise Blocked('B30 candidate manifest differs')
     if items['scripts/deploy/b30-staging/install.py'] != Path(__file__).read_bytes():
@@ -187,6 +210,11 @@ def install(layout, archive_path, signature_path, public_key, expected_sha, key_
     verify_signature(archive, Path(signature_path).read_bytes(), public_key,
                      expected_sha, key_sha)
     items, policy = archive_items(archive)
+    if policy['kind'] == 'B30_STAGING_READY':
+        if (source != 'from-b23' or policy['trustKeySha256'] != key_sha or
+                policy['sourceB23'] != {'wrapperSha256': old_wrapper_sha,
+                                        'policySha256': old_policy_sha}):
+            raise Blocked('Ready B30 package requires reviewed B23 source and trust key')
     if source == 'clean' and layout.v2_wrapper.exists():
         raise Blocked('Existing B23 controller requires from-b23 mode')
     previous = (old_b23(layout, old_wrapper_sha, old_policy_sha)
@@ -249,7 +277,9 @@ def install(layout, archive_path, signature_path, public_key, expected_sha, key_
         else:
             atomic(layout.wrapper, wrapper_body, 0o500)
         fault('after-wrapper')
-        sudo_body = items['scripts/deploy/b30-staging/sudoers']
+        sudo_body = items['scripts/deploy/b30-staging/sudoers-ready' if
+                          policy['kind'] == 'B30_STAGING_READY' else
+                          'scripts/deploy/b30-staging/sudoers']
         if visudo is None:
             visudo = lambda path: subprocess.run(
                 ['/usr/sbin/visudo', '-cf', str(path)], check=True,
@@ -274,8 +304,9 @@ def install(layout, archive_path, signature_path, public_key, expected_sha, key_
         fault('after-sudoers')
         journal['phase'] = 'prepared-complete'
         atomic(layout.journal, (json.dumps(journal, sort_keys=True) + '\n').encode(), 0o600)
-        return {'result': 'B30_STAGING_PACKAGE_PREPARED', **identity,
-                'activation': 'DISABLED', 'publicationReady': policy['publicationReady']}
+        return {'result': 'B30_STAGING_PACKAGE_' +
+                ('READY' if policy['activation'] == 'READY' else 'PREPARED'), **identity,
+                'activation': policy['activation'], 'publicationReady': policy['publicationReady']}
     finally:
         os.close(fd)
 
