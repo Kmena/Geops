@@ -15,6 +15,7 @@ apps/api/src/db/migrations/*.sql text eol=lf
 *.kts text eol=lf
 *.gradle text eol=lf
 *.sh text eol=lf
+infrastructure/nginx/geops-staging-web.conf text eol=lf
 gradlew text eol=lf
 *.bat text eol=crlf
 gradlew.bat text eol=crlf

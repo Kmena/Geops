@@ -38,6 +38,7 @@ const versions = [
   '0028_agent_device_links.sql',
   '0029_geops_gps_identity.sql',
   '0030_gps_continuity_geops_owner.sql',
+  '0031_agent_responsibility_geocoding.sql',
 ] as const;
 type SchemaVersion =
   | 14
@@ -56,8 +57,9 @@ type SchemaVersion =
   | 27
   | 28
   | 29
-  | 30;
-export const RECOVERY_TARGET_SCHEMA = 30;
+  | 30
+  | 31;
+export const RECOVERY_TARGET_SCHEMA = 31;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -120,7 +122,9 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30].includes(actual.size) ||
+    ![14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31].includes(
+      actual.size,
+    ) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -184,6 +188,11 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['visit_evaluation_interval', 27, 'r'],
     ['geops_device_tenant', 28, 'r'],
     ['agent_device_link', 28, 'r'],
+    ['agent_operational_identity', 31, 'r'],
+    ['agent_responsibility', 31, 'r'],
+    ['geocoding_cache', 31, 'r'],
+    ['geocoding_provider_slot', 31, 'r'],
+    ['geocoding_actor_bucket', 31, 'r'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -423,6 +432,25 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     )
       throw new Error('GEOPS continuity owner or uniqueness guard missing');
   }
+  if (state >= 31) {
+    const structure = await db.query<{ overlaps: number; guard: number; identities: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM pg_constraint
+          WHERE conrelid='agent_responsibility'::regclass
+            AND conname='agent_responsibility_no_overlap' AND contype='x') AS overlaps,
+         (SELECT count(*)::int FROM pg_trigger
+          WHERE tgname='agent_responsibility_no_history_change' AND NOT tgisinternal) AS guard,
+         (SELECT count(*)::int FROM pg_constraint
+          WHERE conrelid='agent_operational_identity'::regclass
+            AND contype='u') AS identities`,
+    );
+    if (
+      structure.rows[0]?.overlaps !== 1 ||
+      structure.rows[0].guard !== 1 ||
+      structure.rows[0].identities < 2
+    )
+      throw new Error('B31 identity or responsibility guards missing');
+  }
   return state;
 }
 
@@ -591,7 +619,7 @@ export async function recoverMaintenance(
     }
     await checkIdentity(db, path, auth);
     if ((await schemaState(db, catalog)) !== RECOVERY_TARGET_SCHEMA)
-      throw new Error('Schema 30 not committed');
+      throw new Error('Schema 31 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
