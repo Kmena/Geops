@@ -5,6 +5,7 @@ Fecha: 2026-10-27 (UTC). Entorno: `geops-spec02-staging`.
 ## Estado Git y alcance
 
 - Rama candidata aislada: `codex/b31-staging-candidate`.
+- Reparación aislada del controlador: `codex/b31-controller-recovery-fix`, commits locales `f9719d5` y `f50dd3a`.
 - Fuente de aplicación B31: `eba9b3ba3cf1927dcbf032070322fa32dbfe4db3`, basada en los cambios de `8ce7b9f7bacae7344f962d2b59cae511f016d378`.
 - Controlador e instalador B31: commits locales `21541ef42b871d46c9697adcebfe5b9a293342e5` y `f965b82aa6454ac2e376265da40fe654038e100c`.
 - Se preservó el worktree B30 con sus cambios sin commit. Sin push ni merge a ramas compartidas.
@@ -52,11 +53,27 @@ La migración `0031_agent_responsibility_geocoding.sql` agrega tablas de identid
 
 ## Promoción y recuperación
 
-Release B31 firmado y transferido al área de preparación de staging: SHA-256 `36c1d239b6b62f8af7ddf6ff21d13fc08ee8351be862dcf7c3166fa72799658c`, firma `d35bdf8fc1412d9a498c47ca99ddca04eff49fc980fdec014cc49cb5d54b3497`. El script de instalación y `prepare` de solo lectura está transferido y verificado (SHA-256 `6bb91d358355dcd19064880e9020f5f1ee57ade8f661e7604c84cbef78ac403c`). Espera ejecución por operador; no se han ejecutado `begin` ni `migrate`. El script de recuperación B31 está preparado y transferido (SHA-256 `8929dbf2fb0e10dd287e474f28e16dcb620a95fa3070d8c7b9267d32e92f2148`).
+El release B31 firmado (SHA-256 `36c1d239b6b62f8af7ddf6ff21d13fc08ee8351be862dcf7c3166fa72799658c`) y los documentos de restauración y aprobación nuevos se instalaron con firmas y vínculos exactos verificados. `prepare` pasó: sourceStateSha256 `297753232179b61b04b80f13ddd7e429aea782f6469949071459c57d7d7536d3`, fuente B30 y destino B31 por digest.
+
+`begin` consumió la aprobación, detuvo API/Web B30 y falló antes de cerrar el gate. El journal B31 quedó en `draining`; gate abierto y ledger de 30 migraciones. **No se ejecutó `migrate` ni la migración 0031.** La recuperación original falló: copió al journal el nonce de la puerta B30 abierta y exigió por error una atestación de recuperación de una fase de mantenimiento que nunca comenzó.
+
+Se recuperaron exclusivamente los contenedores API/Web B30 existentes mediante `docker start`, bajo autorización específica, tras verificar sus IDs por digest, gate abierto, ledger30 y ausencia de contenedores de migración. El script SHA-256 `d827709784ae55ac2f8e1edda5e0e8481fc0d81bd37d488ea92cbf3a65164e78` devolvió `B30_SERVICES_EMERGENCY_RESTORED_B31_JOURNAL_PRESERVED` y el controlador B30 devolvió `B30_STAGING_VERIFIED`.
+
+La causa más probable de `maintenance-start` es una sesión `psql` inactiva abierta desde 18:39:31 UTC (PID 565488); `maintenance-gate.ts` exige cero sesiones ajenas. La salida interna fue descartada por el controlador, por lo que esta causa es una inferencia sustentada por la sesión observada y la precondición del código, sin mensaje de error interno que la confirme. No se alteró ni cerró la sesión.
+
+En `codex/b31-controller-recovery-fix`, commit `f9719d5cab7222f6cb5c9481ed52ead004c513db`, `recover` compara primero el nonce de la puerta abierta con el journal B30 fijado por SHA-256 y permite abortar el intento antes de mantenimiento sin atestación ficticia. Rechaza nonce o journal distintos y sigue exigiendo atestación para recuperación posterior a migración.
+
+El bundle de reparación v4 se instaló con firma y preflight válidos, SHA-256 `6129476fc396978e1429b36011f98a964ae3702034cfd31391c1bc796b611853`. Conservó v3 y devolvió `B31_NONCE_REPAIR_DIAGNOSTICS_PASS_B30_UNCHANGED`. Una revisión posterior detectó que el journal B31 conserva el hash de política v3: la validación global del controlador v4 bloquearía `recover` antes de alcanzar la nueva rama del nonce. No se ejecutó `recover` en staging.
+
+La corrección completa v5 acepta ese hash antiguo **solo** para `recover` con journal `draining` o `aborted`, gate abierto y ledger30; sigue bloqueando migraciones y otros estados con política distinta. El bundle v5 SHA-256 `a062af6ca121471b307ae9272eea2f715b3d4891f5db6f7a71ae8fdca167af7d`, política `89b5de6f15cc547244982fb1af250fa6dc9fff3a12ce1b0b2298de64401dc3eb`, firma `9368b6c9e0900679f4c1f84e5bcf5eefe2f301ad5cb9d05380c342a1e641fada`, es reproducible desde `f50dd3aea68b096b2a5db9e992c244122147034f`. Solo cambian `controller.py` y `policy.json` frente a v4. El instalador v4→v5 también está firmado (SHA-256 `9285c0cd771d4fbd3a8aeb5d912490d2ccb1ad37ebc01be092ec22012651d6a0`), conserva el bundle previo y no ejecuta `recover`, `begin` ni migraciones.
+
+El operador instaló v5 con el procedimiento SHA-256 `2923e2b4110a598a30729282450ed4f548a24e1616c491a446fb574ad9bff6d2`. Ambas firmas pasaron; el instalador devolvió `B31_CONTROLLER_NONCE_REPAIR_INSTALLED`, conservó el bundle v4 y después `B31_NONCE_REPAIR_DIAGNOSTICS_PASS_B30_UNCHANGED`. Una consulta SSH independiente confirmó `B31_STAGING_PACKAGE_VERIFIED`, gate abierto, ledger30 y journal `draining`. No se ejecutó `recover` en staging porque reiniciaría API/Web B30; tampoco se inició una nueva promoción B31.
 
 ## Verificación posterior y continuidad
 
-Pendiente registrar: datos conservados, API/Web B31, MDM, GPS, SPEC-03, Nominatim, gate, ledger, respuesta de health y cualquier backlog. No se afirmará cero pérdida ni validación física GPS sin evidencia.
+Tras restaurar B30: Web `/` 200; `/api/health/live` y `/api/health/ready` 200; MDM `/v1/admin/mdm/status`, GPS `/v1/admin/gps-capabilities`, clientes `/v1/admin/client-capabilities` y cumplimiento `/v1/admin/compliance` responden 401 sin sesión (sin 5xx). El gate permanece abierto, el ledger en 30 y el journal B31 en `draining`. No se afirma validación funcional autenticada ni GPS físico.
+
+Laboratorio aislado de la reparación v5: máquina de estados B31, 25 controles PASS, incluidos fallo de `begin`, nonce heredado, rechazo de nonce distinto, aceptación limitada de política v3 y rechazo de una política desconocida; delta firmado solo controlador/política PASS; firma Ed25519 y alteración rechazada PASS; instalador Linux descartable PASS, conserva v4 e idempotencia PASS. API/Web y PostgreSQL de staging no se tocaron durante estas pruebas.
 
 ## Tiempos
 
@@ -64,6 +81,10 @@ Pendiente medir: inicio de mantenimiento, duración de migración, cambio API/We
 
 ## Estado final
 
-`B31_STAGING_DEPLOYMENT_PARTIAL` hasta completar la promoción y verificación posteriores.
+`B31_STAGING_DEPLOYMENT_BLOCKED`: B30 está operativo, pero B31 no fue promovido. El controlador reparado quedó instalado y diagnosticado; no se autoriza reintentar B31 con la aprobación consumida ni con la sesión `psql` abierta.
+
+`B31_STAGING_CONTROLLER_NONCE_REPAIR_TECHNICAL_PASS`: bundle v5 firmado instalado, `doctor` y diagnósticos de solo lectura PASS; pruebas de recuperación reales en staging no ejecutadas por el límite de no reiniciar API/Web.
+
+Antes de un nuevo intento se requiere una ventana separada para cerrar la sesión `psql` ajena, archivar el intento B31 `draining` mediante un procedimiento firmado y autorizado, restaurar la regla sudoers B30 y emitir documentos nuevos con respaldo vigente. La ruta local reparada de `recover` está probada en Linux aislado, pero su ejecución en staging se pospuso para respetar la restricción de no tocar servicios durante esta reparación.
 
 `SPEC03_OPERATIONAL_PASS = NO`.
