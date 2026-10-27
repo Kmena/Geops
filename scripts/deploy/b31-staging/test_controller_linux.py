@@ -157,6 +157,18 @@ def run():
             if stale_nonce:
                 journal = control.journal_data()
                 journal['gateNonce'] = control.gate_nonce
+                journal['policySha256'] = module.B31_V3_POLICY
+                control.save(journal)
+                control.policy_bytes = b'signed-controller-repair-policy'
+                journal['policySha256'] = 'e' * 64
+                control.save(journal)
+                try:
+                    control.execute('recover', 'recoveryB310000001')
+                except module.Blocked:
+                    pass
+                else:
+                    raise AssertionError('Unknown prior policy was accepted')
+                journal['policySha256'] = module.B31_V3_POLICY
                 control.save(journal)
             control.gate_nonce = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
             try:
@@ -173,7 +185,7 @@ def run():
             assert control.journal_data()['phase'] == 'aborted'
             assert control.b30_rule.read_bytes() == module.B30_RULE
             assert control.execute('recover', 'recoveryB310000001')['result'] == 'ALREADY_ABORTED'
-    return {'result': 'B31_CONTROLLER_STATE_MACHINE_PASS', 'checks': 23}
+    return {'result': 'B31_CONTROLLER_STATE_MACHINE_PASS', 'checks': 25}
 
 
 if __name__ == '__main__':

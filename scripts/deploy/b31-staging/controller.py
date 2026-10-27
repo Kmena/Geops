@@ -25,6 +25,7 @@ B30_RULE = (b'Defaults!/usr/local/sbin/geops-b30-staging env_reset\n'
             b'Defaults!/usr/local/sbin/geops-b30-staging secure_path="/usr/sbin:/usr/bin:/sbin:/bin"\n'
             b'abi ALL=(root) NOPASSWD: /usr/local/sbin/geops-b30-staging\n')
 B30_DISABLED = b'# B30 controller suspended during supervised B31 promotion\n'
+B31_V3_POLICY = '75bbaf0a2cb9a57a4aecd05ea00ae46b96430a6d2f24f39e2baae6262be931a0'
 Blocked = base.Blocked
 sha = base.sha
 protected = base.protected
@@ -320,7 +321,14 @@ class Controller(base.Controller):
         if journal is None:
             raise Blocked('No supervised B31 promotion')
         if journal['policySha256'] != sha(self.policy_bytes):
-            raise Blocked('B31 policy changed during promotion')
+            # A signed controller-only repair changes the policy hash while
+            # the failed v3 attempt remains in draining. Permit only its
+            # pre-maintenance B30 recovery; all migration paths stay pinned.
+            if not (command == 'recover' and journal['phase'] in ('draining', 'aborted') and
+                    journal['policySha256'] == B31_V3_POLICY and
+                    self.gate()['phase'] == 'open' and
+                    self.ledger() == {'count': 30, 'sha256': B30}):
+                raise Blocked('B31 policy changed during promotion')
         if command == 'migrate':
             if journal['phase'] not in ('maintenance', 'migrating'):
                 raise Blocked('B31 migration phase differs')
