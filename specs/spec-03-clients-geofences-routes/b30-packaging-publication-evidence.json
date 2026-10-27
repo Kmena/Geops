@@ -13,10 +13,27 @@
   },
   "controller": {
     "file": "controller-b30-lab.tar.gz",
-    "bytes": 175037,
-    "sha256": "2e3f3cd8d3f7bf104bf44693564975365bd70593b7b1a72c7cc09fb69987bc4b",
-    "scope": "LAB_ONLY"
+    "bytes": 560449,
+    "sha256": "895c12fa18045027cf1a876bca931a84ec7deb576740e98a3d6f59b5e8895468",
+    "scope": "LAB_ONLY",
+    "signature": {
+      "scope": "LAB_ONLY",
+      "signatureSha256": "96fc83ed5487734044e31df228e349bf0177d5a914daedbae86a20ce201a70d3",
+      "publicKeySha256": "1c67f9d01fde7228edc10ccc2c421d34bce85f8ad7bb088de80e465506d33051"
+    }
   },
+  "stagingCompatibility": {
+    "sourceSchema": 23,
+    "targetSchema": 30,
+    "sourceSqlListSha256": "90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d",
+    "targetSqlListSha256": "64e38eec0df1c0e32890cbed3dcee055482575730ada9d4e5899baf792dfa7f6",
+    "composeDigestOverridesVerified": true,
+    "mdmEnabled": true,
+    "existingPrivilegedControllerMaxSchema": 23,
+    "stagingController": "B30_ADAPTATION_PENDING"
+  },
+  "stagingEd25519TrustKey": "PENDING_OPERATOR_VERIFICATION",
+  "stagingBundleSignature": "PENDING",
   "images": {
     "api": {
       "tag": "geops-b30-packaging-api:15f77a0",

@@ -1,10 +1,12 @@
 # B30 — Packaging & Privileged Controller Readiness
 
-**Corte local:** 2026-10-26 (America/Guatemala). **Estado:** `B30_PACKAGING_READINESS_PARTIAL`.
+**Corte local:** 2026-10-27 (America/Guatemala). **Estado:** `B30_PACKAGING_READINESS_PARTIAL`.
 
 `GATE_A_PRIVILEGED_LAB = PASS` · `GATE_B_VERIFIABLE_PUBLICATION = PARTIAL` · `STAGING_READY = NO`
 
 `STAGING_CHANGED = NO` · `GHCR_PUBLISHED = NO` · `PUSHED = NO` · `MERGED = NO`
+
+`STAGING_ED25519_TRUST_KEY = PENDING_OPERATOR_VERIFICATION` · `STAGING_BUNDLE_SIGNATURE = PENDING` · `B30_PUBLICATION_READINESS = PARTIAL`
 
 ## 1. Aislamiento y alcance
 
@@ -64,7 +66,9 @@ Se construyeron imágenes locales desde la aplicación sin cambios del commit `1
 | API `geops-b30-packaging-api:15f77a0` | `sha256:de7b3f5ed3203f1e17b5b885f9ecee48fcc16347cee0e1547118c52dd1077d8e` | `api-b30.tar`: `50c8c05fc143b691a5193e582646a10f8fd5d586b7c8d1f6ad13f773d6a86e55` | 14/14 |
 | Web `geops-b30-packaging-web:15f77a0` | `sha256:d9e6d51e49946f1fd71710d22a0e0bb3487b791ec6a8d33dda9da0a70c1df432` | `web-b30.tar`: `303f57fb5eef1a62d563007942f8e2cea939d37b04b0789d56b5d6654bf7fce8` | 11/11 |
 
-`verify-image-archive.py` verificó tag, arquitectura `amd64`, SHA-256 del JSON de configuración contra el ID inspeccionado y SHA-256 de **cada capa** contra `rootfs.diff_ids`. Un ID incorrecto se rechazó. `verify-publication.mjs` vuelve a contrastar archivos tar, etiquetas OCI, esquema, SQL, assets y hashes. El borrador público tiene SHA-256 `ad8d2f2f073644b2ceba4cd874c34c657529afcac92b33ebc779b419b82b098e`; `publishable` lo rechaza, como corresponde, porque el controlador es `LAB_ONLY`, `RepoDigests` está vacío y no hay digests GHCR.
+`verify-image-archive.py` verificó tag, arquitectura `amd64`, SHA-256 del JSON de configuración contra el ID inspeccionado y SHA-256 de **cada capa** contra `rootfs.diff_ids`. Un ID incorrecto se rechazó. `verify-publication.mjs` vuelve a contrastar archivos tar, etiquetas OCI, esquema, SQL, assets y hashes. También verifica criptográficamente la firma del paquete **LAB_ONLY**, el prefijo B23, las 30 migraciones B30, la incompatibilidad del controlador v2 con B30 y el render de Compose de staging para API/Web/migración por digest con MDM habilitado. Ese render usa referencias y parámetros **sintéticos**; no inspecciona el servidor. El borrador público regenerado tiene SHA-256 `343c514b7f58a5f6934af9e21a15e88f3bc2f78ede010ad5c5c7639b138746ee`; `verify` pasó y `publishable` salió con código 1 porque el controlador continúa `LAB_ONLY`, `RepoDigests` está vacío y no hay digests GHCR.
+
+La firma local verificada corresponde al paquete `controller-b30-lab.tar.gz`, SHA-256 `895c12fa18045027cf1a876bca931a84ec7deb576740e98a3d6f59b5e8895468`. La firma tiene SHA-256 `96fc83ed5487734044e31df228e349bf0177d5a914daedbae86a20ce201a70d3` y la clave pública de laboratorio SHA-256 `1c67f9d01fde7228edc10ccc2c421d34bce85f8ad7bb088de80e465506d33051`. Esta cadena de confianza no se reutiliza para staging. El operador debe confirmar la clave pública Ed25519 autorizada y emitir la firma definitiva de los bytes exactos del futuro paquete de staging.
 
 En el primer corte se intentó un registro temporal sobre el loopback de Windows; el daemon de Docker Desktop no pudo alcanzarlo. La revisión automática rechazó exponerlo con `--network host`; esa alternativa no se utilizó. En este corte se creó un registro **dentro del daemon Docker aislado, cuyo contenedor exterior no tiene red externa ni puertos publicados en el host**. Se subieron allí las imágenes API/Web del laboratorio y se retiraron sus tags temporales; después se descargaron por digest desde el registro local. Los IDs recuperados coincidieron exactamente con los originales:
 
@@ -82,7 +86,7 @@ Se repitió el push, retiro de tag y pull por digest con las **imágenes candida
 
 Todos estos son **digests del registro local efímero**, no digests GHCR. La prueba valida la mecánica de push/pull por digest y coteja procedencia local sin publicar remotamente.
 
-**Pendiente para cerrar B:** terminar y probar el paquete del controlador de staging, obtener digests reales de las imágenes candidatas API/Web en el registro de destino, cotejarlos mediante pull por digest y firmar un manifiesto publicable. El paquete actual es `LAB_ONLY` y el digest local de laboratorio no se puede sustituir por uno GHCR. Publicar en GHCR requiere autorización específica; no se solicitó ni efectuó en esta etapa. Por ello B permanece `PARTIAL`.
+**Pendiente para cerrar B:** adaptar el controlador privilegiado v2 y su instalador para el salto irreversible B23→B30, terminar y probar ese paquete, obtener digests reales de las imágenes candidatas API/Web en el registro de destino, cotejarlos mediante pull por digest y firmar el manifiesto definitivo. El paquete actual es `LAB_ONLY` y el digest local de laboratorio no se puede sustituir por uno GHCR. No hay clave pública Ed25519 de staging confirmada; la firma definitiva queda para el operador y no se genera una clave de producción. Un manifiesto definitivo con referencias inmutables solo puede cerrarse **después** de conocer los digests GHCR. La publicación en GHCR requiere autorización específica y no se efectuó. Por ello B permanece `PARTIAL`.
 
 ## 4. Resultado y recomendación
 

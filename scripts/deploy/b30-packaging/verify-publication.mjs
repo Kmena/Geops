@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Verify local B30 image archives and refuse publication without real registry digests. */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, verify } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -101,6 +101,104 @@ function verifyArchive(kind, imageId) {
   return result.layers;
 }
 
+function verifyLabSignature(packageSha256) {
+  const signature = readFileSync(join(artifactRoot, 'controller-b30-lab.sig'));
+  const publicKey = readFileSync(join(artifactRoot, 'lab-public.pem'));
+  const message = Buffer.from(`GEOPS-B30-LAB-PACKAGE-SHA256\n${packageSha256}\n`);
+  assert.equal(signature.length, 64);
+  assert.ok(verify(null, message, publicKey, signature), 'Lab package signature changed');
+  return {
+    scope: 'LAB_ONLY',
+    signatureSha256: hash(signature),
+    publicKeySha256: hash(publicKey),
+  };
+}
+
+function stagingCompatibility() {
+  const candidate = JSON.parse(
+    readFileSync(
+      join(root, 'specs/spec-03-clients-geofences-routes/release-candidate-manifest.json'),
+    ),
+  );
+  assert.equal(candidate.database.minimumSourceSchema, 23);
+  assert.equal(candidate.database.targetSchema, 30);
+  assert.equal(
+    candidate.database.b23PrefixSha256,
+    '90ae7681e90c6f9110071c140a73f028dd5d73344dcc9043cf9d50974ac9022d',
+  );
+  assert.equal(candidate.database.targetListSha256, B30);
+  assert.equal(candidate.database.migrations.length, 30);
+  assert.equal(candidate.compatibility.apiDuringMigration, 'STOPPED');
+  assert.equal(candidate.compatibility.webDuringMigration, 'STOPPED');
+  assert.equal(
+    candidate.compatibility.rollback,
+    'NO_DATABASE_DOWNGRADE; RECOVER_FORWARD_TO_SCHEMA_30',
+  );
+  const v2Profiles = JSON.parse(
+    execFileSync(
+      'python',
+      [
+        '-c',
+        'import json,sys;sys.path.insert(0,"scripts/deploy/remote");import geops_deploy_v2 as v;print(json.dumps(v.PROFILES))',
+      ],
+      { cwd: root, encoding: 'utf8', timeout: 10_000 },
+    ),
+  );
+  assert.equal(v2Profiles['B23-mdm'].sqlCount, 23);
+  assert.ok(!Object.keys(v2Profiles).some((profile) => profile.startsWith('B30')));
+  const exampleApi = `ghcr.io/kmena/geops-api@sha256:${'a'.repeat(64)}`;
+  const exampleWeb = `ghcr.io/kmena/geops-web@sha256:${'b'.repeat(64)}`;
+  const env = {
+    ...process.env,
+    GEOPS_STAGE_IMAGE_TAG: '03e582fba66c0d29eab885e109d3404e86b140a3',
+    GEOPS_STAGE_SECRET_GID: '24001',
+    GEOPS_STAGE_ORIGIN: 'https://geops-staging.duckdns.org',
+    GEOPS_STAGE_API_IMAGE_REF: exampleApi,
+    GEOPS_STAGE_WEB_IMAGE_REF: exampleWeb,
+    GEOPS_MDM_REGION: 'com',
+  };
+  const config = JSON.parse(
+    execFileSync(
+      'docker',
+      [
+        'compose',
+        '-f',
+        'infrastructure/compose/compose.staging.yaml',
+        '-f',
+        'infrastructure/compose/compose.staging.mdm-web-oauth.override.yaml',
+        '-f',
+        'infrastructure/compose/compose.staging.digest.override.yaml',
+        '-f',
+        'infrastructure/compose/compose.staging.migrate.digest.override.yaml',
+        '--profile',
+        'maintenance',
+        'config',
+        '--format',
+        'json',
+      ],
+      { cwd: root, env, encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+    ),
+  );
+  assert.equal(config.name, 'geops-spec02-staging');
+  assert.equal(config.services['geops-db'].image, 'postgis/postgis:18-3.6');
+  assert.equal(config.services['geops-api'].image, exampleApi);
+  assert.equal(config.services['geops-web'].image, exampleWeb);
+  assert.equal(config.services['geops-migrate'].image, exampleApi);
+  assert.equal(config.services['geops-api'].environment.MDM_ENABLED, 'true');
+  assert.equal(config.services['geops-web'].build.args.MDM_ENABLED, 'true');
+  assert.equal(config.services['geops-api'].environment.GEOPS_MDM_TEST_TENANT, '1');
+  return {
+    sourceSchema: 23,
+    targetSchema: 30,
+    sourceSqlListSha256: candidate.database.b23PrefixSha256,
+    targetSqlListSha256: B30,
+    composeDigestOverridesVerified: true,
+    mdmEnabled: true,
+    existingPrivilegedControllerMaxSchema: 23,
+    stagingController: 'B30_ADAPTATION_PENDING',
+  };
+}
+
 function expectedDraft() {
   assert.equal(
     hash(
@@ -112,6 +210,7 @@ function expectedDraft() {
   );
   assert.deepEqual(embeddedSql(), { count: 30, listSha256: B30 });
   webAssets();
+  const controller = digestArchive('controller-b30-lab.tar.gz');
   return {
     schemaVersion: 1,
     kind: 'B30_PUBLICATION_DRAFT',
@@ -127,9 +226,13 @@ function expectedDraft() {
     },
     controller: {
       file: 'controller-b30-lab.tar.gz',
-      ...digestArchive('controller-b30-lab.tar.gz'),
+      ...controller,
       scope: 'LAB_ONLY',
+      signature: verifyLabSignature(controller.sha256),
     },
+    stagingCompatibility: stagingCompatibility(),
+    stagingEd25519TrustKey: 'PENDING_OPERATOR_VERIFICATION',
+    stagingBundleSignature: 'PENDING',
     images: Object.fromEntries(
       Object.keys(refs).map((kind) => {
         const observed = localImage(kind);
