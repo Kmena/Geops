@@ -1,4 +1,6 @@
 export interface GpsPolicySpec {
+  /** Server-owned MDM entitlement; never accepted from a policy draft. */
+  mdm_continuous?: boolean;
   name: string;
   days_iso: number[];
   start_local: string;
@@ -186,6 +188,15 @@ function resolveLocal(date: string, time: string, zone: string, boundary: 'start
 }
 
 export function windowsForRange(policy: GpsPolicySpec, from: Date, until: Date): UtcWindow[] {
+  if (
+    policy.start_local === policy.end_local &&
+    (!policy.mdm_continuous ||
+      policy.start_local !== '00:00' ||
+      policy.days_iso.length !== 7 ||
+      new Set(policy.days_iso).size !== 7 ||
+      (policy.exceptions?.length ?? 0) !== 0)
+  )
+    throw new Error('invalid_policy');
   const result: UtcWindow[] = [];
   const lower = Math.max(from.getTime(), Date.parse(policy.valid_from));
   const upper = Math.min(until.getTime(), Date.parse(policy.valid_until));
@@ -205,7 +216,7 @@ export function windowsForRange(policy: GpsPolicySpec, from: Date, until: Date):
     const nextDate = new Date(day + 86400_000).toISOString().slice(0, 10);
     const start = resolveLocal(localDate, startLocal, policy.time_zone, 'start');
     const end = resolveLocal(
-      endLocal < startLocal ? nextDate : localDate,
+      endLocal <= startLocal ? nextDate : localDate,
       endLocal,
       policy.time_zone,
       'end',

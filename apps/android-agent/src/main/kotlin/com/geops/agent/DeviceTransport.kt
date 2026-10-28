@@ -130,7 +130,7 @@ object ConfigParser {
             val p = o.getJSONObject("policy")
             keys(p, setOf("name", "days_iso", "start_local", "end_local", "time_zone", "capture_interval_s",
                 "sync_interval_s", "heartbeat_missing_after_s", "valid_from", "valid_until", "exceptions",
-                "health_interval_s"))
+                "health_interval_s", "mdm_continuous"))
             require(p.getString("name").length in 1..120)
             ZoneId.of(p.getString("time_zone"))
             val days = p.getJSONArray("days_iso")
@@ -139,13 +139,19 @@ object ConfigParser {
             val localTime = Regex("([01][0-9]|2[0-3]):[0-5][0-9]")
             val begins = p.getString("start_local")
             val ends = p.getString("end_local")
-            require(begins.matches(localTime) && ends.matches(localTime) && begins != ends)
+            val mdmContinuous = p.optBoolean("mdm_continuous", false)
+            require(!p.has("mdm_continuous") || (schema == 2 && p.getBoolean("mdm_continuous")))
+            require(begins.matches(localTime) && ends.matches(localTime) &&
+                (if (mdmContinuous) begins == "00:00" && ends == "00:00" &&
+                    values.toSet() == (1..7).toSet() &&
+                    (p.optJSONArray("exceptions")?.length() ?: 0) == 0
+                 else begins != ends))
             require(p.getInt("heartbeat_missing_after_s") in 300..7200)
             p.optJSONArray("exceptions")?.let { require(it.length() <= 366) }
             require(o.getString("tzdb_version").isNotBlank())
             Policy(o.getString("policy_id"), o.getInt("policy_revision"), p.getInt("capture_interval_s"),
                 p.getInt("sync_interval_s"), at(p.getString("valid_from")), at(p.getString("valid_until")),
-                p.optInt("health_interval_s", 300))
+                p.optInt("health_interval_s", 300), mdmContinuous)
         } else {
             require(!o.has("policy") && !o.has("policy_id") && !o.has("policy_revision"))
             null

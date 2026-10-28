@@ -9,8 +9,10 @@ import com.geops.agent.GeopsLocationService
 /** A boot broadcast is best effort: force-stop and device restrictions can suppress it. */
 class AutonomousBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
-        AgentRuntime.markBoot(context)
+        val action = intent?.action ?: return
+        if (action != Intent.ACTION_BOOT_COMPLETED &&
+            action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        if (action == Intent.ACTION_BOOT_COMPLETED) AgentRuntime.markBoot(context)
         if (!AgentRuntime.mayAutostart(context)) return
         val service = Intent(context, GeopsLocationService::class.java)
             .setAction(GeopsLocationService.ACTION_AUTONOMOUS_START)

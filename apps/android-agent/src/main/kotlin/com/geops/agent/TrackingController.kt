@@ -77,28 +77,34 @@ class TrackingController(
                 windowStartMs = allowed?.window?.startMs, windowEndMs = allowed?.window?.endMs))
         }
         val existing = store.read().session
+        val seamlessMdmRollover = existing?.state == "RUNNING" && allowed != null &&
+            allowed.snapshot.policy?.mdmContinuous == true && runtime.isRegistered() &&
+            existing.assignmentVersion == allowed.snapshot.assignmentVersion &&
+            existing.scheduledId != allowed.window.scheduledSessionId
         if (existing != null && existing.state == "RUNNING" &&
             (allowed == null || existing.assignmentVersion != allowed.snapshot.assignmentVersion ||
                 existing.scheduledId != allowed.window.scheduledSessionId || !runtime.isRegistered())) {
             stop(if (allowed == null) "WINDOW_END" else if (!runtime.isRegistered()) "UNKNOWN" else "POLICY_REPLACED",
-                keepService = policy.snapshot()?.schemaVersion == 2)
+                keepService = policy.snapshot()?.schemaVersion == 2,
+                keepCapture = seamlessMdmRollover)
         }
         if (allowed == null) return
         val current = store.read().session
-        if (current == null || current.state == "UNKNOWN_END") start(allowed)
+        if (current == null || current.state == "UNKNOWN_END") start(allowed, seamlessMdmRollover)
         sampleHealth(allowed)
     }
 
-    private fun start(allowed: AuthorizedWindow) {
+    private fun start(allowed: AuthorizedWindow, reuseListener: Boolean = false) {
         val reading = clock.read()
         val state = store.read()
         // elapsedRealtime is reset on physical reboot. A cooldown from another boot
         // cannot defer the first authorized STARTED on this boot.
-        if (state.lastStartAttemptBootId == reading.bootId && state.lastStartAttemptAtMs >= 0 &&
+        if (!reuseListener && state.lastStartAttemptBootId == reading.bootId && state.lastStartAttemptAtMs >= 0 &&
             reading.elapsedMs - state.lastStartAttemptAtMs < 60_000) return
         store.update { it.lastStartAttemptAtMs = reading.elapsedMs; it.lastStartAttemptBootId = reading.bootId }
         diagnostic("START_ATTEMPT", null, reading, allowed)
-        val started = try { runtime.startVisibleAndRegister(allowed.snapshot.policy!!.captureIntervalS) }
+        val started = try { if (reuseListener && runtime.isRegistered()) true
+            else runtime.startVisibleAndRegister(allowed.snapshot.policy!!.captureIntervalS) }
             catch (_: SecurityException) { false }
             catch (_: IllegalStateException) { false }
         if (!started || !runtime.isRegistered() || policy.current() == null) {
@@ -275,9 +281,12 @@ class TrackingController(
         return true
     }
 
-    @Synchronized fun stop(reason: String, keepService: Boolean = false) {
+    @Synchronized fun stop(reason: String, keepService: Boolean = false,
+                           keepCapture: Boolean = false) {
         val s = store.read().session ?: return
-        if (keepService) runtime.pauseCapture() else runtime.stopAndUnregister()
+        if (!keepCapture) {
+            if (keepService) runtime.pauseCapture() else runtime.stopAndUnregister()
+        }
         if (s.state == "RUNNING" || s.state == "INTERRUPTED") {
             if (policy.anchoredTime(clock.read()) != null) eventAndState("STOPPED", reason, "STOPPED", s)
             else store.update { it.session?.state = "UNKNOWN_END" }

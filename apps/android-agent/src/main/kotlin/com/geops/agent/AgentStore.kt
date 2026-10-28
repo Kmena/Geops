@@ -181,7 +181,8 @@ internal object StateCodec {
             snap.put("windows", windows)
             v.policy?.let { p -> snap.put("policy", JSONObject().put("id", p.id).put("revision", p.revision)
                 .put("capture", p.captureIntervalS).put("sync", p.syncIntervalS).put("health", p.healthIntervalS)
-                .put("from", p.validFromMs).put("until", p.validUntilMs)) }
+                .put("from", p.validFromMs).put("until", p.validUntilMs)
+                .put("mdm_continuous", p.mdmContinuous)) }
             v.display?.let { d -> snap.put("display", JSONObject().put("name", d.name)
                 .put("days", JSONArray().also { a -> d.daysIso.forEach(a::put) })
                 .put("start", d.startLocal).put("end", d.endLocal).put("zone", d.timeZone)
@@ -232,7 +233,8 @@ internal object StateCodec {
             val list = (0 until windows.length()).map { i -> windows.getJSONObject(i).let {
                 Window(it.getString("id"), it.getLong("start"), it.getLong("end")) } }
             val p = v.optJSONObject("policy")?.let { Policy(it.getString("id"), it.getInt("revision"),
-                it.getInt("capture"), it.getInt("sync"), it.getLong("from"), it.getLong("until"), it.getInt("health")) }
+                it.getInt("capture"), it.getInt("sync"), it.getLong("from"), it.getLong("until"), it.getInt("health"),
+                it.optBoolean("mdm_continuous", false)) }
             val display = v.optJSONObject("display")?.let { d ->
                 val days = d.getJSONArray("days")
                 val exceptions = d.optJSONArray("exceptions")

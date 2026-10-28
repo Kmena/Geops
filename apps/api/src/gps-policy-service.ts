@@ -112,6 +112,96 @@ export class GpsPolicyService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** MDM linkage is the administrator's authorization; the phone cannot request this mode. */
+  async activateMdmContinuous(
+    db: PoolClient,
+    deviceId: string,
+    mdm: { region: string; customerId: string; mdmDeviceId: string },
+    adminId: string,
+  ): Promise<void> {
+    const active = await db.query<{ mdm_device_id: string }>(
+      'SELECT mdm_device_id FROM gps_mdm_continuous_authorization WHERE device_id=$1 AND revoked_at IS NULL FOR UPDATE',
+      [deviceId],
+    );
+    if (active.rows[0]) {
+      if (active.rows[0].mdm_device_id !== mdm.mdmDeviceId)
+        throw new ApiError(409, 'mdm_continuous_conflict', 'Conflict');
+      return;
+    }
+    const now = this.now();
+    // MDM authorization is revoked by unlink/sync, not by an arbitrary 30-day
+    // policy expiry. The offline lease remains bounded by config delivery.
+    const until = new Date('9999-12-31T00:00:00.000Z');
+    const policyId = randomUUID();
+    const spec = {
+      name: 'Captura continua MDM',
+      days_iso: [1, 2, 3, 4, 5, 6, 7],
+      start_local: '00:00',
+      end_local: '00:00',
+      time_zone: 'UTC',
+      capture_interval_s: 60,
+      sync_interval_s: 300,
+      heartbeat_missing_after_s: 900,
+      health_interval_s: 300,
+      valid_from: now.toISOString(),
+      valid_until: until.toISOString(),
+      exceptions: [],
+    };
+    await db.query(
+      `INSERT INTO gps_policy(id,name,state,current_revision,draft_config,created_by)
+       VALUES($1,$2,'ACTIVE',1,$3,$4)`,
+      [policyId, spec.name, JSON.stringify(spec), adminId],
+    );
+    await db.query(
+      `INSERT INTO gps_policy_revision(policy_id,revision,days_iso,start_local,end_local,
+         time_zone,capture_interval_s,sync_interval_s,heartbeat_missing_after_s,
+         health_interval_s,valid_from,valid_until,created_by,reason,mdm_continuous)
+       VALUES($1,1,$2,'00:00','00:00','UTC',60,300,900,300,$3,$4,$5,
+         'Activación por vínculo MDM administrado',true)`,
+      [policyId, spec.days_iso, now, until, adminId],
+    );
+    await db.query(
+      `INSERT INTO gps_policy_assignment(id,policy_id,revision,scope_type,device_id,
+         valid_from,valid_until) VALUES($1,$2,1,'DEVICE',$3,$4,$5)`,
+      [randomUUID(), policyId, deviceId, now, until],
+    );
+    await db.query(
+      `INSERT INTO gps_mdm_continuous_authorization
+       (id,device_id,policy_id,provider,region,customer_id,mdm_device_id,approved_by,approved_at)
+       VALUES($1,$2,$3,'manageengine',$4,$5,$6,$7,$8)`,
+      [randomUUID(), deviceId, policyId, mdm.region, mdm.customerId, mdm.mdmDeviceId, adminId, now],
+    );
+    await this.rebuildDevice(db, deviceId, now);
+    await appendAudit(db, {
+      actorType: 'ADMIN',
+      actorId: adminId,
+      deviceId,
+      action: 'gps.mdm_continuous.activate',
+      outcome: 'success',
+      correlationId: randomUUID(),
+      metadata: { provider: 'manageengine', mdm_device_id: mdm.mdmDeviceId },
+    });
+  }
+
+  async revokeMdmContinuous(db: PoolClient, deviceId: string, adminId?: string): Promise<void> {
+    const now = this.now();
+    const changed = await db.query(
+      'UPDATE gps_mdm_continuous_authorization SET revoked_at=$2 WHERE device_id=$1 AND revoked_at IS NULL',
+      [deviceId, now],
+    );
+    if (changed.rowCount) {
+      await this.rebuildDevice(db, deviceId, now);
+      await appendAudit(db, {
+        actorType: adminId ? 'ADMIN' : 'SYSTEM',
+        ...(adminId ? { actorId: adminId } : {}),
+        deviceId,
+        action: 'gps.mdm_continuous.revoke',
+        outcome: 'success',
+        correlationId: randomUUID(),
+      });
+    }
+  }
+
   async requireCapability(
     adminId: string,
     capability: GpsCapability,
@@ -272,6 +362,11 @@ export class GpsPolicyService {
     );
     const row = result.rows[0];
     if (!row) throw new ApiError(404, 'not_found', 'Not found');
+    const managed = await db.query(
+      'SELECT 1 FROM gps_mdm_continuous_authorization WHERE policy_id=$1',
+      [id],
+    );
+    if (managed.rowCount) throw new ApiError(403, 'mdm_policy_managed', 'Forbidden');
     if (policyEtag(row) !== etag) return conflict();
     return row;
   }
@@ -674,6 +769,7 @@ export class GpsPolicyService {
       days_iso: number[];
       start_local: string;
       end_local: string;
+      mdm_continuous: boolean;
       time_zone: string;
       capture_interval_s: number;
       sync_interval_s: number;
@@ -685,7 +781,7 @@ export class GpsPolicyService {
     }>(
       `SELECT a.id,a.policy_id,a.revision,a.scope_type,a.device_id,a.group_id,a.valid_from,a.valid_until,
         r.days_iso,to_char(r.start_local,'HH24:MI') AS start_local,
-        to_char(r.end_local,'HH24:MI') AS end_local,r.time_zone,r.capture_interval_s,
+        to_char(r.end_local,'HH24:MI') AS end_local,r.mdm_continuous,r.time_zone,r.capture_interval_s,
         r.sync_interval_s,r.heartbeat_missing_after_s,r.health_interval_s,r.valid_from AS policy_from,
         r.valid_until AS policy_until,
         COALESCE((SELECT json_agg(json_build_object('local_date',e.local_date,'mode',e.mode,
@@ -695,6 +791,12 @@ export class GpsPolicyService {
       FROM gps_policy_assignment a JOIN gps_policy p ON p.id=a.policy_id
       JOIN gps_policy_revision r ON r.policy_id=a.policy_id AND r.revision=a.revision
       WHERE a.revision=p.current_revision AND p.state='ACTIVE' AND
+        ((r.mdm_continuous AND EXISTS (
+          SELECT 1 FROM gps_mdm_continuous_authorization c
+          WHERE c.device_id=$1 AND c.policy_id=a.policy_id AND c.revoked_at IS NULL)) OR
+         (NOT r.mdm_continuous AND NOT EXISTS (
+          SELECT 1 FROM gps_mdm_continuous_authorization c
+          WHERE c.device_id=$1 AND c.revoked_at IS NULL))) AND
         (a.device_id=$1 OR a.group_id IN (SELECT m.group_id FROM gps_group_member m
           WHERE m.device_id=$1 AND m.valid_until IS NULL AND m.valid_from<=$2))`,
       [deviceId, at],
@@ -718,6 +820,7 @@ export class GpsPolicyService {
       );
       const spec: GpsPolicySpec = {
         name: 'Published',
+        mdm_continuous: a.mdm_continuous,
         days_iso: a.days_iso,
         start_local: a.start_local,
         end_local: a.end_local,

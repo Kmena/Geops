@@ -168,6 +168,28 @@ class EnrollmentClient(private val transport: EnrollmentTransport,
         require(code.matches(Regex("[0-9]{8}"))) { "proof_code" }
         return EnrollmentProof(code, Instant.parse(response.getString("expires_at")))
     }
+
+    /** Managed configuration replaces the later administrator confirmation only
+     * after the server verifies the pre-linked MDM device and consumes the secret. */
+    fun proveManaged(ticket: EnrollmentTicket, claim: EnrollmentClaim,
+        signer: EnrollmentSigner): ActivationTicket {
+        require(MessageDigest.isEqual(claim.publicSpki, signer.publicSpki)) { "key_changed" }
+        val fingerprint = encoder.encodeToString(MessageDigest.getInstance("SHA-256").digest(claim.publicSpki))
+        val bytes = listOf("GEOPS-ENROLL-V1", claim.claimId, claim.challengeId, claim.challenge,
+            ticket.deviceId, ticket.mdmDeviceId, fingerprint, claim.clientNonce)
+            .joinToString("\n").toByteArray(Charsets.UTF_8)
+        val body = JSONObject().put("challenge_id", claim.challengeId)
+            .put("signature", encoder.encodeToString(signer.sign(bytes))).toString()
+        val result = transport.post("/v1/device/enrollment/claims/${claim.claimId}/proof", body)
+        if (result.status != 200) throw enrollmentHttpError("proof", result)
+        val response = JSONObject(result.body)
+        require(response.keys().asSequence().toSet() == setOf("status", "key_id", "installation_id") &&
+            response.getString("status") == "ACTIVE") { "managed_proof_state" }
+        val keyId = response.getString("key_id")
+        val installationId = response.getString("installation_id")
+        require(uuid(keyId) && uuid(installationId)) { "managed_activation_id" }
+        return ActivationTicket(ticket.deviceId, keyId, installationId, ticket.expiresAt)
+    }
 }
 
 /** A short bearer is held only in memory; on expiry a new signed session is requested. */

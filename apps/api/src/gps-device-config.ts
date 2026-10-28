@@ -14,6 +14,7 @@ interface Assignment {
   days_iso: number[];
   start_local: string;
   end_local: string;
+  mdm_continuous: boolean;
   time_zone: string;
   capture_interval_s: number;
   sync_interval_s: number;
@@ -67,7 +68,7 @@ export class GpsDeviceConfigService {
         `SELECT e.policy_id,e.revision,r.published_name,r.days_iso,
            to_char(r.start_local,'HH24:MI') AS start_local,
            to_char(r.end_local,'HH24:MI') AS end_local,
-           r.time_zone,r.capture_interval_s,r.sync_interval_s,
+           r.time_zone,r.mdm_continuous,r.capture_interval_s,r.sync_interval_s,
            r.heartbeat_missing_after_s,r.health_interval_s,r.valid_from,r.valid_until,
            lower(e.effective_range) AS assignment_start,
            upper(e.effective_range) AS assignment_until
@@ -82,7 +83,10 @@ export class GpsDeviceConfigService {
       );
       if (active.rows.length > 1)
         throw new ApiError(503, 'gps_assignment_ambiguous', 'Service unavailable', true);
-      const assignment = active.rows[0];
+      // A v1 client has no full-day managed-policy semantics. Fail closed with
+      // an inactive snapshot instead of sending a schedule it cannot parse.
+      const assignment =
+        contractVersion === 1 && active.rows[0]?.mdm_continuous ? undefined : active.rows[0];
       const anchorId = randomUUID();
       const horizon = new Date(now.getTime() + 7 * 86_400_000);
       const windowRows = assignment
@@ -96,7 +100,9 @@ export class GpsDeviceConfigService {
         : { rows: [] as WindowRow[] };
       if (windowRows.rows.length > 64)
         throw new ApiError(503, 'gps_window_limit', 'Service unavailable', true);
-      const firstWindowEnd = windowRows.rows[0]?.end_at.getTime() ?? Number.POSITIVE_INFINITY;
+      const firstWindowEnd = assignment?.mdm_continuous
+        ? Number.POSITIVE_INFINITY
+        : (windowRows.rows[0]?.end_at.getTime() ?? Number.POSITIVE_INFINITY);
       const offlineNotAfter = new Date(
         Math.min(
           now.getTime() + 12 * 3_600_000,
@@ -160,6 +166,7 @@ export class GpsDeviceConfigService {
               days_iso: assignment.days_iso,
               start_local: assignment.start_local,
               end_local: assignment.end_local,
+              ...(assignment.mdm_continuous ? { mdm_continuous: true } : {}),
               time_zone: assignment.time_zone,
               capture_interval_s: assignment.capture_interval_s,
               sync_interval_s: assignment.sync_interval_s,

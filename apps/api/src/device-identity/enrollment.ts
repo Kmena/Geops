@@ -17,6 +17,7 @@ import { type DeviceRepository, transaction } from './repository.js';
 import { requireInstallationAccess } from './admin-scope.js';
 
 const INVITATION_MS = 10 * 60_000;
+const MANAGED_INVITATION_MS = 24 * 60 * 60_000;
 const CHALLENGE_MS = 2 * 60_000;
 
 export interface ClaimInput {
@@ -81,8 +82,9 @@ export class EnrollmentService {
     geops_device_id: string;
     invitation_secret: string;
     expires_at: string;
+    managed_configuration?: Record<string, string>;
   }> {
-    if (deliveryMode !== 'supervised_qr') {
+    if (deliveryMode !== 'supervised_qr' && deliveryMode !== 'managed_configuration') {
       throw new ApiError(403, 'delivery_unavailable', 'Forbidden', true);
     }
     try {
@@ -96,6 +98,19 @@ export class EnrollmentService {
         if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic') {
           throw new ApiError(403, 'real_binding_disabled', 'Forbidden', true);
         }
+        let managedMdmId: string | null = null;
+        if (deliveryMode === 'managed_configuration') {
+          const managed = await db.query<{ mdm_device_id: string }>(
+            `SELECT mdm_device_id FROM mdm_inventory_device WHERE geops_device_id=$1
+             AND provider='manageengine' AND status='managed' AND platform='android'
+             AND removed=false AND last_seen_at >= $2::timestamptz - interval '1 hour'
+             FOR SHARE`,
+            [deviceId, this.now()],
+          );
+          if (managed.rows.length !== 1 || !managed.rows[0])
+            throw new ApiError(409, 'mdm_device_unavailable', 'Conflict', true);
+          managedMdmId = managed.rows[0].mdm_device_id;
+        }
         await requireInstallationAccess(db, adminId, binding.customer_id);
         await db.query(
           "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
@@ -107,7 +122,10 @@ export class EnrollmentService {
         );
         const secret = randomBytes(32);
         const issued = this.now();
-        const expires = new Date(issued.getTime() + INVITATION_MS);
+        const expires = new Date(
+          issued.getTime() +
+            (deliveryMode === 'managed_configuration' ? MANAGED_INVITATION_MS : INVITATION_MS),
+        );
         const id = randomUUID();
         await db.query(
           "INSERT INTO device_invitation(id,geops_device_id,mdm_binding_id,secret_hmac,status,delivery_mode,issued_by,issued_at,expires_at) VALUES($1,$2,$3,$4,'ISSUED',$5,$6,$7,$8)",
@@ -141,6 +159,17 @@ export class EnrollmentService {
           geops_device_id: deviceId,
           invitation_secret: secret.toString('base64url'),
           expires_at: expires.toISOString(),
+          ...(managedMdmId
+            ? {
+                managed_configuration: {
+                  geops_device_id: deviceId,
+                  mdm_device_id: managedMdmId,
+                  invitation_id: id,
+                  invitation_secret: secret.toString('base64url'),
+                  expires_at: expires.toISOString(),
+                },
+              }
+            : {}),
         };
       });
     } catch (error) {
@@ -218,9 +247,10 @@ export class EnrollmentService {
         mdm_binding_id: string;
         secret_hmac: Buffer;
         status: string;
+        delivery_mode: string;
         expires_at: Date;
       }>(
-        'SELECT id,geops_device_id,mdm_binding_id,secret_hmac,status,expires_at FROM device_invitation WHERE id=$1 FOR UPDATE',
+        'SELECT id,geops_device_id,mdm_binding_id,secret_hmac,status,delivery_mode,expires_at FROM device_invitation WHERE id=$1 FOR UPDATE',
         [input.invitation_id],
       );
       const invite = inviteResult.rows[0];
@@ -239,7 +269,20 @@ export class EnrollmentService {
         invite.mdm_binding_id,
         input.geops_device_id,
       );
-      if (binding.mdm_device_id !== input.mdm_device_id || binding.provider !== 'fake') {
+      if (binding.provider !== 'fake' || binding.customer_id !== 'synthetic') {
+        throw new ApiError(403, 'binding_mismatch', 'Forbidden', true);
+      }
+      if (invite.delivery_mode === 'managed_configuration') {
+        const managed = await db.query(
+          `SELECT 1 FROM mdm_inventory_device WHERE geops_device_id=$1 AND mdm_device_id=$2
+           AND provider='manageengine' AND status='managed' AND platform='android'
+           AND removed=false AND last_seen_at >= $3::timestamptz - interval '1 hour'
+           FOR SHARE`,
+          [input.geops_device_id, input.mdm_device_id, now],
+        );
+        if (managed.rows.length !== 1)
+          throw new ApiError(403, 'binding_mismatch', 'Forbidden', true);
+      } else if (binding.mdm_device_id !== input.mdm_device_id) {
         throw new ApiError(403, 'binding_mismatch', 'Forbidden', true);
       }
       const device = await this.repository.getDeviceForUpdate(db, input.geops_device_id);
@@ -301,11 +344,14 @@ export class EnrollmentService {
     signature: string,
     chain?: readonly string[],
     correlationId: string = randomUUID(),
-  ): Promise<{
-    status: 'PENDING_CONFIRMATION';
-    pairing_code: string;
-    expires_at: string;
-  }> {
+  ): Promise<
+    | {
+        status: 'PENDING_CONFIRMATION';
+        pairing_code: string;
+        expires_at: string;
+      }
+    | { status: 'ACTIVE'; key_id: string; installation_id: string }
+  > {
     if (chain && chain.length === 0)
       throw new ApiError(401, 'invalid_attestation', 'Unauthorized', true);
     const now = this.now();
@@ -385,6 +431,82 @@ export class EnrollmentService {
           nextState: 'CANCELLED',
         });
         return { error: new ApiError(401, 'invalid_proof', 'Unauthorized', true) };
+      }
+      const invitation = await db.query<{ delivery_mode: string; issued_by: string }>(
+        "SELECT delivery_mode,issued_by FROM device_invitation WHERE id=$1 AND status='CLAIMED' FOR UPDATE",
+        [claim.invitation_id],
+      );
+      if (!invitation.rows[0]) throw new ApiError(409, 'invitation_consumed', 'Conflict', true);
+      if (invitation.rows[0].delivery_mode === 'managed_configuration') {
+        const managed = await db.query(
+          `SELECT 1 FROM mdm_inventory_device WHERE geops_device_id=$1 AND mdm_device_id=$2
+           AND provider='manageengine' AND status='managed' AND platform='android'
+           AND removed=false AND last_seen_at >= $3::timestamptz - interval '1 hour'
+           FOR SHARE`,
+          [claim.geops_device_id, claim.mdm_device_id, now],
+        );
+        if (managed.rows.length !== 1)
+          throw new ApiError(409, 'mdm_device_unavailable', 'Conflict', true);
+        const activeKey = await db.query(
+          "SELECT 1 FROM device_key WHERE geops_device_id=$1 AND status='ACTIVE' FOR SHARE",
+          [claim.geops_device_id],
+        );
+        const activeInstallation = await db.query(
+          'SELECT 1 FROM gps_device_installation WHERE device_id=$1 AND retired_at IS NULL FOR SHARE',
+          [claim.geops_device_id],
+        );
+        if (activeKey.rowCount || activeInstallation.rowCount)
+          throw new ApiError(409, 'device_state', 'Conflict', true);
+        const keyId = randomUUID();
+        const installationId = randomUUID();
+        await db.query(
+          "INSERT INTO device_key(id,geops_device_id,public_key_spki_der,public_key_fingerprint,status) VALUES($1,$2,$3,$4,'ACTIVE')",
+          [
+            keyId,
+            claim.geops_device_id,
+            claim.public_key_spki_der,
+            sha256(claim.public_key_spki_der),
+          ],
+        );
+        await db.query(
+          `INSERT INTO geops_device_tenant(device_id,tenant_id,established_by,source,evidence_ref)
+           VALUES($1,'synthetic',$2,'GEOPS_ENROLLMENT',$3)`,
+          [claim.geops_device_id, invitation.rows[0].issued_by, claimId],
+        );
+        await db.query(
+          `INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_tenant_id)
+           VALUES($1,$2,$3,'synthetic')`,
+          [installationId, claim.geops_device_id, now],
+        );
+        await db.query('UPDATE device_challenge SET consumed_at=$2 WHERE id=$1', [
+          challengeId,
+          now,
+        ]);
+        await db.query(
+          "UPDATE enrollment_claim SET status='ACTIVE',attestation_state=$2,version=version+1 WHERE id=$1",
+          [claimId, attestationResult ? 'VERIFIED' : 'UNSUPPORTED'],
+        );
+        await db.query(
+          "UPDATE device_invitation SET status='CONSUMED',consumed_at=$2,version=version+1 WHERE id=$1",
+          [claim.invitation_id, now],
+        );
+        await db.query(
+          "UPDATE geops_device SET status='ACTIVE',version=version+1,updated_at=$2 WHERE id=$1 AND status='INVITED'",
+          [claim.geops_device_id, now],
+        );
+        await appendAudit(db, {
+          actorType: 'DEVICE',
+          deviceId: claim.geops_device_id,
+          action: 'device.activate.managed',
+          outcome: 'success',
+          correlationId,
+          previousState: 'INVITED',
+          nextState: 'ACTIVE',
+          metadata: { source: 'manageengine', mdm_device_id: claim.mdm_device_id },
+        });
+        return {
+          value: { status: 'ACTIVE' as const, key_id: keyId, installation_id: installationId },
+        };
       }
       const code = pairingCode(challenge.challenge_value, claim.public_key_spki_der);
       await db.query('UPDATE device_challenge SET consumed_at=$2 WHERE id=$1', [challengeId, now]);

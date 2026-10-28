@@ -234,6 +234,7 @@ export class GpsEventService {
       days_iso: number[];
       start_local: string;
       end_local: string;
+      mdm_continuous: boolean;
       time_zone: string;
       valid_from: Date;
       valid_until: Date;
@@ -242,7 +243,7 @@ export class GpsEventService {
       exceptions: GpsPolicySpec['exceptions'];
     }>(
       `SELECT r.days_iso,to_char(r.start_local,'HH24:MI') AS start_local,
-         to_char(r.end_local,'HH24:MI') AS end_local,r.time_zone,r.valid_from,r.valid_until,
+         to_char(r.end_local,'HH24:MI') AS end_local,r.mdm_continuous,r.time_zone,r.valid_from,r.valid_until,
          lower(e.effective_range) AS lower_at,upper(e.effective_range) AS upper_at,
          COALESCE((SELECT json_agg(json_build_object('local_date',x.local_date,'mode',x.mode,
            'start_local',CASE WHEN x.start_local IS NULL THEN NULL ELSE to_char(x.start_local,'HH24:MI') END,
@@ -271,6 +272,7 @@ export class GpsEventService {
     );
     const spec: GpsPolicySpec = {
       name: 'Published',
+      mdm_continuous: row.mdm_continuous,
       days_iso: row.days_iso,
       start_local: row.start_local,
       end_local: row.end_local,

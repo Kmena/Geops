@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction android:key="geops_device_id" android:title="GEOPS device ID"
+        android:restrictionType="string" />
+    <restriction android:key="mdm_device_id" android:title="MDM device ID"
+        android:restrictionType="string" />
+    <restriction android:key="invitation_id" android:title="One-time invitation ID"
+        android:restrictionType="string" />
+    <restriction android:key="invitation_secret" android:title="One-time enrollment secret"
+        android:restrictionType="string" />
+    <restriction android:key="expires_at" android:title="Invitation expiry (UTC)"
+        android:restrictionType="string" />
+</restrictions>

@@ -14,8 +14,8 @@ android {
         applicationId = "com.geops.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.1.6-test"
+        versionCode = 9
+        versionName = "0.1.8-enterprise-candidate"
     }
     sourceSets.getByName("main") {
         java.srcDirs("../android-agent/src/main/kotlin", "../android-agent/src/android/kotlin")
@@ -25,21 +25,28 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    val keystore = providers.environmentVariable("GEOPS_ANDROID_KEYSTORE").orNull
-    val storePassword = providers.environmentVariable("GEOPS_ANDROID_STORE_PASSWORD").orNull
-    val keyPassword = providers.environmentVariable("GEOPS_ANDROID_KEY_PASSWORD").orNull
-    if (keystore != null && storePassword != null && keyPassword != null) {
-        signingConfigs.create("test") {
-            storeFile = file(keystore)
-            this.storePassword = storePassword
-            keyAlias = "geops-test"
-            this.keyPassword = keyPassword
+    val releaseKeystore = providers.environmentVariable("GEOPS_ANDROID_RELEASE_KEYSTORE").orNull
+    val releaseStorePassword = providers.environmentVariable("GEOPS_ANDROID_RELEASE_STORE_PASSWORD").orNull
+    val releaseKeyAlias = providers.environmentVariable("GEOPS_ANDROID_RELEASE_KEY_ALIAS").orNull
+    val releaseKeyPassword = providers.environmentVariable("GEOPS_ANDROID_RELEASE_KEY_PASSWORD").orNull
+    val signingValues = listOf(releaseKeystore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+    require(signingValues.all { it.isNullOrBlank() } || signingValues.all { !it.isNullOrBlank() }) {
+        "Release signing requires all four GEOPS_ANDROID_RELEASE_* environment variables"
+    }
+    if (signingValues.all { !it.isNullOrBlank() }) {
+        val keyFile = file(releaseKeystore!!)
+        require(keyFile.isFile) { "Release keystore does not exist" }
+        signingConfigs.create("externalRelease") {
+            storeFile = keyFile
+            storePassword = releaseStorePassword!!
+            keyAlias = releaseKeyAlias!!
+            keyPassword = releaseKeyPassword!!
         }
     }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.findByName("test")
+            signingConfig = signingConfigs.findByName("externalRelease")
         }
     }
 }

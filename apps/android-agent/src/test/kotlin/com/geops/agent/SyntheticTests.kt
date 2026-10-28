@@ -62,6 +62,34 @@ private fun PolicyEngine.load(snapshot: Snapshot) { refresh(object : Authenticat
 private fun test(name: String, block: () -> Unit) { block(); println("PASS $name") }
 
 fun main() {
+    test("MDM continuous authorization rolls over midnight without unregistering GPS") {
+        val midnight = ms("2026-10-28T00:00:00Z")
+        val clock = FakeClock(wall = midnight - 30_000L)
+        val (policy, store) = engine(clock)
+        val until = midnight + 2 * 86_400_000L
+        val continuous = snap(from = clock.wall, until = until, windows = emptyList()).copy(
+            serverTimeMs = clock.wall, verifiedAtMs = clock.wall,
+            offlineNotAfterMs = midnight + 3_600_000L,
+            policy = Policy(policyId, 2, 60, 300, clock.wall, until, 300, true),
+            schemaVersion = 2, assignmentStartMs = clock.wall, authorizedUntilMs = until,
+            tzdbVersion = tzdb("UTC"),
+            display = PolicyDisplay("MDM", (1..7).toList(), "00:00", "00:00", "UTC"))
+        policy.load(continuous)
+        val runtime = FakeRuntime()
+        val controller = TrackingController(Identity(device, installation), clock, policy, store,
+            runtime, FakeHealth())
+        controller.tick()
+        val firstSession = store.read().session?.scheduledId
+        check(firstSession != null && runtime.registrations == 1)
+        clock.advance(31_000L)
+        controller.tick()
+        check(store.read().session?.scheduledId != firstSession)
+        check(runtime.running && runtime.registrations == 1 && runtime.pauses == 0)
+        check(store.read().pending.count { it.kind == RecordKind.SESSION &&
+            JSONObject(it.payload).optString("type") == "STARTED" } == 2)
+        check(controller.onLocationDecision(LocationFix(14.6, -90.5, 10.0, clock.read())) ==
+            DiagnosticReason.NONE)
+    }
     test("R1 encrypted bounded diagnostics retain only closed metadata") {
         val path = Files.createTempFile("geops-diagnostic-", ".bin")
         Files.delete(path)
@@ -1285,6 +1313,42 @@ fun main() {
         check(sentClaim!!.getString("geops_device_id") == device)
         check(client.prove(ticket, claim, signer).pairingCode == "12345678")
         check(runCatching { EnrollmentClient(transport) { now.plusSeconds(601) }.claim(ticket, signer) }.isFailure)
+    }
+    test("managed enrollment accepts only an active server response bound to the same key") {
+        val now = Instant.parse("2026-10-19T12:00:00Z")
+        val secret = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(ByteArray(32) { 8 })
+        val ticket = EnrollmentTicket(device, "9007199254740995123", scheduled, secret,
+            now.plusSeconds(3600))
+        val pair = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val signer = object : EnrollmentSigner {
+            override val publicSpki = pair.public.encoded
+            override fun sign(message: ByteArray) = java.security.Signature.getInstance("SHA256withECDSA").run {
+                initSign(pair.private); update(message); sign()
+            }
+        }
+        val transport = object : EnrollmentTransport {
+            override fun post(path: String, body: String): HttpResult = when (path) {
+                "/v1/device/enrollment/claims" -> HttpResult(201,
+                    JSONObject().put("claim_id", policyId).put("challenge_id", anchor)
+                        .put("challenge", secret).put("expires_at", ticket.expiresAt.toString()).toString(), null)
+                "/v1/device/enrollment/claims/$policyId/proof" -> HttpResult(200,
+                    JSONObject().put("status", "ACTIVE").put("key_id", policyId)
+                        .put("installation_id", installation).toString(), null)
+                else -> error("unexpected_path")
+            }
+        }
+        val client = EnrollmentClient(transport) { now }
+        val claim = client.claim(ticket, signer)
+        val activation = client.proveManaged(ticket, claim, signer)
+        check(activation.deviceId == device && activation.keyId == policyId &&
+            activation.installationId == installation)
+        val wrong = object : EnrollmentTransport {
+            override fun post(path: String, body: String) = HttpResult(200,
+                JSONObject().put("status", "PENDING_CONFIRMATION").put("key_id", policyId)
+                    .put("installation_id", installation).toString(), null)
+        }
+        check(runCatching { EnrollmentClient(wrong) { now }.proveManaged(ticket, claim, signer) }.isFailure)
     }
     test("session bootstrap signs SPEC-01 challenge and keeps bearer in memory") {
         val pair = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()

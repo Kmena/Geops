@@ -22,7 +22,7 @@ try {
     /^geops_verify_[0-9]+$/,
   );
   const applied = await applyMigrations(pool);
-  assert.equal(applied.length, 30);
+  assert.equal(applied.length, 32);
   assert.deepEqual(applied.slice(17), [
     '0018_mdm_inventory.sql',
     '0019_mdm_security.sql',
@@ -37,6 +37,8 @@ try {
     '0028_agent_device_links.sql',
     '0029_geops_gps_identity.sql',
     '0030_gps_continuity_geops_owner.sql',
+    '0031_agent_responsibility_geocoding.sql',
+    '0032_mdm_continuous_capture.sql',
   ]);
   assert.equal(await checkReadiness(pool), true);
   const auth = new AdminAuthService(pool, {
@@ -147,6 +149,45 @@ try {
   assert.equal(items.length, 3);
   assert.equal(items.find((row) => row.mdm_device_id.endsWith('126'))?.removed, true);
   await service.link(geopsA, '9007199254740995123', admin, randomUUID());
+  const continuous = await pool.query(
+    `SELECT r.mdm_continuous,r.days_iso,r.start_local::text,r.end_local::text,
+       r.capture_interval_s,r.sync_interval_s,r.heartbeat_missing_after_s,
+       a.valid_until,c.mdm_device_id
+     FROM gps_mdm_continuous_authorization c
+     JOIN gps_policy_assignment a ON a.policy_id=c.policy_id
+     JOIN gps_policy_revision r ON r.policy_id=a.policy_id AND r.revision=a.revision
+     WHERE c.device_id=$1 AND c.revoked_at IS NULL`,
+    [geopsA],
+  );
+  assert.equal(continuous.rowCount, 1);
+  assert.equal(continuous.rows[0].mdm_continuous, true);
+  assert.deepEqual(continuous.rows[0].days_iso, [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(continuous.rows[0].start_local, '00:00:00');
+  assert.equal(continuous.rows[0].end_local, '00:00:00');
+  assert.equal(continuous.rows[0].capture_interval_s, 60);
+  assert.equal(continuous.rows[0].sync_interval_s, 300);
+  assert.equal(continuous.rows[0].heartbeat_missing_after_s, 900);
+  assert.equal(continuous.rows[0].valid_until.toISOString(), '9999-12-31T00:00:00.000Z');
+  assert.equal(continuous.rows[0].mdm_device_id, '9007199254740995123');
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int AS n FROM gps_scheduled_session WHERE device_id=$1 AND state='SCHEDULED'",
+        [geopsA],
+      )
+    ).rows[0].n,
+    8,
+  );
+  await service.link(geopsA, '9007199254740995123', admin, randomUUID());
+  assert.equal(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM gps_mdm_continuous_authorization WHERE device_id=$1 AND revoked_at IS NULL',
+        [geopsA],
+      )
+    ).rows[0].n,
+    1,
+  );
   await assert.rejects(service.link(geopsB, '9007199254740995123', admin, randomUUID()), {
     code: 'mdm_already_linked',
   });
@@ -157,6 +198,15 @@ try {
     code: 'mdm_device_unavailable',
   });
   await service.unlink(geopsA, admin, randomUUID());
+  assert.equal(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM gps_mdm_continuous_authorization WHERE device_id=$1 AND revoked_at IS NULL',
+        [geopsA],
+      )
+    ).rows[0].n,
+    0,
+  );
   await service.link(geopsB, '9007199254740995123', admin, randomUUID());
   const credentials = await pool.query('SELECT count(*)::int AS total FROM device_key');
   assert.equal(credentials.rows[0].total, 0);
@@ -371,6 +421,37 @@ try {
   );
   assert.equal(scoped.rows[0].geops_device_id, geopsB);
   assert.equal(scoped.rows[1].geops_device_id, null);
+  const removed = new MdmInventoryService(
+    pool,
+    {
+      listDevices: async () => ({
+        items: [
+          {
+            mdm_device_id: '9007199254740995123',
+            status: 'removed',
+            platform: 'android',
+            removed: true,
+          },
+        ],
+        next_cursor: null,
+        source: 'manageengine',
+      }),
+      getDevice: async () => {
+        throw new Error('Removed device must not request detail');
+      },
+    },
+    { region: 'com', customerId: '12345' },
+  );
+  await removed.sync(admin);
+  assert.equal(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM gps_mdm_continuous_authorization WHERE device_id=$1 AND revoked_at IS NULL',
+        [geopsB],
+      )
+    ).rows[0].n,
+    0,
+  );
   await app.close();
 } finally {
   await pool.end();

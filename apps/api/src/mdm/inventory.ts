@@ -4,6 +4,7 @@ import { ApiError } from '../errors.js';
 import { appendAudit } from '../audit/index.js';
 import { requireInstallationAccess } from '../device-identity/admin-scope.js';
 import { transaction } from '../device-identity/repository.js';
+import { GpsPolicyService } from '../gps-policy-service.js';
 import { ManageEngineReadOnly, type MdmDevice, type MdmProvider } from './provider.js';
 import type { MdmConnectionControl } from './connection-control.js';
 
@@ -146,6 +147,17 @@ export class MdmInventoryService {
       await client.query('BEGIN');
       transactionOpen = true;
       for (const device of staged.values()) await this.upsert(client, device);
+      const noLongerManaged = await client.query<{ device_id: string }>(
+        `SELECT c.device_id FROM gps_mdm_continuous_authorization c
+         JOIN mdm_inventory_device m ON m.provider=c.provider AND m.region=c.region
+           AND m.customer_id=c.customer_id AND m.mdm_device_id=c.mdm_device_id
+         WHERE c.revoked_at IS NULL AND m.region=$1 AND m.customer_id=$2
+           AND (m.removed OR m.status<>'managed' OR m.platform<>'android')
+         FOR UPDATE OF c`,
+        [this.config.region, this.config.customerId],
+      );
+      const gps = new GpsPolicyService(this.pool);
+      for (const row of noLongerManaged.rows) await gps.revokeMdmContinuous(client, row.device_id);
       await client.query(
         "UPDATE mdm_sync_run SET outcome='SUCCESS',finished_at=now(),device_count=$2 WHERE id=$1",
         [runId, seen.size],
@@ -280,6 +292,12 @@ export class MdmInventoryService {
          WHERE provider='manageengine' AND region=$1 AND customer_id=$2 AND mdm_device_id=$3`,
           [this.config.region, this.config.customerId, mdmId, deviceId],
         );
+        await new GpsPolicyService(this.pool).activateMdmContinuous(
+          db,
+          deviceId,
+          { region: this.config.region, customerId: this.config.customerId, mdmDeviceId: mdmId },
+          adminId,
+        );
         await appendAudit(db, {
           actorType: 'ADMIN',
           actorId: adminId,
@@ -317,6 +335,7 @@ export class MdmInventoryService {
           [this.config.region, this.config.customerId, deviceId],
         );
         if (!result.rowCount) throw new ApiError(404, 'mdm_link_missing', 'Not found');
+        await new GpsPolicyService(this.pool).revokeMdmContinuous(db, deviceId, adminId);
         await appendAudit(db, {
           actorType: 'ADMIN',
           actorId: adminId,

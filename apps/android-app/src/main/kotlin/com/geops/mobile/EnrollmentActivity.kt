@@ -2,8 +2,10 @@ package com.geops.mobile
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
@@ -11,6 +13,8 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
+import android.os.UserManager
+import android.content.RestrictionsManager
 import android.provider.Settings
 import android.net.Uri
 import android.text.InputType
@@ -69,6 +73,17 @@ class EnrollmentActivity : ComponentActivity() {
     private lateinit var scannerButton: Button
     private lateinit var claimButton: Button
     private var enrollmentInFlight = false
+    private var managedEnrollmentInFlight = false
+    private var trackingStartInFlight = false
+    private var restrictionsReceiverRegistered = false
+    private val restrictionsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED) {
+                tryManagedEnrollment()
+                maybeStartManagedTracking()
+            }
+        }
+    }
     private var completedInvitationId: String? = null
     private var completionMessage: String? = null
     private val qrScanner = registerForActivityResult(ScanContract()) { result ->
@@ -153,7 +168,7 @@ class EnrollmentActivity : ComponentActivity() {
             content.addView(it)
         }
         paragraph("GEOPS · inscripción supervisada de prueba")
-        paragraph("La ubicación solo se inicia durante una ventana autorizada desde esta pantalla visible. Android mostrará la notificación de seguimiento.")
+        paragraph("La ubicación se captura durante la ventana autorizada. En dispositivos MDM vinculados, esa ventana cubre las 24 horas. Android mostrará la notificación de seguimiento.")
         val hasDevice = !saved.getString("device_id", null).isNullOrBlank()
         val hasActivation = hasDevice && !saved.getString("key_id", null).isNullOrBlank() &&
             !saved.getString("installation_id", null).isNullOrBlank()
@@ -163,7 +178,11 @@ class EnrollmentActivity : ComponentActivity() {
             hasDevice -> "Inscripción solicitada. Espera la confirmación en GEOPS Web y escanea el QR de activación."
             else -> "Sin inscripción local. No se captura ubicación."
         })
-        button("Iniciar seguimiento") { startTracking() }
+        button("Iniciar seguimiento") {
+            if (saved.getBoolean("managed_enrolled", false))
+                saved.edit().putBoolean("managed_auto_start_enabled", true).apply()
+            startTracking()
+        }
         paragraph("Estado del seguimiento")
         diagnostics = paragraph("Cargando diagnóstico local…").apply {
             textSize = 15f
@@ -214,6 +233,8 @@ class EnrollmentActivity : ComponentActivity() {
             work.execute {
                 val message = try {
                     AgentRuntime.stopByUser(applicationContext)
+                    getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE).edit()
+                        .putBoolean("managed_auto_start_enabled", false).apply()
                     "Seguimiento detenido por el usuario. Para reanudar, inicia de nuevo desde esta pantalla."
                 } catch (_: Exception) { "No se pudo confirmar la detención; verifica el estado del servicio." }
                 show(message)
@@ -233,9 +254,19 @@ class EnrollmentActivity : ComponentActivity() {
         super.onResume()
         visible = true
         diagnosticHandler.post(diagnosticRefresh)
+        val filter = IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(restrictionsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(restrictionsReceiver, filter)
+        restrictionsReceiverRegistered = true
+        tryManagedEnrollment()
+        maybeStartManagedTracking()
     }
     override fun onPause() {
         visible = false
+        if (restrictionsReceiverRegistered) {
+            unregisterReceiver(restrictionsReceiver)
+            restrictionsReceiverRegistered = false
+        }
         diagnosticHandler.removeCallbacks(diagnosticRefresh)
         super.onPause()
     }
@@ -246,6 +277,95 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun show(message: String) = runOnUiThread { status.text = message }
+
+    private fun tryManagedEnrollment() {
+        if (managedEnrollmentInFlight || enrollmentInFlight) return
+        val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        val restrictions = (getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager)
+            ?.applicationRestrictions ?: return
+        if (saved.getBoolean("managed_enrolled", false) &&
+            !saved.getString("key_id", null).isNullOrBlank()) {
+            if (restrictions.getBoolean(UserManager.KEY_RESTRICTIONS_PENDING, false) ||
+                restrictions.getString("geops_device_id") != saved.getString("device_id", null) ||
+                restrictions.getString("mdm_device_id") != saved.getString("managed_mdm_device_id", null)) {
+                saved.edit().putBoolean("managed_auto_start_enabled", false).apply()
+                work.execute { AgentRuntime.onUploadAuthorizationRejected() }
+                show("La identidad de la configuración MDM cambió o está pendiente; GPS detenido hasta revisión administrativa.")
+            }
+            return
+        }
+        if (!saved.getString("key_id", null).isNullOrBlank()) return
+        if (restrictions.getBoolean(UserManager.KEY_RESTRICTIONS_PENDING, false)) {
+            show("La configuración MDM todavía está pendiente. GEOPS espera al administrador.")
+            return
+        }
+        val required = listOf("geops_device_id", "mdm_device_id", "invitation_id",
+            "invitation_secret", "expires_at")
+        if (required.any { restrictions.getString(it).isNullOrBlank() }) return
+        val configuredDevice = restrictions.getString("geops_device_id") ?: return
+        val existingDevice = saved.getString("device_id", null)
+        if (existingDevice != null && existingDevice != configuredDevice) {
+            show("La configuración MDM corresponde a otro dispositivo GEOPS. Solicita revisión técnica.")
+            return
+        }
+        val ticket = try {
+            EnrollmentTicket.parseActive(org.json.JSONObject()
+                .put("format", "geops-enrollment-v1")
+                .put("origin", "https://geops-staging.duckdns.org")
+                .put("geops_device_id", configuredDevice)
+                .put("mdm_device_id", restrictions.getString("mdm_device_id"))
+                .put("invitation_id", restrictions.getString("invitation_id"))
+                .put("invitation_secret", restrictions.getString("invitation_secret"))
+                .put("expires_at", restrictions.getString("expires_at")).toString())
+        } catch (_: Exception) {
+            show("La configuración de inscripción MDM no es válida o venció.")
+            return
+        }
+        managedEnrollmentInFlight = true
+        show("Inscribiendo automáticamente este dispositivo administrado…")
+        work.execute {
+            try {
+                val signer = try { AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS) }
+                    catch (_: IllegalStateException) { AndroidKeys.createSigningKey(AgentRuntime.SIGNING_ALIAS) }
+                val enrollment = EnrollmentClient(HttpsEnrollmentTransport(SYNTHETIC_STAGING_BASE_URL))
+                val activation = enrollment.proveManaged(ticket, enrollment.claim(ticket, signer), signer)
+                saved.edit().putString("device_id", activation.deviceId)
+                    .putString("key_id", activation.keyId)
+                    .putString("installation_id", activation.installationId)
+                    .putString("managed_mdm_device_id", ticket.mdmDeviceId)
+                    .putBoolean("managed_enrolled", true)
+                    .putBoolean("managed_auto_start_enabled", true).apply()
+                runOnUiThread {
+                    deviceField.setText(activation.deviceId)
+                    keyField.setText(activation.keyId)
+                    installationField.setText(activation.installationId)
+                    status.text = "Inscripción MDM activada. Verificando permisos y política GPS…"
+                    if (visible) maybeStartManagedTracking()
+                }
+            } catch (failure: Exception) {
+                show(enrollmentFailureMessage(failure))
+            } finally {
+                runOnUiThread { managedEnrollmentInFlight = false }
+            }
+        }
+    }
+
+    /** A visible MDM launch can start GPS only after Android has granted every required permission. */
+    private fun maybeStartManagedTracking() {
+        val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        if (!visible || !saved.getBoolean("managed_auto_start_enabled", false) ||
+            saved.getString("key_id", null).isNullOrBlank() || AgentRuntime.isRunning()) return
+        val precise = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val background = Build.VERSION.SDK_INT < 29 ||
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val notifications = Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!precise || !background || !notifications) {
+            show("MDM: faltan permisos de ubicación precisa, ubicación permanente o notificaciones. El administrador debe concederlos antes de capturar GPS.")
+            return
+        }
+        startTracking()
+    }
 
     private fun trackingFailureMessage(failure: Exception): String = when (failure.message) {
         "assignment_downgrade" -> "Seguimiento no iniciado: el servidor entregó una versión de asignación anterior a la guardada para este dispositivo. No borres datos; revisa la política y la asignación en GEOPS Web."
@@ -337,6 +457,7 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun startTracking() {
+        if (trackingStartInFlight) return
         if (AgentRuntime.isRunning()) {
             show("El seguimiento ya está iniciado. Consulta las sesiones y ubicaciones en GEOPS Web.")
             return
@@ -372,6 +493,7 @@ class EnrollmentActivity : ComponentActivity() {
             show("Concede notificaciones para mostrar el seguimiento y vuelve a pulsar iniciar.")
             return
         }
+        trackingStartInFlight = true
         show("Validando identidad y sesión con el servidor…")
         work.execute {
             try {
@@ -391,6 +513,8 @@ class EnrollmentActivity : ComponentActivity() {
                 }
             } catch (failure: Exception) {
                 show("Activación no confirmada: ${failure.message ?: "error"}. Comprueba el estado del equipo en GEOPS Web.")
+            } finally {
+                runOnUiThread { trackingStartInFlight = false }
             }
         }
     }

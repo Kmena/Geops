@@ -15,7 +15,8 @@ data class Policy(
     val id: String, val revision: Int, val captureIntervalS: Int, val syncIntervalS: Int,
     val validFromMs: Long, val validUntilMs: Long,
     // GPS-HEALTH-001 proposed delta. 300 s is a synthetic default until SDD approval.
-    val healthIntervalS: Int = 300
+    val healthIntervalS: Int = 300,
+    val mdmContinuous: Boolean = false
 )
 data class PolicyException(val localDate: String, val mode: String,
                            val startLocal: String? = null, val endLocal: String? = null)
@@ -215,7 +216,7 @@ class PolicyEngine(
                     s.authorizedUntilMs != null && s.authorizedUntilMs > s.serverTimeMs &&
                     s.authorizedUntilMs <= p.validUntilMs && s.display != null &&
                     s.tzdbVersion?.isNotBlank() == true) { "invalid_offline_authorization" }
-                validateSchedule(s.display)
+                validateSchedule(s.display, p.mdmContinuous)
             }
         } else require(s.policy == null && s.windows.isEmpty()) { "invalid_tombstone" }
     }
@@ -278,7 +279,7 @@ class PolicyEngine(
             val startLocal = LocalTime.parse(exception?.startLocal ?: rule.startLocal)
             val endLocal = LocalTime.parse(exception?.endLocal ?: rule.endLocal)
             val start = resolveBoundary(day, startLocal, zone, false)
-            val endDay = if (endLocal < startLocal) day.plusDays(1) else day
+            val endDay = if (endLocal <= startLocal) day.plusDays(1) else day
             val end = resolveBoundary(endDay, endLocal, zone, true)
             val lower = maxOf(start, s.policy!!.validFromMs, s.assignmentStartMs!!)
             val upper = minOf(end, s.policy.validUntilMs, s.authorizedUntilMs!!)
@@ -302,9 +303,12 @@ class PolicyEngine(
         }
     }
 
-    private fun validateSchedule(rule: PolicyDisplay) {
+    private fun validateSchedule(rule: PolicyDisplay, mdmContinuous: Boolean) {
         require(rule.daysIso.isNotEmpty() && rule.daysIso.size == rule.daysIso.toSet().size &&
-            rule.daysIso.all { it in 1..7 } && rule.startLocal != rule.endLocal) { "invalid_schedule" }
+            rule.daysIso.all { it in 1..7 } &&
+            (if (mdmContinuous) rule.daysIso.toSet() == (1..7).toSet() &&
+                rule.startLocal == "00:00" && rule.endLocal == "00:00" && rule.exceptions.isEmpty()
+             else rule.startLocal != rule.endLocal)) { "invalid_schedule" }
         ZoneId.of(rule.timeZone)
         LocalTime.parse(rule.startLocal); LocalTime.parse(rule.endLocal)
         require(rule.exceptions.size <= 366 &&

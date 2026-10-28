@@ -17,6 +17,7 @@ interface Projection {
   days_iso: number[];
   start_local: string;
   end_local: string;
+  mdm_continuous: boolean;
   time_zone: string;
   valid_from: Date;
   valid_until: Date;
@@ -170,7 +171,7 @@ export class GpsScheduler {
       `SELECT e.device_id,e.policy_id,e.revision,e.assignment_version,
          lower(e.effective_range) AS lower_at,upper(e.effective_range) AS upper_at,
          r.days_iso,to_char(r.start_local,'HH24:MI') AS start_local,
-         to_char(r.end_local,'HH24:MI') AS end_local,r.time_zone,r.valid_from,r.valid_until,
+         to_char(r.end_local,'HH24:MI') AS end_local,r.mdm_continuous,r.time_zone,r.valid_from,r.valid_until,
          COALESCE((SELECT json_agg(json_build_object('local_date',x.local_date,'mode',x.mode,
            'start_local',CASE WHEN x.start_local IS NULL THEN NULL ELSE to_char(x.start_local,'HH24:MI') END,
            'end_local',CASE WHEN x.end_local IS NULL THEN NULL ELSE to_char(x.end_local,'HH24:MI') END,
@@ -190,6 +191,7 @@ export class GpsScheduler {
       const until = new Date(Math.min(row.upper_at.getTime(), at.getTime() + 7 * DAY));
       const spec: GpsPolicySpec = {
         name: 'Published',
+        mdm_continuous: row.mdm_continuous,
         days_iso: row.days_iso,
         start_local: row.start_local,
         end_local: row.end_local,
