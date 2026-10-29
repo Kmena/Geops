@@ -49,9 +49,9 @@ async (page) => {
     'historical snapshot displayed');
   if (evaluatedIndex >= 0) {
     await page.getByRole('button', { name: 'Consultar intervalos y referencias GPS' }).click();
-    await page.getByRole('heading', { name: 'Intervalos acreditados' }).waitFor();
+    await page.getByRole('heading', { name: 'Intervalos acreditados', exact: true }).waitFor();
   }
-  check(evaluatedIndex < 0 || await page.getByRole('heading', { name: 'Intervalos acreditados' }).count() === 1,
+  check(evaluatedIndex < 0 || await page.getByRole('heading', { name: 'Intervalos acreditados', exact: true }).count() === 1,
     'evidence request audited and displayed');
   await page.getByRole('button', { name: 'Cerrar detalle' }).click();
   await page.getByLabel('Dispositivo / agente', { exact: true }).fill(response.items[0].agent_id);
