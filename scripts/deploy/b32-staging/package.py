@@ -23,6 +23,7 @@ FILES = (
     'scripts/deploy/b32-staging/guard.py',
     'scripts/deploy/b32-staging/install.py',
     'scripts/deploy/b32-staging/package.py',
+    'scripts/deploy/b32-staging/sign-package.mjs',
     'scripts/deploy/b32-staging/candidate.py',
     'scripts/deploy/b32-staging/sudoers-ready',
     'scripts/deploy/b30-staging/controller.py',
