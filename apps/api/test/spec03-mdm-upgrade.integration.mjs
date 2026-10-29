@@ -16,7 +16,7 @@ if (
 const pool = new pg.Pool({ connectionString: url });
 try {
   const catalog = await loadMigrations();
-  assert.equal(catalog.length, 30);
+  assert.equal(catalog.length, 33);
   assert.equal(catalog[22].version, '0023_mdm_oauth_client.sql');
   assert.equal(
     (await pool.query("SELECT to_regclass('geops_schema_migrations') AS name")).rows[0].name,
@@ -222,7 +222,7 @@ try {
     ).rows[0].n,
     1,
   );
-  console.log('MDM 23 -> SPEC-03 30 upgrade, data, checksums and replay: PASS');
+  console.log('MDM 23 -> SPEC-03 33 upgrade, data, checksums and replay: PASS');
 } finally {
   await pool.end();
 }

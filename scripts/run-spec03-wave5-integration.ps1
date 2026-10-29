@@ -39,8 +39,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Could not create disposable upgrade database.' }
   $env:DATABASE_URL = "postgres://postgres:synthetic-only@127.0.0.1:55444/$upgradeDatabase"
   & node --import tsx apps/api/test/agent-device-upgrade.integration.mjs
-  if ($LASTEXITCODE -ne 0) { throw 'Wave 4B upgrade rehearsal failed.' }
-  Write-Output "SPEC-03 Wave 5 disposable PostGIS: $($tests.Count + 1) scripts passed."
+  if ($LASTEXITCODE -ne 0) { throw 'SPEC-03 0027-to-0033 upgrade rehearsal failed.' }
+  Write-Output "SPEC-03 0033 disposable PostGIS: $($tests.Count + 1) scripts passed."
 } finally {
   if ($started) { & docker stop $container *> $null }
   Pop-Location

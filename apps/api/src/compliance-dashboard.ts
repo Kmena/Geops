@@ -117,13 +117,18 @@ type DbRow = Omit<
   job_state: string | null;
 };
 
-export function normalizeVisit(row: DbRow, _now: Date): ComplianceVisit {
+export function normalizeVisit(row: DbRow, now: Date): ComplianceVisit {
   const { assignment_state, evaluation_status, job_state, ...snapshot } = row;
+  const awaitingEvaluation = job_state === 'PENDING' || job_state === 'RUNNING';
   const status =
     assignment_state === 'CANCELLED'
       ? 'CANCELLED'
       : (evaluation_status ??
-        (job_state === 'PENDING' || job_state === 'RUNNING' ? 'PENDING' : 'PENDING'));
+        (awaitingEvaluation
+          ? 'PENDING'
+          : now.getTime() >= Date.parse(row.ends_at)
+            ? 'INSUFFICIENT_EVIDENCE'
+            : 'PENDING'));
   return {
     ...snapshot,
     required_s: asNumber(row.required_s),

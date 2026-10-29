@@ -35,7 +35,7 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw "Migration scenario failed: $($scenario.Name)" }
   }
-  Write-Output 'SPEC-03 release migration matrix: fresh, B23->B30, B27->B30, replay, POCO continuity PASS.'
+  Write-Output 'SPEC-03 release migration matrix: fresh, B23->B33, B27->B33, replay, POCO continuity PASS.'
 } finally {
   if ($started) { & docker compose -p $project -f $compose down --volumes --remove-orphans *> $null }
   Pop-Location

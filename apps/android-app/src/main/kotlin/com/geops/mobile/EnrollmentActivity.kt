@@ -289,7 +289,7 @@ class EnrollmentActivity : ComponentActivity() {
                 restrictions.getString("geops_device_id") != saved.getString("device_id", null) ||
                 restrictions.getString("mdm_device_id") != saved.getString("managed_mdm_device_id", null)) {
                 saved.edit().putBoolean("managed_auto_start_enabled", false).apply()
-                work.execute { AgentRuntime.onUploadAuthorizationRejected() }
+                work.execute { AgentRuntime.onUploadAuthorizationRejected(applicationContext) }
                 show("La identidad de la configuración MDM cambió o está pendiente; GPS detenido hasta revisión administrativa.")
             }
             return
