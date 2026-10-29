@@ -76,6 +76,9 @@ try {
   $apiProcess = Start-Process -FilePath $node -ArgumentList @('--import', 'tsx', 'apps/api/test/client-catalog-browser-server.mjs') -WorkingDirectory $root -Environment @{ DATABASE_URL = $databaseUrl; GEOPS_DATA_MODE = 'synthetic' } -WindowStyle Hidden -PassThru
   Wait-Endpoint 'http://127.0.0.1:3500/health/live' $apiProcess
   $vite = Join-Path $root 'node_modules/vite/bin/vite.js'
+  if (-not (Test-Path -LiteralPath $vite)) {
+    $vite = Join-Path (Split-Path -Parent $root) 'node_modules/vite/bin/vite.js'
+  }
   $webRoot = Join-Path $root 'apps/web'
   $webProcess = Start-Process -FilePath $node -ArgumentList @($vite, '--host', '127.0.0.1', '--port', '3501') -WorkingDirectory $webRoot -WindowStyle Hidden -PassThru
   Wait-Endpoint 'http://127.0.0.1:3501/' $webProcess
@@ -99,7 +102,7 @@ try {
   $scheduleOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $scheduleTestFile
   if ($LASTEXITCODE -ne 0) { throw "Schedule browser E2E failed: $scheduleOutput" }
   $scheduleResult = ($scheduleOutput | Out-String).Trim() | ConvertFrom-Json
-  if ($scheduleResult.result -ne 'PASS' -or $scheduleResult.checks -ne 20) { throw "Unexpected schedule browser E2E result: $scheduleOutput" }
+  if ($scheduleResult.result -ne 'PASS' -or $scheduleResult.checks -ne 27) { throw "Unexpected schedule browser E2E result: $scheduleOutput" }
   Write-Output "SPEC-03 Wave 3 browser E2E: $($scheduleResult.checks) checks passed (desktop and 390 px mobile)."
   Push-Location -LiteralPath $root
   try {

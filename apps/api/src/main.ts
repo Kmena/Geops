@@ -18,6 +18,7 @@ import { GpsDeviceConfigService } from './gps-device-config.js';
 import { GpsEventService } from './gps-event-service.js';
 import { GpsAdministrationService } from './gps-administration.js';
 import { GpsScheduler } from './gps-scheduler.js';
+import { VisitEvaluationScheduler } from './visit-evaluation-scheduler.js';
 import { GpsContinuityMonitor } from './gps-continuity-monitor.js';
 import { ClientCatalogService } from './client-catalog.js';
 import { GeocodingSearchService } from './geocoding-search.js';
@@ -86,6 +87,8 @@ async function main(): Promise<void> {
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);
   const gpsScheduler = new GpsScheduler(pool, gpsPolicies, gpsEvents, gpsHealth);
   const gpsContinuity = new GpsContinuityMonitor(pool, undefined, config.adminSessionKey);
+  const visitEvaluation = new VisitEvaluationService(pool);
+  const visitScheduler = new VisitEvaluationScheduler(pool, visitEvaluation);
   const app = createApp({
     readinessProbe: async () => (await restoreGate()) && (await checkReadiness(pool)),
     restoreGate,
@@ -102,7 +105,7 @@ async function main(): Promise<void> {
     geocoding: new GeocodingSearchService(pool),
     routeCatalog: new RouteCatalogService(pool),
     visitSchedule: new VisitScheduleService(pool),
-    visitEvaluation: new VisitEvaluationService(pool),
+    visitEvaluation,
     agentDeviceLinks: new AgentDeviceLinkService(pool),
     complianceDashboard: new ComplianceDashboardService(pool),
     devices,
@@ -133,6 +136,29 @@ async function main(): Promise<void> {
   const gpsTimer = setInterval(() => void runGpsMaintenance(), 60_000);
   gpsTimer.unref();
   app.addHook('onClose', async () => clearInterval(gpsTimer));
+  let evaluating = false;
+  const runVisitMaintenance = async (): Promise<void> => {
+    if (evaluating) return;
+    evaluating = true;
+    try {
+      if (!(await restoreGate())) return;
+      const result = await visitScheduler.tick();
+      process.stdout.write(`GEOPS visit evaluation ${JSON.stringify(result)}\n`);
+    } catch (error) {
+      const errorCode =
+        error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'scheduler_error';
+      process.stderr.write(
+        `GEOPS visit evaluation ${JSON.stringify({ status: 'failed', error_code: errorCode })}\n`,
+      );
+    } finally {
+      evaluating = false;
+    }
+  };
+  const visitTimer = setInterval(() => void runVisitMaintenance(), 60_000);
+  visitTimer.unref();
+  app.addHook('onClose', async () => clearInterval(visitTimer));
   const mdmTimer = mdmTenant
     ? setInterval(() => {
         void restoreGate()
@@ -148,6 +174,7 @@ async function main(): Promise<void> {
   if (mdmTimer) app.addHook('onClose', async () => clearInterval(mdmTimer));
   await app.listen({ host: config.host, port: config.port });
   void runGpsMaintenance();
+  void runVisitMaintenance();
   let closing = false;
   const drain = (): void => {
     if (closing) return;

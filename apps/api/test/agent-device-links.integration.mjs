@@ -11,6 +11,7 @@ import { GpsEventService } from '../src/gps-event-service.ts';
 import { GpsHealthService } from '../src/gps-health-service.ts';
 import { GpsPolicyService } from '../src/gps-policy-service.ts';
 import { VisitEvaluationService } from '../src/visit-evaluation.ts';
+import { VisitEvaluationScheduler } from '../src/visit-evaluation-scheduler.ts';
 
 const url = process.env.DATABASE_URL;
 if (
@@ -254,6 +255,27 @@ try {
   const before = (await call(admin, 'GET', endpoint)).json();
   const completed = before.visits.find((visit) => visit.status === 'COMPLETED');
   check(Boolean(completed), 'persisted GPS evidence completes visit through operational link');
+  await pool.query(
+    `INSERT INTO admin_permission(admin_id,permission,granted_by,reason)
+     VALUES($1,'gps.location.read',$1,'Synthetic visit map verification') ON CONFLICT DO NOTHING`,
+    [owner],
+  );
+  const mapPath = `/v1/admin/assignments/${assignment.id}/visits/${completed.stop_id}/map`;
+  const mapResponse = await call(admin, 'GET', mapPath, undefined, {
+    'x-geops-access-reason': 'Synthetic historical geofence verification',
+  });
+  check(mapResponse.statusCode === 200, 'authorized historical visit map available');
+  const mapData = mapResponse.json();
+  check(
+    mapData.historical_geofence.revision >= 1 && mapData.positions.length >= 2,
+    'visit map includes snapshot and attributed GPS positions',
+  );
+  check(
+    (await call(outsider, 'GET', mapPath, undefined, {
+      'x-geops-access-reason': 'Synthetic unauthorized access attempt',
+    })).statusCode === 403,
+    'visit map rejects unauthorized reader',
+  );
   check(before.agent_device_integration === 'TECHNICAL_ONLY', 'result labels technical scope');
   check(
     (
@@ -316,7 +338,14 @@ try {
      FROM position_event WHERE device_id=$1 ORDER BY captured_at LIMIT 1`,
     [device, lateId, at(6), clock, randomBytes(32)],
   );
-  check((await evaluation.reconcileOperational()) === 1, 'late accepted position queues replay');
+  const lateReplayCount = await evaluation.reconcileOperational();
+  const lateJob = (await pool.query(
+    'SELECT state FROM visit_evaluation_job WHERE assignment_id=$1', [assignment.id],
+  )).rows[0];
+  check(
+    lateReplayCount === 1 || lateJob.state === 'PENDING',
+    'late accepted position is queued or included in existing pending replay',
+  );
   check(
     (await evaluation.drain()).some((result) => result.assignment_id === assignment.id),
     'late position reprocessed',
@@ -631,6 +660,32 @@ try {
     ).rows[0]?.mdm_binding_id === null,
     'GEOPS-only health evidence persists without invented MDM binding',
   );
+  const scheduler = new VisitEvaluationScheduler(pool, evaluation);
+  const withheld = await scheduler.tick();
+  check(
+    withheld.skipped === 'ALGORITHM_NOT_APPROVED' && withheld.processed === 0,
+    'scheduler withholds operational evaluation until algorithm approval',
+  );
+  await pool.query(
+    `INSERT INTO visit_algorithm_revision(algorithm_id,revision,scope,parameters)
+     SELECT algorithm_id,3,'APPROVED',parameters FROM visit_algorithm_revision
+     WHERE algorithm_id='dwell-pair-v1' AND revision=2`,
+  );
+  const concurrentTicks = await Promise.all([scheduler.tick(), scheduler.tick()]);
+  const automatic = concurrentTicks.find((tick) => tick.skipped === null);
+  check(
+    automatic && automatic.queued > 0 && automatic.processed > 0 &&
+      concurrentTicks.some((tick) => tick.skipped === 'LOCKED'),
+    'approved revision automatically replays eligible historical assignments',
+  );
+  const automaticResult = await evaluation.assignmentResults(owner, assignment.id);
+  check(
+    automaticResult.visits.some((visit) => visit.algorithm_revision === 3),
+    'automatic replay preserves a new approved evaluation revision',
+  );
+  const restartedScheduler = new VisitEvaluationScheduler(pool, new VisitEvaluationService(pool, () => clock));
+  const repeated = await restartedScheduler.tick();
+  check(repeated.queued === 0 && repeated.processed === 0, 'repeat scheduler tick is idempotent');
   console.log(`Wave 4B agent/device and persisted-GPS integration: ${checks} checks passed`);
 } finally {
   if (app) await app.close();

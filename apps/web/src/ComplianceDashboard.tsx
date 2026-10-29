@@ -7,13 +7,16 @@ import {
   type ComplianceVisit,
   type VisitEvaluationHistory,
   type VisitEvidenceInterval,
+  type VisitMapData,
 } from './api/client.js';
 import { ComplianceMap } from './ComplianceMap.js';
+import { VisitEvidenceMap } from './VisitEvidenceMap.js';
+import { useAuth } from './auth.js';
 
 const statusLabels: Record<string, string> = {
   COMPLETED: 'Completada',
   IN_PROGRESS: 'En progreso',
-  PENDING: 'Pendiente',
+  PENDING: 'Pendiente de evaluación',
   INCOMPLETE: 'Permanencia insuficiente',
   NOT_VISITED: 'Sin visita acreditada',
   INSUFFICIENT_EVIDENCE: 'Evidencia insuficiente',
@@ -31,7 +34,7 @@ const processingLabels: Record<string, string> = {
   RUNNING: 'Procesando',
   DONE: 'Evaluación procesada',
   FAILED: 'Error de procesamiento',
-  NOT_QUEUED: 'Sin evaluación solicitada',
+  NOT_QUEUED: 'Evaluación no iniciada',
 };
 const label = (status: string) => statusLabels[status] ?? `Estado desconocido: ${status}`;
 const dateTime = (value: string | null) =>
@@ -64,12 +67,36 @@ const parseFilters = (params: URLSearchParams): Filters => ({
   sync_state: params.get('sync_state') ?? '',
 });
 
-function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () => void }) {
+function VisitDetail({
+  visit,
+  onClose,
+  onQueued,
+  canRequest,
+  algorithmApproved,
+  locationAccess,
+  csrf,
+}: {
+  visit: ComplianceVisit;
+  onClose: () => void;
+  onQueued: () => Promise<void>;
+  canRequest: boolean;
+  algorithmApproved: boolean;
+  locationAccess: boolean;
+  csrf: string;
+}) {
   const [history, setHistory] = useState<VisitEvaluationHistory[]>([]);
   const [intervals, setIntervals] = useState<VisitEvidenceInterval[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [evidenceRequested, setEvidenceRequested] = useState(false);
+  const [queueReason, setQueueReason] = useState(`Revisión de visita del ${visit.local_date}`);
+  const [queueing, setQueueing] = useState(false);
+  const [queueError, setQueueError] = useState('');
+  const [queueMessage, setQueueMessage] = useState('');
+  const [mapReason, setMapReason] = useState(`Revisión GPS de visita del ${visit.local_date}`);
+  const [mapData, setMapData] = useState<VisitMapData | null>(null);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [mapError, setMapError] = useState('');
   useEffect(() => {
     let live = true;
     setLoading(true);
@@ -90,7 +117,7 @@ function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () =
     return () => {
       live = false;
     };
-  }, [visit.assignment_id, visit.stop_id]);
+  }, [visit.assignment_id, visit.stop_id, visit.evaluation_id]);
   const loadEvidence = async () => {
     if (!visit.evaluation_id) return;
     setError('');
@@ -107,6 +134,45 @@ function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () =
       setError(errorText(failure));
     }
   };
+  const requestEvaluation = async (event: FormEvent) => {
+    event.preventDefault();
+    setQueueError('');
+    setQueueMessage('');
+    setQueueing(true);
+    try {
+      await api.requestVisitEvaluation(visit.assignment_id, queueReason.trim(), csrf);
+      setQueueMessage('Evaluación solicitada. El resultado se actualizará cuando termine el cálculo.');
+      await onQueued();
+    } catch (failure) {
+      setQueueError(
+        failure instanceof ApiClientError && failure.code === 'algorithm_not_approved'
+          ? 'La regla de permanencia aún no está aprobada para visitas reales.'
+          : failure instanceof ApiClientError && failure.status === 403
+            ? 'No tienes permiso para solicitar esta evaluación.'
+            : 'No se pudo solicitar la evaluación. Actualiza el estado e inténtalo de nuevo.',
+      );
+    } finally {
+      setQueueing(false);
+    }
+  };
+  const loadMap = async (event: FormEvent) => {
+    event.preventDefault();
+    setMapLoading(true);
+    setMapError('');
+    try {
+      setMapData(await api.visitMap(visit.assignment_id, visit.stop_id, mapReason.trim()));
+    } catch (failure) {
+      setMapError(
+        failure instanceof ApiClientError && failure.status === 403
+          ? 'No tienes permiso para consultar las coordenadas de esta visita.'
+          : 'No se pudieron consultar las posiciones de esta visita.',
+      );
+    } finally {
+      setMapLoading(false);
+    }
+  };
+  const activeJob = visit.processing_state === 'PENDING' || visit.processing_state === 'RUNNING';
+  const eligible = visit.status !== 'CANCELLED' && Date.now() >= Date.parse(visit.ends_at);
   return (
     <aside className="compliance-detail" aria-label="Detalle de visita">
       <div className="compliance-detail-head">
@@ -147,7 +213,9 @@ function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () =
         <div>
           <dt>Permanencia</dt>
           <dd>
-            {minutes(visit.credited_s)} de {minutes(visit.required_s)}
+            {visit.evaluation_id
+              ? `${minutes(visit.credited_s)} de ${minutes(visit.required_s)} acreditados`
+              : 'Aún sin cálculo'}
           </dd>
         </div>
         <div>
@@ -201,6 +269,66 @@ function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () =
         La ruta y la geozona proceden del snapshot de la asignación. La evidencia puede llegar
         después de la evaluación.
       </p>
+      {!visit.evaluation_id && (
+        <p className="compliance-note" role="status">
+          Todavía no se ha calculado la permanencia. Esto no confirma incumplimiento.
+        </p>
+      )}
+      {canRequest && (
+        <form className="compliance-evaluation-action" onSubmit={(event) => void requestEvaluation(event)}>
+          <label>
+            Motivo de la evaluación
+            <input
+              value={queueReason}
+              onChange={(event) => setQueueReason(event.target.value)}
+              minLength={8}
+              maxLength={240}
+              required
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!algorithmApproved || !eligible || activeJob || queueing}
+          >
+            {queueing
+              ? 'Solicitando…'
+              : visit.evaluation_id
+                ? 'Reevaluar visita'
+                : 'Evaluar visita'}
+          </button>
+          {!algorithmApproved && (
+            <p>La regla de permanencia requiere aprobación antes de evaluar visitas reales.</p>
+          )}
+          {!eligible && visit.status !== 'CANCELLED' && (
+            <p>La evaluación estará disponible al terminar la jornada.</p>
+          )}
+          {activeJob && <p role="status">La evaluación está en cola o en proceso.</p>}
+          {queueMessage && <p role="status">{queueMessage}</p>}
+          {queueError && <p role="alert">{queueError}</p>}
+        </form>
+      )}
+      {locationAccess && (
+        <section aria-label="Mapa de evidencia GPS">
+          <h3>Geozona y posiciones de la visita</h3>
+          <form className="compliance-evaluation-action" onSubmit={(event) => void loadMap(event)}>
+            <label>
+              Motivo de consulta de ubicaciones
+              <input
+                value={mapReason}
+                onChange={(event) => setMapReason(event.target.value)}
+                minLength={8}
+                maxLength={240}
+                required
+              />
+            </label>
+            <button type="submit" className="secondary" disabled={mapLoading}>
+              {mapLoading ? 'Consultando…' : 'Mostrar mapa y puntos GPS'}
+            </button>
+          </form>
+          {mapError && <p role="alert">{mapError}</p>}
+          {mapData && <VisitEvidenceMap data={mapData} />}
+        </section>
+      )}
       <h3>Historial de evaluaciones</h3>
       {loading && <p role="status">Cargando historial…</p>}
       {!loading && !history.length && <p>No hay evaluaciones registradas.</p>}
@@ -291,6 +419,7 @@ function VisitDetail({ visit, onClose }: { visit: ComplianceVisit; onClose: () =
 }
 
 export function ComplianceDashboard() {
+  const { profile } = useAuth();
   const [params, setParams] = useSearchParams();
   const applied = useMemo(() => parseFilters(params), [params]);
   const [draft, setDraft] = useState<Filters>(applied);
@@ -305,7 +434,7 @@ export function ComplianceDashboard() {
     setOffset(0);
     setSelected(null);
   }, [applied]);
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (silent = false) => {
     const query: Record<string, string> = {
       from: applied.from,
       to: applied.to,
@@ -314,20 +443,38 @@ export function ComplianceDashboard() {
     };
     for (const field of fields)
       if (field !== 'from' && field !== 'to' && applied[field]) query[field] = applied[field];
-    setLoading(true);
-    setError('');
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
     try {
-      setPage(await api.compliance(query));
+      const next = await api.compliance(query);
+      setPage(next);
+      setSelected((current) =>
+        current
+          ? (next.items.find(
+              (item) =>
+                item.assignment_id === current.assignment_id && item.stop_id === current.stop_id,
+            ) ?? current)
+          : null,
+      );
     } catch (failure) {
-      setPage(null);
-      setError(errorText(failure));
+      if (!silent) {
+        setPage(null);
+        setError(errorText(failure));
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [applied, offset]);
   useEffect(() => {
     void reload();
   }, [reload]);
+  useEffect(() => {
+    if (!selected || !['PENDING', 'RUNNING'].includes(selected.processing_state)) return;
+    const timer = setInterval(() => void reload(true), 3000);
+    return () => clearInterval(timer);
+  }, [selected, reload]);
   const apply = (event: FormEvent) => {
     event.preventDefault();
     const next = new URLSearchParams();
@@ -541,7 +688,9 @@ export function ComplianceDashboard() {
                           {visit.client_name} · {visit.site_name}
                         </td>
                         <td>
-                          {minutes(visit.credited_s)} / {minutes(visit.required_s)}
+                          {visit.evaluation_id
+                            ? `${minutes(visit.credited_s)} / ${minutes(visit.required_s)}`
+                            : 'Aún sin cálculo'}
                         </td>
                         <td>
                           <span
@@ -740,6 +889,11 @@ export function ComplianceDashboard() {
           key={`${selected.assignment_id}:${selected.stop_id}`}
           visit={selected}
           onClose={() => setSelected(null)}
+          onQueued={() => reload(true)}
+          canRequest={page?.evaluation_access.can_request ?? false}
+          algorithmApproved={page?.evaluation_access.algorithm_approved ?? false}
+          locationAccess={page?.location_access ?? false}
+          csrf={profile?.csrf_token ?? ''}
         />
       )}
     </div>

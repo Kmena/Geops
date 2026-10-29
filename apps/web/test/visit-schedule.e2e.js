@@ -162,5 +162,33 @@ async (page) => {
   await page.locator('.schedule-toolbar select').nth(1).selectOption(agent.id);
   await page.waitForFunction(() => document.querySelectorAll('.schedule-event').length >= 3);
   check((await page.locator('.schedule-event').count()) >= 3, 'agent filter applied');
+  await page.goto(`http://127.0.0.1:3501/compliance?from=${date}&to=${date}`);
+  await page.getByRole('heading', { name: 'Cumplimiento de visitas' }).waitFor();
+  const pendingVisit = page.locator('tr').filter({ hasText: 'Pendiente de evaluación' }).first();
+  await pendingVisit.getByRole('button', { name: 'Ver evidencia' }).click();
+  check(await pendingVisit.getByText('Aún sin cálculo').count() === 1, 'unevaluated visit does not show zero dwell');
+  check(
+    await page.getByText('Todavía no se ha calculado la permanencia.').count() === 1,
+    'unevaluated detail explains uncertainty',
+  );
+  check(
+    await page.getByRole('button', { name: 'Evaluar visita' }).isDisabled(),
+    'future visit cannot be evaluated before the shift ends',
+  );
+  await page.getByRole('button', { name: 'Mostrar mapa y puntos GPS' }).click();
+  await page.waitForFunction(() =>
+    !!document.querySelector('.compliance-visit-map') ||
+    !!document.querySelector('.compliance-detail [role=alert]'),
+  );
+  if (!(await page.locator('.compliance-visit-map').count()))
+    throw new Error(`visit map request failed: ${await page.locator('.compliance-detail [role=alert]').allTextContents()}`);
+  await page.waitForFunction(() =>
+    document.querySelectorAll('.compliance-visit-map .leaflet-interactive').length >= 2 ||
+    !!document.querySelector('.compliance-visit-map + [role=alert]'),
+  );
+  check(
+    await page.locator('.compliance-visit-map .leaflet-interactive').count() >= 2,
+    'visit map renders historical and current geozone',
+  );
   return { result: 'PASS', checks, agentId: agent.id, mobile };
 }

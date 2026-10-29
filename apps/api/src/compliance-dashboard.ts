@@ -120,9 +120,7 @@ export function normalizeVisit(row: DbRow, now: Date): ComplianceVisit {
       : (evaluation_status ??
         (job_state === 'PENDING' || job_state === 'RUNNING'
           ? 'PENDING'
-          : new Date(row.ends_at) > now
-            ? 'PENDING'
-            : 'INSUFFICIENT_EVIDENCE'));
+          : 'PENDING'));
   return {
     ...snapshot,
     required_s: asNumber(row.required_s),
@@ -463,6 +461,16 @@ export class ComplianceDashboardService {
         correlationId: requestId,
         metadata: { tenant_id: tenant, from, to, filtered_count: visits.length },
       });
+      const evaluationAccess = await db.query<{
+        can_request: boolean;
+        algorithm_approved: boolean;
+      }>(
+        `SELECT EXISTS(SELECT 1 FROM admin_permission WHERE admin_id=$1
+          AND permission='visit.evaluation.recompute' AND revoked_at IS NULL) AS can_request,
+          EXISTS(SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1'
+          AND scope='APPROVED') AS algorithm_approved`,
+        [actor],
+      );
       return {
         ...aggregates,
         filters: { ...query, limit, offset },
@@ -472,6 +480,10 @@ export class ComplianceDashboardService {
         location_access: canReadLocation,
         next_offset: offset + limit < visits.length ? offset + limit : null,
         reconciliation_policy: 'PENDING_APPROVAL',
+        evaluation_access: evaluationAccess.rows[0] ?? {
+          can_request: false,
+          algorithm_approved: false,
+        },
       };
     } finally {
       db.release();

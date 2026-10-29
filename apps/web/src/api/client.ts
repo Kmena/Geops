@@ -363,6 +363,7 @@ export interface CompliancePage {
   total_visits: number;
   next_offset: number | null;
   reconciliation_policy: string;
+  evaluation_access: { can_request: boolean; algorithm_approved: boolean };
 }
 
 export interface ComplianceDeviceLocation {
@@ -375,6 +376,31 @@ export interface ComplianceDeviceLocation {
   received_at: string | null;
   last_health_received_at: string | null;
   communication_state: 'RECENT_REPORT' | 'NO_RECENT_REPORT' | 'NETWORK_UNAVAILABLE_REPORTED';
+}
+
+export interface VisitMapData {
+  assignment_id: string;
+  stop_id: string;
+  site: { latitude: number; longitude: number };
+  historical_geofence: { latitude: number; longitude: number; radius_m: number; revision: number };
+  current_geofence: {
+    latitude: number;
+    longitude: number;
+    radius_m: number;
+    revision: number;
+  } | null;
+  positions: Array<{
+    event_id: string;
+    device_id: string;
+    session_id: string;
+    captured_at: string;
+    received_at: string;
+    latitude: number;
+    longitude: number;
+    accuracy_m: number;
+    distance_m: number;
+    spatial_state: 'INSIDE' | 'OUTSIDE' | 'UNCERTAIN';
+  }>;
 }
 
 export interface VisitEvaluationHistory {
@@ -528,6 +554,17 @@ export const api = {
     read<{ evaluation_id: string; items: VisitEvidenceInterval[]; coordinates_included: boolean }>(
       `/v1/admin/assignments/${assignmentId}/visits/${stopId}/evaluations/${evaluationId}/evidence`,
       { headers: { 'x-geops-access-reason': reason } },
+    ),
+  visitMap: (assignmentId: string, stopId: string, reason: string) =>
+    read<VisitMapData>(`/v1/admin/assignments/${assignmentId}/visits/${stopId}/map`, {
+      headers: { 'x-geops-access-reason': reason },
+    }),
+  requestVisitEvaluation: (assignmentId: string, reason: string, csrf: string) =>
+    routeWrite<{ assignment_id: string; state: 'PENDING' }>(
+      `/v1/admin/assignments/${assignmentId}/evaluations`,
+      'POST',
+      { reason },
+      csrf,
     ),
   me: () => read<AdminProfile>('/v1/admin/auth/me'),
   login: (email: string, password: string) =>

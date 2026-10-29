@@ -125,32 +125,51 @@ export class VisitEvaluationService {
     actor: string,
     why: string,
   ) {
-    const operational = await db.query(
+    const linked = await db.query(
       `SELECT 1 FROM route_assignment a JOIN agent_device_link l
        ON l.tenant_id=a.tenant_id AND l.agent_id=a.agent_id AND l.state<>'REVOKED'
        AND l.valid_from<a.ends_at AND coalesce(l.valid_to,'infinity'::timestamptz)>a.starts_at
        WHERE a.tenant_id=$1 AND a.id=$2 LIMIT 1`,
       [tenant, assignmentId],
     );
-    let revision = 1;
-    if (operational.rowCount) {
-      const selected = await db.query<{ revision: number; scope: string }>(
-        `SELECT revision,scope FROM visit_algorithm_revision
-         WHERE algorithm_id='dwell-pair-v1'
-         AND (scope='APPROVED' OR (scope='TECHNICAL_ONLY' AND $1))
-         ORDER BY (scope='APPROVED') DESC,revision DESC LIMIT 1`,
-        [isSynthetic()],
+    if (!linked.rowCount && isSynthetic()) {
+      await assertLabDatabase(db);
+      const assignment = await db.query(
+        `SELECT 1 FROM route_assignment
+         WHERE tenant_id=$1 AND id=$2 AND state='PLANNED'`,
+        [tenant, assignmentId],
       );
-      if (!selected.rows[0]) throw new ApiError(409, 'algorithm_not_approved', 'Conflict');
-      if (selected.rows[0].scope !== 'APPROVED') await assertLabDatabase(db);
-      revision = Number(selected.rows[0].revision);
-    } else await assertLabDatabase(db);
+      if (!assignment.rowCount) throw missing();
+      await this.insertJob(db, tenant, assignmentId, actor, why, 1);
+      return;
+    }
+    const selected = await db.query<{ revision: number; scope: string }>(
+      `SELECT revision,scope FROM visit_algorithm_revision
+       WHERE algorithm_id='dwell-pair-v1'
+       AND (scope='APPROVED' OR (scope='TECHNICAL_ONLY' AND $1))
+       ORDER BY (scope='APPROVED') DESC,revision DESC LIMIT 1`,
+      [isSynthetic()],
+    );
+    if (!selected.rows[0]) throw new ApiError(409, 'algorithm_not_approved', 'Conflict');
+    if (selected.rows[0].scope !== 'APPROVED') await assertLabDatabase(db);
+    const revision = Number(selected.rows[0].revision);
     const assignment = await db.query(
       `SELECT 1 FROM route_assignment
       WHERE tenant_id=$1 AND id=$2 AND state='PLANNED'`,
       [tenant, assignmentId],
     );
     if (!assignment.rowCount) throw missing();
+    await this.insertJob(db, tenant, assignmentId, actor, why, revision);
+  }
+
+  private async insertJob(
+    db: PoolClient,
+    tenant: string,
+    assignmentId: string,
+    actor: string,
+    why: string,
+    revision: number,
+  ) {
     await db.query(
       `INSERT INTO visit_evaluation_job(tenant_id,assignment_id,algorithm_id,algorithm_revision,state,reason,requested_by)
       VALUES($1,$2,'dwell-pair-v1',$5,'PENDING',$3,$4)
@@ -661,7 +680,7 @@ export class VisitEvaluationService {
       }>(
         `SELECT a.tenant_id,a.id AS assignment_id,a.created_by AS requested_by,
         count(p.event_id)::text AS evidence_count
-        FROM route_assignment a JOIN agent_device_link l
+        FROM route_assignment a LEFT JOIN agent_device_link l
           ON l.tenant_id=a.tenant_id AND l.agent_id=a.agent_id AND l.state<>'REVOKED'
           AND l.valid_from<a.ends_at
           AND coalesce(l.valid_to,'infinity'::timestamptz)>a.starts_at
@@ -669,12 +688,12 @@ export class VisitEvaluationService {
           AND p.captured_at>=greatest(a.starts_at,l.valid_from)
           AND p.captured_at<least(a.ends_at,coalesce(l.valid_to,'infinity'::timestamptz))
         LEFT JOIN visit_evaluation_job j ON j.tenant_id=a.tenant_id AND j.assignment_id=a.id
-        WHERE a.state='PLANNED' AND (j.state IS NULL OR
-          (j.state='DONE' AND j.algorithm_revision=$2))
-        GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count
-        HAVING j.state IS NULL OR count(p.event_id)>j.position_count
+        WHERE a.state='PLANNED' AND a.ends_at<=$3
+          AND (j.state IS NULL OR j.state='DONE')
+        GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count,j.algorithm_revision
+        HAVING j.state IS NULL OR j.algorithm_revision<>$2 OR count(p.event_id)>j.position_count
         ORDER BY a.id LIMIT $1`,
-        [maxAssignments, revision],
+        [maxAssignments, revision, this.now()],
       );
       let queued = 0;
       for (const row of rows.rows) {
@@ -686,8 +705,8 @@ export class VisitEvaluationService {
           requested_by=EXCLUDED.requested_by,
           requested_at=now(),next_attempt_at=now(),attempts=0,
           started_at=NULL,finished_at=NULL,last_error_code=NULL
-          WHERE visit_evaluation_job.state='DONE' AND visit_evaluation_job.algorithm_revision=$5
-            AND visit_evaluation_job.position_count<$4`,
+          WHERE visit_evaluation_job.state='DONE' AND
+            (visit_evaluation_job.algorithm_revision<>$5 OR visit_evaluation_job.position_count<$4)`,
           [row.tenant_id, row.assignment_id, row.requested_by, row.evidence_count, revision],
         );
         if (result.rowCount) {
@@ -862,6 +881,107 @@ export class VisitEvaluationService {
         },
       });
       return { evaluation_id: evaluation, items: rows.rows, coordinates_included: false };
+    });
+  }
+
+  async visitMap(
+    actor: string,
+    requestId: string,
+    assignmentId: string,
+    stopId: string,
+    accessReason: string,
+  ) {
+    const id = uuid(assignmentId),
+      stop = uuid(stopId),
+      why = reason(accessReason);
+    return this.read(actor, 'visit.result.read', async (db, tenant) => {
+      const permissions = await db.query(
+        `SELECT permission FROM admin_permission WHERE admin_id=$1
+         AND permission IN ('gps.location.read','visit.device.read') AND revoked_at IS NULL`,
+        [actor],
+      );
+      if (permissions.rows.length !== 2)
+        throw new ApiError(403, 'visit_map_forbidden', 'Forbidden');
+      const snapshot = await db.query<Row>(
+        `SELECT a.agent_id,a.starts_at,a.ends_at,v.latitude,v.longitude,v.radius_m,
+         v.geofence_revision,v.site_id,
+         ST_Y(cs.center::geometry) AS site_latitude,
+         ST_X(cs.center::geometry) AS site_longitude,
+         current_geofence.revision AS current_revision,
+         ST_Y(current_geofence.center::geometry) AS current_latitude,
+         ST_X(current_geofence.center::geometry) AS current_longitude,
+         current_geofence.radius_m AS current_radius_m
+         FROM route_assignment a JOIN assignment_visit v
+           ON v.tenant_id=a.tenant_id AND v.assignment_id=a.id
+         JOIN client_site cs ON cs.tenant_id=v.tenant_id AND cs.id=v.site_id
+         LEFT JOIN LATERAL (
+           SELECT revision,center,radius_m FROM client_geofence_revision g
+           WHERE g.tenant_id=v.tenant_id AND g.site_id=v.site_id
+           ORDER BY revision DESC LIMIT 1
+         ) current_geofence ON true
+         WHERE a.tenant_id=$1 AND a.id=$2 AND v.stop_id=$3`,
+        [tenant, id, stop],
+      );
+      const visit = snapshot.rows[0];
+      if (!visit) throw missing();
+      const positions = await db.query<Row>(
+        `SELECT p.event_id,p.device_id,p.session_id,p.captured_at,p.received_at,
+         ST_Y(p.geom::geometry) AS latitude,ST_X(p.geom::geometry) AS longitude,
+         p.accuracy_m,p.quality_state,
+         ST_Distance(p.geom,ST_SetSRID(ST_MakePoint($3,$4),4326)::geography) AS distance_m
+         FROM position_event p JOIN agent_device_link l
+           ON l.tenant_id=p.tenant_id AND l.device_id=p.device_id
+           AND l.agent_id=$2 AND l.state<>'REVOKED'
+           AND p.captured_at>=l.valid_from
+           AND p.captured_at<coalesce(l.valid_to,'infinity'::timestamptz)
+         JOIN gps_effective_session e ON e.id=p.session_id AND e.device_id=p.device_id
+           AND e.tenant_id=p.tenant_id AND e.assignment_version=p.assignment_version
+           AND p.captured_at>=e.started_at
+           AND (e.stopped_at IS NULL OR p.captured_at<e.stopped_at)
+         JOIN gps_scheduled_session s ON s.id=e.scheduled_session_id AND s.device_id=p.device_id
+           AND s.assignment_version=p.assignment_version
+           AND p.captured_at>=s.start_at AND p.captured_at<s.end_at
+         WHERE p.tenant_id=$1 AND p.captured_at>=$5 AND p.captured_at<$6
+         ORDER BY p.captured_at,p.event_id LIMIT 5001`,
+        [tenant, visit.agent_id, visit.longitude, visit.latitude, visit.starts_at, visit.ends_at],
+      );
+      if (positions.rows.length > 5000)
+        throw new ApiError(422, 'evaluation_window_too_large', 'Invalid request');
+      await appendAudit(db, {
+        actorType: 'ADMIN',
+        actorId: actor,
+        action: 'visit.map.read',
+        outcome: 'success',
+        correlationId: requestId,
+        metadata: { tenant_id: tenant, assignment_id: id, stop_id: stop, access_reason: why },
+      });
+      const radius = number(visit.radius_m);
+      return {
+        assignment_id: id,
+        stop_id: stop,
+        site: { latitude: number(visit.site_latitude), longitude: number(visit.site_longitude) },
+        historical_geofence: {
+          latitude: number(visit.latitude), longitude: number(visit.longitude),
+          radius_m: radius, revision: number(visit.geofence_revision),
+        },
+        current_geofence: visit.current_revision === null ? null : {
+          latitude: number(visit.current_latitude), longitude: number(visit.current_longitude),
+          radius_m: number(visit.current_radius_m), revision: number(visit.current_revision),
+        },
+        positions: positions.rows.map((row) => {
+          const distance = number(row.distance_m), accuracy = number(row.accuracy_m);
+          return {
+            event_id: row.event_id, device_id: row.device_id, session_id: row.session_id,
+            captured_at: dateIso(row.captured_at), received_at: dateIso(row.received_at),
+            latitude: number(row.latitude), longitude: number(row.longitude),
+            accuracy_m: accuracy, distance_m: distance,
+            spatial_state: row.quality_state !== 'DEVICE_REPORTED' || accuracy <= 0
+              ? 'UNCERTAIN'
+              : distance + accuracy <= radius ? 'INSIDE' : distance - accuracy > radius
+                ? 'OUTSIDE' : 'UNCERTAIN',
+          };
+        }),
+      };
     });
   }
 }

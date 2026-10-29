@@ -1447,6 +1447,32 @@ h2 {
 .compliance-note {
   color: #69532b;
 }
+.compliance-evaluation-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+.compliance-evaluation-action label {
+  display: grid;
+  gap: 5px;
+  flex: 1 1 280px;
+}
+.compliance-evaluation-action p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.compliance-visit-map {
+  width: 100%;
+  height: 360px;
+  margin-top: 12px;
+}
+.compliance-map-positions {
+  max-height: 220px;
+  overflow: auto;
+  padding-left: 24px;
+}
 .compliance-history {
   padding-left: 24px;
 }
