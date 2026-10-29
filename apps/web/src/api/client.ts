@@ -280,6 +280,11 @@ export interface ComplianceVisit {
   required: boolean;
   required_s: number;
   credited_s: number;
+  outside_credited_s: number | null;
+  unknown_s: number | null;
+  coverage_percent: number | null;
+  potential_inside_upper_s: number | null;
+  non_compliance_enabled: boolean;
   status: string;
   sync_state: string;
   processing_state: string;
@@ -381,6 +386,7 @@ export interface ComplianceDeviceLocation {
 export interface VisitMapData {
   assignment_id: string;
   stop_id: string;
+  window: { starts_at: string; ends_at: string };
   site: { latitude: number; longitude: number };
   historical_geofence: { latitude: number; longitude: number; radius_m: number; revision: number };
   current_geofence: {
@@ -408,6 +414,10 @@ export interface VisitEvaluationHistory {
   evaluation_no: number;
   status: string;
   credited_s: number;
+  outside_credited_s: number | null;
+  unknown_s: number | null;
+  coverage_percent: number | null;
+  potential_inside_upper_s: number | null;
   required_s: number;
   source_watermark: string | null;
   supersedes_id: string | null;
@@ -443,6 +453,15 @@ export interface VisitEvidenceInterval {
   event_b_quality_state: string | null;
   event_a_available: boolean;
   event_b_available: boolean;
+}
+
+export interface VisitOutsideInterval {
+  interval_no: number;
+  event_id_a: string;
+  event_id_b: string;
+  from_at: string;
+  to_at: string;
+  seconds: number;
 }
 
 export interface ScheduleRule {
@@ -551,7 +570,12 @@ export const api = {
       `/v1/admin/assignments/${assignmentId}/visits/${stopId}/evaluations`,
     ),
   visitEvidence: (assignmentId: string, stopId: string, evaluationId: string, reason: string) =>
-    read<{ evaluation_id: string; items: VisitEvidenceInterval[]; coordinates_included: boolean }>(
+    read<{
+      evaluation_id: string;
+      items: VisitEvidenceInterval[];
+      outside_items: VisitOutsideInterval[];
+      coordinates_included: boolean;
+    }>(
       `/v1/admin/assignments/${assignmentId}/visits/${stopId}/evaluations/${evaluationId}/evidence`,
       { headers: { 'x-geops-access-reason': reason } },
     ),

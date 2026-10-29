@@ -68,6 +68,11 @@ export type ComplianceVisit = {
   required: boolean;
   required_s: number;
   credited_s: number;
+  outside_credited_s: number | null;
+  unknown_s: number | null;
+  coverage_percent: number | null;
+  potential_inside_upper_s: number | null;
+  non_compliance_enabled: boolean;
   status: string;
   sync_state: string;
   processing_state: string;
@@ -112,19 +117,22 @@ type DbRow = Omit<
   job_state: string | null;
 };
 
-export function normalizeVisit(row: DbRow, now: Date): ComplianceVisit {
+export function normalizeVisit(row: DbRow, _now: Date): ComplianceVisit {
   const { assignment_state, evaluation_status, job_state, ...snapshot } = row;
   const status =
     assignment_state === 'CANCELLED'
       ? 'CANCELLED'
       : (evaluation_status ??
-        (job_state === 'PENDING' || job_state === 'RUNNING'
-          ? 'PENDING'
-          : 'PENDING'));
+        (job_state === 'PENDING' || job_state === 'RUNNING' ? 'PENDING' : 'PENDING'));
   return {
     ...snapshot,
     required_s: asNumber(row.required_s),
     credited_s: asNumber(row.credited_s),
+    outside_credited_s: row.outside_credited_s == null ? null : asNumber(row.outside_credited_s),
+    unknown_s: row.unknown_s == null ? null : asNumber(row.unknown_s),
+    coverage_percent: row.coverage_percent == null ? null : asNumber(row.coverage_percent),
+    potential_inside_upper_s:
+      row.potential_inside_upper_s == null ? null : asNumber(row.potential_inside_upper_s),
     radius_m: asNumber(row.radius_m),
     latitude: asNumber(row.latitude),
     longitude: asNumber(row.longitude),
@@ -307,6 +315,8 @@ export class ComplianceDashboardService {
           v.client_id,v.client_code,v.client_name,v.site_id,v.site_name,v.geofence_revision,
           v.latitude,v.longitude,v.radius_m,v.required,v.min_dwell_effective_s AS required_s,
           coalesce(e.credited_s,0) AS credited_s,e.status AS evaluation_status,e.id AS evaluation_id,
+          e.outside_credited_s,e.unknown_s,e.coverage_percent,e.potential_inside_upper_s,
+          coalesce((e.parameters->>'non_compliance_enabled')::boolean,false) AS non_compliance_enabled,
           e.evaluation_no,e.evaluated_at,e.completed_at,e.first_qualified_at,e.last_qualified_at,
           e.algorithm_id,e.algorithm_revision,e.source_watermark,ar.scope AS algorithm_scope,
           j.state AS job_state,j.requested_at AS job_requested_at,j.finished_at AS job_finished_at,
@@ -468,7 +478,8 @@ export class ComplianceDashboardService {
         `SELECT EXISTS(SELECT 1 FROM admin_permission WHERE admin_id=$1
           AND permission='visit.evaluation.recompute' AND revoked_at IS NULL) AS can_request,
           EXISTS(SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1'
-          AND scope='APPROVED') AS algorithm_approved`,
+          AND scope='APPROVED' AND calibration_evidence_ref IS NOT NULL
+          AND activated_at<=now()) AS algorithm_approved`,
         [actor],
       );
       return {

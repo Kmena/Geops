@@ -271,6 +271,11 @@ try {
     'visit map includes snapshot and attributed GPS positions',
   );
   check(
+    mapData.window.starts_at === new Date(assignment.starts_at).toISOString() &&
+      mapData.window.ends_at === new Date(assignment.ends_at).toISOString(),
+    'visit map exposes the historical authorized window for gap inspection',
+  );
+  check(
     (await call(outsider, 'GET', mapPath, undefined, {
       'x-geops-access-reason': 'Synthetic unauthorized access attempt',
     })).statusCode === 403,
@@ -313,8 +318,8 @@ try {
   );
   const after = (await call(admin, 'GET', endpoint)).json();
   check(
-    after.visits.find((visit) => visit.stop_id === completed.stop_id).status === 'INCOMPLETE',
-    'old agent loses later physical intervals after handover',
+    after.visits.find((visit) => visit.stop_id === completed.stop_id).status === 'INSUFFICIENT_EVIDENCE',
+    'handover removes later intervals without declaring uncalibrated noncompliance',
   );
   check(
     (
@@ -668,8 +673,19 @@ try {
   );
   await pool.query(
     `INSERT INTO visit_algorithm_revision(algorithm_id,revision,scope,parameters)
-     SELECT algorithm_id,3,'APPROVED',parameters FROM visit_algorithm_revision
-     WHERE algorithm_id='dwell-pair-v1' AND revision=2`,
+     SELECT algorithm_id,4,'APPROVED',parameters FROM visit_algorithm_revision
+     WHERE algorithm_id='dwell-pair-v1' AND revision=3`,
+  );
+  check(
+    (await scheduler.tick()).skipped === 'ALGORITHM_NOT_APPROVED',
+    'approval label without calibration evidence and activation cannot start scheduler',
+  );
+  await pool.query(
+    `INSERT INTO visit_algorithm_revision
+     (algorithm_id,revision,scope,parameters,calibration_evidence_ref,activated_at)
+     SELECT algorithm_id,5,'APPROVED',parameters,'SYNTHETIC_TEST_ONLY',
+       '2020-01-01T00:00:00Z'::timestamptz FROM visit_algorithm_revision
+     WHERE algorithm_id='dwell-pair-v1' AND revision=3`,
   );
   const concurrentTicks = await Promise.all([scheduler.tick(), scheduler.tick()]);
   const automatic = concurrentTicks.find((tick) => tick.skipped === null);
@@ -680,7 +696,7 @@ try {
   );
   const automaticResult = await evaluation.assignmentResults(owner, assignment.id);
   check(
-    automaticResult.visits.some((visit) => visit.algorithm_revision === 3),
+    automaticResult.visits.some((visit) => visit.algorithm_revision === 5),
     'automatic replay preserves a new approved evaluation revision',
   );
   const restartedScheduler = new VisitEvaluationScheduler(pool, new VisitEvaluationService(pool, () => clock));

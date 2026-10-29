@@ -16,6 +16,9 @@ const parameters = validateDwellParameters({
   boundary_tolerance_m: 0,
   max_speed_m_s: 50,
 });
+const coverageParameters = validateDwellParameters({
+  ...parameters, coverage_min_fraction: 0.9, non_compliance_enabled: true,
+});
 const at = (minutes: number) =>
   new Date(Date.parse('2027-01-04T08:00:00Z') + minutes * 60_000).toISOString();
 const sample = (minutes: number, id: string, distanceM = 0, accuracyM = 5): DwellSample => ({
@@ -183,4 +186,78 @@ test('small, large and shared circular zones use meters and one physical interva
   assert.ok(one && two);
   assert.equal(one.creditedS + two.creditedS, 480);
   assert.equal(uniquePhysicalSeconds([one, two]), 240);
+});
+
+test('ten minutes accumulate across continuous, 4+6, 5+5 and three entries', () => {
+  const cases = [
+    [sample(0,'a'),sample(5,'b'),sample(10,'c')],
+    [sample(0,'a'),sample(4,'b'),sample(5,'out',5000),sample(10,'c'),sample(15,'d'),sample(16,'e')],
+    [sample(0,'a'),sample(5,'b'),sample(6,'out',5000),sample(10,'c'),sample(15,'d')],
+    [sample(0,'a'),sample(3,'b'),sample(4,'out',5000),sample(10,'c'),sample(13,'d'),sample(14,'out2',5000),sample(20,'e'),sample(24,'f')],
+  ];
+  for (const samples of cases) {
+    const result = run(samples);
+    assert.ok(result.creditedS >= 600);
+    assert.equal(result.status, 'COMPLETED');
+  }
+});
+
+test('coverage can prove noncompliance only when even the upper bound falls short', () => {
+  const outside = Array.from({length:61}, (_,i) => sample(i,`out-${i}`,5000));
+  const result = evaluateDwell({samples:outside,barriers:[],radiusM:100,requiredS:600,
+    startsAt:at(0),endsAt:at(60),now:at(120),parameters:coverageParameters});
+  assert.equal(result.creditedS,0);
+  assert.equal(result.outsideCreditedS,3540);
+  assert.equal(result.unknownS,60);
+  assert.equal(result.potentialInsideUpperS,60);
+  assert.equal(result.coveragePercent,98.33);
+  assert.equal(result.status,'INCOMPLETE');
+  const uncalibrated = evaluateDwell({samples:outside,barriers:[],radiusM:100,requiredS:600,
+    startsAt:at(0),endsAt:at(60),now:at(120),parameters:validateDwellParameters({
+      ...parameters,coverage_min_fraction:null,non_compliance_enabled:false,
+    })});
+  assert.equal(uncalibrated.status,'INSUFFICIENT_EVIDENCE');
+});
+
+test('missing, isolated, imprecise and edge positions remain indeterminate', () => {
+  for (const samples of [[],[sample(0,'one')],
+    [sample(0,'a',0,30),sample(1,'b',0,30)],
+    [sample(0,'a',106),sample(1,'b',106)]]) {
+    const result = evaluateDwell({samples,barriers:[],radiusM:100,requiredS:600,
+      startsAt:at(0),endsAt:at(60),now:at(120),parameters:coverageParameters});
+    assert.equal(result.status,'INSUFFICIENT_EVIDENCE');
+    assert.ok(result.potentialInsideUpperS >= 600);
+  }
+});
+
+test('unknown GPS gaps preserve the possibility of compliance', () => {
+  const samples = [0,1,2,3,4,5,55,56,57,58,59,60].map((minute) =>
+    sample(minute,`out-${minute}`,5000));
+  const result = evaluateDwell({samples,barriers:[],radiusM:100,requiredS:600,
+    startsAt:at(0),endsAt:at(60),now:at(120),parameters:coverageParameters});
+  assert.equal(result.outsideCreditedS,540);
+  assert.equal(result.unknownS,3060);
+  assert.equal(result.potentialInsideUpperS,3060);
+  assert.equal(result.status,'INSUFFICIENT_EVIDENCE');
+});
+
+test('coverage invariants and replay determinism hold across generated evidence', () => {
+  let seed = 23;
+  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  for (let runNo=0;runNo<120;runNo++) {
+    const samples = Array.from({length:61},(_,minute) =>
+      sample(minute,`event-${minute}`,random()<0.35 ? 5000 : random()<0.2 ? 100 : 0));
+    const input = {barriers:[],radiusM:100,requiredS:600,startsAt:at(0),endsAt:at(60),
+      now:at(120),parameters:coverageParameters};
+    const result = evaluateDwell({...input,samples});
+    const replay = evaluateDwell({...input,samples:[...samples].reverse().concat(samples[0]!)});
+    assert.deepEqual(replay,result);
+    assert.ok(result.creditedS + result.outsideCreditedS + result.unknownS <= 3600);
+    assert.equal(result.potentialInsideUpperS,result.creditedS + result.unknownS);
+    if (result.status === 'INCOMPLETE') assert.ok(result.potentialInsideUpperS < 600);
+    const ranges = [...result.intervals.map((item) => [Date.parse(item.creditedFromAt),Date.parse(item.toAt)]),
+      ...result.outsideIntervals.map((item) => [Date.parse(item.fromAt),Date.parse(item.toAt)])]
+      .sort((a,b) => a[0]! - b[0]!);
+    for (let i=1;i<ranges.length;i++) assert.ok(ranges[i]![0]! >= ranges[i-1]![1]!);
+  }
 });

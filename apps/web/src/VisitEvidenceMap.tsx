@@ -10,6 +10,18 @@ const colors = { INSIDE: '#147d6f', OUTSIDE: '#a44137', UNCERTAIN: '#8b641d' } a
 export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
   const host = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  const gaps: { from: string; to: string; sessionChange: boolean }[] = [];
+  let previousAt = data.window.starts_at;
+  let previousSession: string | null = null;
+  for (const position of data.positions) {
+    const sessionChange = previousSession !== null && previousSession !== position.session_id;
+    if (Date.parse(position.captured_at) - Date.parse(previousAt) > 300_000 || sessionChange)
+      gaps.push({ from: previousAt, to: position.captured_at, sessionChange });
+    previousAt = position.captured_at;
+    previousSession = position.session_id;
+  }
+  if (Date.parse(data.window.ends_at) - Date.parse(previousAt) > 300_000)
+    gaps.push({ from: previousAt, to: data.window.ends_at, sessionChange: false });
   useEffect(() => {
     if (!host.current) return;
     let disposed = false;
@@ -19,7 +31,8 @@ export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
         if (disposed || !host.current) return;
         const historical = data.historical_geofence;
         map = L.map(host.current, { zoomControl: true }).setView(
-          [historical.latitude, historical.longitude], 15,
+          [historical.latitude, historical.longitude],
+          15,
         );
         if (tiles) L.tileLayer(tiles, { maxZoom: 18, attribution: tileAttribution() }).addTo(map);
         const bounds = L.latLngBounds([]);
@@ -29,7 +42,9 @@ export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
           weight: 3,
           fillColor: '#746c93',
           fillOpacity: 0.12,
-        }).bindTooltip(`Geozona histórica · versión ${historical.revision}`).addTo(map);
+        })
+          .bindTooltip(`Geozona histórica · versión ${historical.revision}`)
+          .addTo(map);
         bounds.extend(historicalCircle.getBounds());
         if (data.current_geofence) {
           const current = data.current_geofence;
@@ -39,7 +54,9 @@ export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
             weight: 2,
             dashArray: '5 5',
             fillOpacity: 0,
-          }).bindTooltip(`Geozona actual · versión ${current.revision}`).addTo(map);
+          })
+            .bindTooltip(`Geozona actual · versión ${current.revision}`)
+            .addTo(map);
           bounds.extend(currentCircle.getBounds());
         }
         L.circleMarker([data.site.latitude, data.site.longitude], {
@@ -48,18 +65,24 @@ export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
           weight: 3,
           fillColor: '#fff',
           fillOpacity: 1,
-        }).bindTooltip('Sede actual').addTo(map);
+        })
+          .bindTooltip('Sede actual')
+          .addTo(map);
         bounds.extend([data.site.latitude, data.site.longitude]);
         let previous: VisitMapData['positions'][number] | null = null;
         let accuracyCircle: Leaflet.Circle | null = null;
         for (const position of data.positions) {
           const point: Leaflet.LatLngTuple = [position.latitude, position.longitude];
           if (
-            previous && previous.session_id === position.session_id &&
+            previous &&
+            previous.session_id === position.session_id &&
             Date.parse(position.captured_at) - Date.parse(previous.captured_at) <= 300_000
           )
             L.polyline([[previous.latitude, previous.longitude], point], {
-              color: '#586879', weight: 2, opacity: 0.75,
+              color: '#586879',
+              weight: 2,
+              opacity: 0.75,
+              dashArray: '4 6',
             }).addTo(map);
           const marker = L.circleMarker(point, {
             radius: 6,
@@ -80,12 +103,13 @@ export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
           }
           marker.bindPopup(popup);
           marker.on('click', () => {
+            if (!map) return;
             accuracyCircle?.remove();
             accuracyCircle = L.circle(point, {
               radius: Math.max(1, position.accuracy_m),
               color: colors[position.spatial_state],
               fillOpacity: 0.08,
-            }).addTo(map!);
+            }).addTo(map);
           });
           bounds.extend(point);
           previous = position;
@@ -103,14 +127,48 @@ export function VisitEvidenceMap({ data }: { data: VisitMapData }) {
   }, [data]);
   return (
     <div>
-      <div ref={host} className="compliance-visit-map" role="application" aria-label="Mapa de sede, geozonas y posiciones GPS de la visita" />
+      <div
+        ref={host}
+        className="compliance-visit-map"
+        role="application"
+        aria-label="Mapa de sede, geozonas y posiciones GPS de la visita"
+      />
       {failed && <p role="alert">No se pudo cargar el mapa; revisa la lista de posiciones.</p>}
-      <p>Morado: geozona histórica usada para evaluar · Azul punteado: geozona actual · Verde: dentro con margen de precisión · Rojo: fuera · Ámbar: posición incierta.</p>
-      <p>{data.positions.length} posiciones vinculadas al agente y a la sesión durante esta jornada. La ubicación en el mapa no acredita por sí sola permanencia.</p>
+      <p>
+        Morado: geozona histórica usada para evaluar · Azul punteado: geozona actual · Verde: dentro
+        con margen de precisión · Rojo: fuera · Ámbar: posición incierta. Las líneas punteadas
+        conectan capturas; el recorrido intermedio es desconocido.
+      </p>
+      <p>
+        {data.positions.length} posiciones vinculadas al agente y a la sesión durante esta jornada.
+        La ubicación en el mapa no acredita por sí sola permanencia.
+      </p>
+      {!!gaps.length && (
+        <div>
+          <strong>Tramos sin trayectoria GPS continua</strong>
+          <ol className="compliance-map-positions">
+            {gaps.map((gap) => (
+              <li key={`${gap.from}:${gap.to}`}>
+                {new Date(gap.from).toLocaleString('es-GT')} a{' '}
+                {new Date(gap.to).toLocaleString('es-GT')}
+                {gap.sessionChange
+                  ? ' · cambió la sesión'
+                  : ' · más de cinco minutos entre capturas'}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       <ol className="compliance-map-positions">
         {data.positions.map((position) => (
           <li key={position.event_id}>
-            {new Date(position.captured_at).toLocaleString('es-GT')} · {position.spatial_state === 'INSIDE' ? 'Dentro' : position.spatial_state === 'OUTSIDE' ? 'Fuera' : 'Incierta'} · ±{position.accuracy_m} m · {Math.round(position.distance_m)} m del centro histórico
+            {new Date(position.captured_at).toLocaleString('es-GT')} ·{' '}
+            {position.spatial_state === 'INSIDE'
+              ? 'Dentro'
+              : position.spatial_state === 'OUTSIDE'
+                ? 'Fuera'
+                : 'Incierta'}{' '}
+            · ±{position.accuracy_m} m · {Math.round(position.distance_m)} m del centro histórico
           </li>
         ))}
       </ol>

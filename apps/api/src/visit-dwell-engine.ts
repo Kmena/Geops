@@ -6,6 +6,8 @@ export interface DwellParameters {
   max_accuracy_m: number;
   boundary_tolerance_m: number;
   max_speed_m_s: number;
+  coverage_min_fraction?: number | null;
+  non_compliance_enabled?: boolean;
 }
 
 export interface DwellSample {
@@ -41,6 +43,10 @@ export interface DwellResult {
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'INCOMPLETE' | 'INSUFFICIENT_EVIDENCE';
   requiredS: number;
   creditedS: number;
+  outsideCreditedS: number;
+  unknownS: number;
+  coveragePercent: number;
+  potentialInsideUpperS: number;
   percent: number;
   firstQualifiedAt: string | null;
   lastQualifiedAt: string | null;
@@ -49,6 +55,13 @@ export interface DwellResult {
   uncertainCount: number;
   gapCount: number;
   intervals: DwellInterval[];
+  outsideIntervals: {
+    eventIdA: string;
+    eventIdB: string;
+    fromAt: string;
+    toAt: string;
+    seconds: number;
+  }[];
 }
 
 export function validateDwellParameters(value: unknown): DwellParameters {
@@ -63,8 +76,10 @@ export function validateDwellParameters(value: unknown): DwellParameters {
     'boundary_tolerance_m',
     'max_speed_m_s',
   ] as const;
-  if (Object.keys(params).sort().join(',') !== [...names].sort().join(','))
-    throw new Error('invalid_dwell_parameters');
+  const actual = Object.keys(params).sort().join(',');
+  const legacy = [...names].sort().join(',');
+  const covered = [...names, 'coverage_min_fraction', 'non_compliance_enabled'].sort().join(',');
+  if (actual !== legacy && actual !== covered) throw new Error('invalid_dwell_parameters');
   for (const name of names) {
     if (typeof params[name] !== 'number' || !Number.isFinite(params[name]))
       throw new Error('invalid_dwell_parameters');
@@ -85,7 +100,15 @@ export function validateDwellParameters(value: unknown): DwellParameters {
     p.boundary_tolerance_m < 0 ||
     p.boundary_tolerance_m > 100 ||
     p.max_speed_m_s <= 0 ||
-    p.max_speed_m_s > 100
+    p.max_speed_m_s > 100 ||
+    (actual === covered &&
+      (typeof p.non_compliance_enabled !== 'boolean' ||
+        (p.coverage_min_fraction !== null &&
+          (typeof p.coverage_min_fraction !== 'number' ||
+            !Number.isFinite(p.coverage_min_fraction) ||
+            p.coverage_min_fraction <= 0 ||
+            p.coverage_min_fraction > 1)) ||
+        (p.non_compliance_enabled && p.coverage_min_fraction === null)))
   )
     throw new Error('invalid_dwell_parameters');
   return p;
@@ -147,12 +170,14 @@ export function evaluateDwell(input: {
     .filter(Number.isFinite)
     .sort((a, b) => a - b);
   let creditedS = 0,
+    outsideCreditedS = 0,
     uncertainCount = 0,
     gapCount = 0;
   let firstQualifiedAt: string | null = null,
     lastQualifiedAt: string | null = null,
     completedAt: string | null = null;
   const intervals: DwellInterval[] = [];
+  const outsideIntervals: DwellResult['outsideIntervals'] = [];
   for (let index = 0; index < samples.length; index++) {
     const sample = samples[index];
     if (!sample) continue;
@@ -160,12 +185,9 @@ export function evaluateDwell(input: {
     if (classification === 'UNCERTAIN') uncertainCount++;
     if (index === 0) continue;
     const previous = samples[index - 1];
-    if (
-      !previous ||
-      classification !== 'INSIDE' ||
-      classifyDwellSample(previous, radiusM, parameters) !== 'INSIDE'
-    )
-      continue;
+    if (!previous) continue;
+    const previousClassification = classifyDwellSample(previous, radiusM, parameters);
+    if (classification !== previousClassification || classification === 'UNCERTAIN') continue;
     const from = Date.parse(previous.capturedAt),
       to = Date.parse(sample.capturedAt);
     const observedS = Math.floor((to - from) / 1000);
@@ -189,6 +211,52 @@ export function evaluateDwell(input: {
         sample.moveDistanceM / observedS > parameters.max_speed_m_s)
     )
       continue;
+    if (classification === 'OUTSIDE') {
+      // A pair of outside fixes does not prove the whole path stayed outside.
+      // At maximum physical speed, only the endpoint reachability margins are certain.
+      if (parameters.coverage_min_fraction === undefined || observedS > parameters.credit_cap_s)
+        continue;
+      const marginA = Math.max(
+        0,
+        previous.distanceM - previous.accuracyM - radiusM - parameters.boundary_tolerance_m,
+      );
+      const marginB = Math.max(
+        0,
+        sample.distanceM - sample.accuracyM - radiusM - parameters.boundary_tolerance_m,
+      );
+      const prefixS = Math.max(
+        0,
+        Math.min(
+          observedS,
+          Math.floor(marginA / parameters.max_speed_m_s) - parameters.uncertainty_guard_s,
+        ),
+      );
+      const suffixS = Math.max(
+        0,
+        Math.min(
+          observedS - prefixS,
+          Math.floor(marginB / parameters.max_speed_m_s) - parameters.uncertainty_guard_s,
+        ),
+      );
+      if (prefixS)
+        outsideIntervals.push({
+          eventIdA: previous.eventId,
+          eventIdB: sample.eventId,
+          fromAt: new Date(from).toISOString(),
+          toAt: new Date(from + prefixS * 1000).toISOString(),
+          seconds: prefixS,
+        });
+      if (suffixS)
+        outsideIntervals.push({
+          eventIdA: previous.eventId,
+          eventIdB: sample.eventId,
+          fromAt: new Date(to - suffixS * 1000).toISOString(),
+          toAt: new Date(to).toISOString(),
+          seconds: suffixS,
+        });
+      outsideCreditedS += prefixS + suffixS;
+      continue;
+    }
     const credit = Math.max(
       0,
       Math.min(observedS, parameters.credit_cap_s) - parameters.uncertainty_guard_s,
@@ -213,6 +281,21 @@ export function evaluateDwell(input: {
       completedAt = new Date(creditedFrom + (requiredS - creditedS) * 1000).toISOString();
     creditedS += credit;
   }
+  const observedEnd = Math.min(end, Math.max(start, current));
+  const windowS = Math.floor((observedEnd - start) / 1000);
+  const unknownS = Math.max(0, windowS - creditedS - outsideCreditedS);
+  const potentialInsideUpperS = creditedS + unknownS;
+  const coveragePercent =
+    windowS > 0
+      ? Math.min(100, Math.round(((creditedS + outsideCreditedS) / windowS) * 10000) / 100)
+      : 0;
+  const demonstrablyNonCompliant =
+    parameters.non_compliance_enabled === true &&
+    parameters.coverage_min_fraction !== null &&
+    parameters.coverage_min_fraction !== undefined &&
+    windowS > 0 &&
+    (creditedS + outsideCreditedS) / windowS >= parameters.coverage_min_fraction &&
+    potentialInsideUpperS < requiredS;
   const status =
     current < start
       ? 'PENDING'
@@ -220,13 +303,21 @@ export function evaluateDwell(input: {
         ? 'COMPLETED'
         : current < end
           ? 'IN_PROGRESS'
-          : creditedS > 0
-            ? 'INCOMPLETE'
-            : 'INSUFFICIENT_EVIDENCE';
+          : parameters.coverage_min_fraction !== undefined
+            ? demonstrablyNonCompliant
+              ? 'INCOMPLETE'
+              : 'INSUFFICIENT_EVIDENCE'
+            : creditedS > 0
+              ? 'INCOMPLETE'
+              : 'INSUFFICIENT_EVIDENCE';
   return {
     status,
     requiredS,
     creditedS,
+    outsideCreditedS,
+    unknownS,
+    coveragePercent,
+    potentialInsideUpperS,
     percent: Math.min(100, Math.round((creditedS / requiredS) * 10000) / 100),
     firstQualifiedAt,
     lastQualifiedAt,
@@ -235,6 +326,7 @@ export function evaluateDwell(input: {
     uncertainCount,
     gapCount,
     intervals,
+    outsideIntervals,
   };
 }
 

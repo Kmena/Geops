@@ -282,6 +282,11 @@ try {
     'one evidenced pair credits four minutes',
   );
   check(
+    Number(first.outside_credited_s) === 0 &&
+      Number(first.potential_inside_upper_s) === Number(first.credited_s) + Number(first.unknown_s),
+    'persisted evaluation exposes bounded inside, outside and unknown time',
+  );
+  check(
     current.physical_credited_s <= current.visit_credited_sum_s,
     'physical aggregate never exceeds visit sum',
   );
@@ -319,6 +324,7 @@ try {
   check(
     evidence.statusCode === 200 &&
       evidence.json().items.length === 5 &&
+      Array.isArray(evidence.json().outside_items) &&
       evidence.json().coordinates_included === false,
     'evidence lists bounded pairs without coordinates',
   );

@@ -7,6 +7,7 @@ import {
   type ComplianceVisit,
   type VisitEvaluationHistory,
   type VisitEvidenceInterval,
+  type VisitOutsideInterval,
   type VisitMapData,
 } from './api/client.js';
 import { ComplianceMap } from './ComplianceMap.js';
@@ -37,6 +38,10 @@ const processingLabels: Record<string, string> = {
   NOT_QUEUED: 'Evaluación no iniciada',
 };
 const label = (status: string) => statusLabels[status] ?? `Estado desconocido: ${status}`;
+const visitLabel = (visit: ComplianceVisit) =>
+  visit.status === 'INCOMPLETE' && visit.non_compliance_enabled
+    ? 'Incumplimiento con cobertura suficiente'
+    : label(visit.status);
 const dateTime = (value: string | null) =>
   value ? new Date(value).toLocaleString('es-GT') : 'Sin registro';
 const minutes = (seconds: number) => `${Math.round(seconds / 60)} min`;
@@ -86,6 +91,7 @@ function VisitDetail({
 }) {
   const [history, setHistory] = useState<VisitEvaluationHistory[]>([]);
   const [intervals, setIntervals] = useState<VisitEvidenceInterval[]>([]);
+  const [outsideIntervals, setOutsideIntervals] = useState<VisitOutsideInterval[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [evidenceRequested, setEvidenceRequested] = useState(false);
@@ -101,7 +107,9 @@ function VisitDetail({
     let live = true;
     setLoading(true);
     setError('');
+    setHistory((previous) => (previous[0]?.id === visit.evaluation_id ? previous : []));
     setIntervals([]);
+    setOutsideIntervals([]);
     setEvidenceRequested(false);
     void api
       .visitHistory(visit.assignment_id, visit.stop_id)
@@ -129,6 +137,7 @@ function VisitDetail({
         'Consulta administrativa de evidencia',
       );
       setIntervals(page.items);
+      setOutsideIntervals(page.outside_items ?? []);
       setEvidenceRequested(true);
     } catch (failure) {
       setError(errorText(failure));
@@ -141,7 +150,9 @@ function VisitDetail({
     setQueueing(true);
     try {
       await api.requestVisitEvaluation(visit.assignment_id, queueReason.trim(), csrf);
-      setQueueMessage('Evaluación solicitada. El resultado se actualizará cuando termine el cálculo.');
+      setQueueMessage(
+        'Evaluación solicitada. El resultado se actualizará cuando termine el cálculo.',
+      );
       await onQueued();
     } catch (failure) {
       setQueueError(
@@ -190,7 +201,7 @@ function VisitDetail({
         <div>
           <dt>Estado</dt>
           <dd>
-            {label(visit.status)}
+            {visitLabel(visit)}
             {visit.provisional ? ' · Provisional' : ''}
           </dd>
         </div>
@@ -225,8 +236,33 @@ function VisitDetail({
           </dd>
         </div>
         <div>
+          <dt>Cobertura GPS</dt>
+          <dd>
+            {visit.coverage_percent === null ? 'Aún sin cálculo' : `${visit.coverage_percent}%`}
+          </dd>
+        </div>
+        <div>
+          <dt>Tiempo fuera / desconocido</dt>
+          <dd>
+            {visit.outside_credited_s === null || visit.unknown_s === null
+              ? 'Aún sin cálculo'
+              : `${minutes(visit.outside_credited_s)} fuera · ${minutes(visit.unknown_s)} sin clasificar`}
+          </dd>
+        </div>
+        <div>
+          <dt>Máximo potencial dentro</dt>
+          <dd>
+            {visit.potential_inside_upper_s === null
+              ? 'Aún sin cálculo'
+              : minutes(visit.potential_inside_upper_s)}
+          </dd>
+        </div>
+        <div>
           <dt>Procesamiento</dt>
-          <dd>{processingLabels[visit.processing_state] ?? visit.processing_state}</dd>
+          <dd>
+            {processingLabels[visit.processing_state] ?? visit.processing_state}
+            {visit.job_error_code ? ` · código: ${visit.job_error_code}` : ''}
+          </dd>
         </div>
         <div>
           <dt>Sincronización GPS</dt>
@@ -275,7 +311,10 @@ function VisitDetail({
         </p>
       )}
       {canRequest && (
-        <form className="compliance-evaluation-action" onSubmit={(event) => void requestEvaluation(event)}>
+        <form
+          className="compliance-evaluation-action"
+          onSubmit={(event) => void requestEvaluation(event)}
+        >
           <label>
             Motivo de la evaluación
             <input
@@ -286,10 +325,7 @@ function VisitDetail({
               required
             />
           </label>
-          <button
-            type="submit"
-            disabled={!algorithmApproved || !eligible || activeJob || queueing}
-          >
+          <button type="submit" disabled={!algorithmApproved || !eligible || activeJob || queueing}>
             {queueing
               ? 'Solicitando…'
               : visit.evaluation_id
@@ -360,6 +396,13 @@ function VisitDetail({
                   Muestras {entry.sample_count}; incertidumbre {entry.uncertain_count}; huecos{' '}
                   {entry.gap_count}
                 </span>
+                {entry.coverage_percent !== null && (
+                  <span>
+                    Cobertura {entry.coverage_percent}% · fuera{' '}
+                    {minutes(entry.outside_credited_s ?? 0)} · desconocido{' '}
+                    {minutes(entry.unknown_s ?? 0)}
+                  </span>
+                )}
               </li>
             );
           })}
@@ -411,6 +454,20 @@ function VisitDetail({
               ))}
             </ol>
           )}
+          <h3>Intervalos acreditados fuera</h3>
+          {!outsideIntervals.length && (
+            <p>No hay intervalos exteriores certificados en esta evaluación.</p>
+          )}
+          {!!outsideIntervals.length && (
+            <ol className="compliance-history">
+              {outsideIntervals.map((item) => (
+                <li key={item.interval_no}>
+                  {dateTime(item.from_at)} a {dateTime(item.to_at)} · {minutes(item.seconds)} fuera{' '}
+                  · eventos {item.event_id_a} / {item.event_id_b}
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       )}
       {error && <p role="alert">{error}</p>}
@@ -434,39 +491,42 @@ export function ComplianceDashboard() {
     setOffset(0);
     setSelected(null);
   }, [applied]);
-  const reload = useCallback(async (silent = false) => {
-    const query: Record<string, string> = {
-      from: applied.from,
-      to: applied.to,
-      limit: '50',
-      offset: String(offset),
-    };
-    for (const field of fields)
-      if (field !== 'from' && field !== 'to' && applied[field]) query[field] = applied[field];
-    if (!silent) {
-      setLoading(true);
-      setError('');
-    }
-    try {
-      const next = await api.compliance(query);
-      setPage(next);
-      setSelected((current) =>
-        current
-          ? (next.items.find(
-              (item) =>
-                item.assignment_id === current.assignment_id && item.stop_id === current.stop_id,
-            ) ?? current)
-          : null,
-      );
-    } catch (failure) {
+  const reload = useCallback(
+    async (silent = false) => {
+      const query: Record<string, string> = {
+        from: applied.from,
+        to: applied.to,
+        limit: '50',
+        offset: String(offset),
+      };
+      for (const field of fields)
+        if (field !== 'from' && field !== 'to' && applied[field]) query[field] = applied[field];
       if (!silent) {
-        setPage(null);
-        setError(errorText(failure));
+        setLoading(true);
+        setError('');
       }
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [applied, offset]);
+      try {
+        const next = await api.compliance(query);
+        setPage(next);
+        setSelected((current) =>
+          current
+            ? (next.items.find(
+                (item) =>
+                  item.assignment_id === current.assignment_id && item.stop_id === current.stop_id,
+              ) ?? current)
+            : null,
+        );
+      } catch (failure) {
+        if (!silent) {
+          setPage(null);
+          setError(errorText(failure));
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [applied, offset],
+  );
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -696,7 +756,7 @@ export function ComplianceDashboard() {
                           <span
                             className={`compliance-status status-${visit.status.toLowerCase()}`}
                           >
-                            {label(visit.status)}
+                            {visitLabel(visit)}
                           </span>
                           {visit.provisional && <small>Provisional</small>}
                         </td>

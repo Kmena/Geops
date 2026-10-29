@@ -190,5 +190,9 @@ async (page) => {
     await page.locator('.compliance-visit-map .leaflet-interactive').count() >= 2,
     'visit map renders historical and current geozone',
   );
+  check(
+    await page.getByText('Tramos sin trayectoria GPS continua').count() === 1,
+    'visit map identifies unobserved time without inventing a route',
+  );
   return { result: 'PASS', checks, agentId: agent.id, mobile };
 }

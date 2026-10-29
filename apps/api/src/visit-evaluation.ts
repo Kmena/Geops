@@ -146,7 +146,8 @@ export class VisitEvaluationService {
     const selected = await db.query<{ revision: number; scope: string }>(
       `SELECT revision,scope FROM visit_algorithm_revision
        WHERE algorithm_id='dwell-pair-v1'
-       AND (scope='APPROVED' OR (scope='TECHNICAL_ONLY' AND $1))
+       AND ((scope='APPROVED' AND calibration_evidence_ref IS NOT NULL AND activated_at<=now())
+         OR (scope='TECHNICAL_ONLY' AND $1))
        ORDER BY (scope='APPROVED') DESC,revision DESC LIMIT 1`,
       [isSynthetic()],
     );
@@ -328,12 +329,24 @@ export class VisitEvaluationService {
   ): Promise<{ created: number; unchanged: number }> {
     const assignment = await this.assignment(db, tenant, assignmentId);
     if (assignment.state !== 'PLANNED') throw new ApiError(409, 'cancelled_assignment', 'Conflict');
-    const algorithm = await db.query<{ scope: string; parameters: unknown }>(
-      `SELECT scope,parameters FROM visit_algorithm_revision
+    const algorithm = await db.query<{
+      scope: string;
+      parameters: unknown;
+      calibration_evidence_ref: string | null;
+      activated_at: Date | null;
+    }>(
+      `SELECT scope,parameters,calibration_evidence_ref,activated_at FROM visit_algorithm_revision
       WHERE algorithm_id=$1 AND revision=$2`,
       [algorithmId, algorithmRevision],
     );
     if (!algorithm.rows[0]) throw missing();
+    if (
+      algorithm.rows[0].scope === 'APPROVED' &&
+      (!algorithm.rows[0].calibration_evidence_ref ||
+        !algorithm.rows[0].activated_at ||
+        algorithm.rows[0].activated_at > this.now())
+    )
+      throw new ApiError(409, 'algorithm_not_approved', 'Conflict');
     const operational = algorithm.rows[0].scope !== 'LAB_ONLY';
     if (algorithm.rows[0].scope !== 'APPROVED') await assertLabDatabase(db);
     const params = validateDwellParameters(algorithm.rows[0].parameters);
@@ -421,8 +434,9 @@ export class VisitEvaluationService {
       await db.query(
         `INSERT INTO visit_evaluation(id,tenant_id,assignment_id,stop_id,evaluation_no,source_digest,
         algorithm_id,algorithm_revision,parameters,status,required_s,credited_s,percent,first_qualified_at,
-        last_qualified_at,completed_at,sample_count,uncertain_count,gap_count,source_watermark,supersedes_id)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+        last_qualified_at,completed_at,sample_count,uncertain_count,gap_count,source_watermark,supersedes_id,
+        outside_credited_s,unknown_s,coverage_percent,potential_inside_upper_s)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
         [
           evaluationId,
           tenant,
@@ -445,6 +459,10 @@ export class VisitEvaluationService {
           result?.gapCount ?? 0,
           evidence.watermark,
           prior.rows[0]?.id ?? null,
+          result?.outsideCreditedS ?? null,
+          result?.unknownS ?? null,
+          result?.coveragePercent ?? null,
+          result?.potentialInsideUpperS ?? null,
         ],
       );
       for (const [index, interval] of (result?.intervals ?? []).entries())
@@ -465,6 +483,21 @@ export class VisitEvaluationService {
             interval.toAt,
             interval.observedS,
             interval.creditedS,
+          ],
+        );
+      for (const [index, interval] of (result?.outsideIntervals ?? []).entries())
+        await db.query(
+          `INSERT INTO visit_evaluation_outside_interval
+           (evaluation_id,interval_no,event_id_a,event_id_b,from_at,to_at,seconds)
+           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [
+            evaluationId,
+            index + 1,
+            interval.eventIdA,
+            interval.eventIdB,
+            interval.fromAt,
+            interval.toAt,
+            interval.seconds,
           ],
         );
       await db.query(
@@ -664,7 +697,8 @@ export class VisitEvaluationService {
       const selected = await db.query<{ revision: number; scope: string }>(
         `SELECT revision,scope FROM visit_algorithm_revision
          WHERE algorithm_id='dwell-pair-v1'
-         AND (scope='APPROVED' OR (scope='TECHNICAL_ONLY' AND $1))
+         AND ((scope='APPROVED' AND calibration_evidence_ref IS NOT NULL AND activated_at<=now())
+           OR (scope='TECHNICAL_ONLY' AND $1))
          ORDER BY (scope='APPROVED') DESC,revision DESC LIMIT 1`,
         [isSynthetic()],
       );
@@ -737,6 +771,7 @@ export class VisitEvaluationService {
       const rows = await db.query<Row>(
         `SELECT v.stop_id,v.client_code,v.site_code,v.geofence_revision,
         v.min_dwell_effective_s AS required_s,e.id AS evaluation_id,e.evaluation_no,e.status,e.credited_s,e.percent,
+        e.outside_credited_s,e.unknown_s,e.coverage_percent,e.potential_inside_upper_s,
         e.first_qualified_at,e.last_qualified_at,e.completed_at,e.algorithm_id,e.algorithm_revision,e.evaluated_at,
         ar.scope AS algorithm_scope
         FROM assignment_visit v LEFT JOIN visit_evaluation_current c ON c.tenant_id=v.tenant_id
@@ -813,7 +848,8 @@ export class VisitEvaluationService {
       if (!exists.rowCount) throw missing();
       const rows = await db.query<Row>(
         `SELECT e.id,e.evaluation_no,e.source_digest,e.algorithm_id,e.algorithm_revision,e.parameters,
-        e.status,e.required_s,e.credited_s,e.percent,e.first_qualified_at,e.last_qualified_at,e.completed_at,
+        e.status,e.required_s,e.credited_s,e.percent,e.outside_credited_s,e.unknown_s,
+        e.coverage_percent,e.potential_inside_upper_s,e.first_qualified_at,e.last_qualified_at,e.completed_at,
         e.sample_count,e.uncertain_count,e.gap_count,e.source_watermark,e.supersedes_id,e.evaluated_at,
         audit.metadata_redacted->>'reason' AS trigger_reason
         FROM visit_evaluation e LEFT JOIN LATERAL (
@@ -866,6 +902,12 @@ export class VisitEvaluationService {
         WHERE i.evaluation_id=$1 ORDER BY i.interval_no LIMIT 5000`,
         [evaluation, tenant],
       );
+      const outside = await db.query<Row>(
+        `SELECT interval_no,event_id_a,event_id_b,from_at,to_at,seconds
+         FROM visit_evaluation_outside_interval
+         WHERE evaluation_id=$1 ORDER BY interval_no LIMIT 5000`,
+        [evaluation],
+      );
       await appendAudit(db, {
         actorType: 'ADMIN',
         actorId: actor,
@@ -880,7 +922,12 @@ export class VisitEvaluationService {
           access_reason: why,
         },
       });
-      return { evaluation_id: evaluation, items: rows.rows, coordinates_included: false };
+      return {
+        evaluation_id: evaluation,
+        items: rows.rows,
+        outside_items: outside.rows,
+        coordinates_included: false,
+      };
     });
   }
 
@@ -959,26 +1006,44 @@ export class VisitEvaluationService {
       return {
         assignment_id: id,
         stop_id: stop,
+        window: { starts_at: dateIso(visit.starts_at), ends_at: dateIso(visit.ends_at) },
         site: { latitude: number(visit.site_latitude), longitude: number(visit.site_longitude) },
         historical_geofence: {
-          latitude: number(visit.latitude), longitude: number(visit.longitude),
-          radius_m: radius, revision: number(visit.geofence_revision),
+          latitude: number(visit.latitude),
+          longitude: number(visit.longitude),
+          radius_m: radius,
+          revision: number(visit.geofence_revision),
         },
-        current_geofence: visit.current_revision === null ? null : {
-          latitude: number(visit.current_latitude), longitude: number(visit.current_longitude),
-          radius_m: number(visit.current_radius_m), revision: number(visit.current_revision),
-        },
+        current_geofence:
+          visit.current_revision === null
+            ? null
+            : {
+                latitude: number(visit.current_latitude),
+                longitude: number(visit.current_longitude),
+                radius_m: number(visit.current_radius_m),
+                revision: number(visit.current_revision),
+              },
         positions: positions.rows.map((row) => {
-          const distance = number(row.distance_m), accuracy = number(row.accuracy_m);
+          const distance = number(row.distance_m),
+            accuracy = number(row.accuracy_m);
           return {
-            event_id: row.event_id, device_id: row.device_id, session_id: row.session_id,
-            captured_at: dateIso(row.captured_at), received_at: dateIso(row.received_at),
-            latitude: number(row.latitude), longitude: number(row.longitude),
-            accuracy_m: accuracy, distance_m: distance,
-            spatial_state: row.quality_state !== 'DEVICE_REPORTED' || accuracy <= 0
-              ? 'UNCERTAIN'
-              : distance + accuracy <= radius ? 'INSIDE' : distance - accuracy > radius
-                ? 'OUTSIDE' : 'UNCERTAIN',
+            event_id: row.event_id,
+            device_id: row.device_id,
+            session_id: row.session_id,
+            captured_at: dateIso(row.captured_at),
+            received_at: dateIso(row.received_at),
+            latitude: number(row.latitude),
+            longitude: number(row.longitude),
+            accuracy_m: accuracy,
+            distance_m: distance,
+            spatial_state:
+              row.quality_state !== 'DEVICE_REPORTED' || accuracy <= 0
+                ? 'UNCERTAIN'
+                : distance + accuracy <= radius
+                  ? 'INSIDE'
+                  : distance - accuracy > radius
+                    ? 'OUTSIDE'
+                    : 'UNCERTAIN',
           };
         }),
       };

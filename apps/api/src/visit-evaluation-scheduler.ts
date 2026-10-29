@@ -24,7 +24,7 @@ export class VisitEvaluationScheduler {
       acquired = lock.rows[0]?.acquired === true;
       if (!acquired) return { skipped: 'LOCKED', queued: 0, processed: 0 };
       const algorithm = await db.query(
-        "SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1' AND scope='APPROVED' LIMIT 1",
+        "SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1' AND scope='APPROVED' AND calibration_evidence_ref IS NOT NULL AND activated_at<=now() LIMIT 1",
       );
       if (!algorithm.rowCount)
         return { skipped: 'ALGORITHM_NOT_APPROVED', queued: 0, processed: 0 };
