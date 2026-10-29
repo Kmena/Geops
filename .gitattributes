@@ -38,3 +38,4 @@ scripts/deploy/b30-staging/replica-lab/Dockerfile text eol=lf
 .gitattributes text eol=lf
 .gitignore text eol=lf
 scripts/deploy/b31-staging/** text eol=lf
+scripts/deploy/b32-staging/** text eol=lf

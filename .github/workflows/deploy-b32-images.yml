@@ -1,0 +1,131 @@
+name: Publish B32 staging images
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact reviewed application SHA
+        required: true
+        type: string
+      publish:
+        description: Publish immutable images to GHCR
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    if: github.ref == 'refs/heads/codex/apk-v9-b32-staging-integration'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Verify publication authorization
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          test "$PUBLISH" = true
+          test "$APPROVED_SHA" = 06b6599779bbf95a45576d9bda581119ddce27de
+          test "$GITHUB_REPOSITORY" = Kmena/Geops
+      - uses: actions/checkout@v4
+        with:
+          path: promotion
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 06b6599779bbf95a45576d9bda581119ddce27de
+          path: target
+          persist-credentials: false
+      - name: Verify exact target source and B32 recovery overlay
+        run: |
+          test "$(git -C target rev-parse HEAD)" = 06b6599779bbf95a45576d9bda581119ddce27de
+          test "$(git -C promotion rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C promotion merge-base 06b6599779bbf95a45576d9bda581119ddce27de HEAD)" = 06b6599779bbf95a45576d9bda581119ddce27de
+          cp promotion/scripts/deploy/b32-staging/maintenance-recovery.ts target/scripts/deploy/b32-staging/maintenance-recovery.ts
+          cp promotion/scripts/deploy/b32-staging/api-b32-recovery.Dockerfile target/scripts/deploy/b32-staging/api-b32-recovery.Dockerfile
+          python3 - <<'PY'
+          import hashlib, pathlib
+          files=sorted(pathlib.Path('target/apps/api/src/db/migrations').glob('*.sql'))
+          assert len(files)==33
+          catalog='\n'.join(p.name+'|'+hashlib.sha256(p.read_bytes()).hexdigest() for p in files)
+          assert hashlib.sha256(catalog.encode()).hexdigest()=='d4730ee35c02af8976f1b7a642c305ea0304448742f9d54a5ff829336752074a'
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: target/package-lock.json
+      - name: Validate target source and recovery overlay
+        working-directory: target
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+          npm run lint
+          npm run contracts:check
+          npm test
+          npm run build
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: api
+        uses: docker/build-push-action@v7
+        with:
+          context: target
+          file: target/infrastructure/docker/api.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/kmena/geops-api:06b6599779bbf95a45576d9bda581119ddce27de-b32-integrated
+          build-args: GEOPS_API_VARIANT=B32-integrated
+          labels: |
+            org.opencontainers.image.revision=06b6599779bbf95a45576d9bda581119ddce27de
+            org.geops.maintenance.recovery.max_schema=31
+      - id: web
+        uses: docker/build-push-action@v7
+        with:
+          context: target
+          file: target/infrastructure/docker/web.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/kmena/geops-web:06b6599779bbf95a45576d9bda581119ddce27de-b32-integrated
+          build-args: |
+            GEOPS_WEB_BASE=/
+            MDM_ENABLED=true
+            VITE_GPS_TIME_ZONE=America/Costa_Rica
+            VITE_GPS_TILE_URL=
+          labels: |
+            org.opencontainers.image.revision=06b6599779bbf95a45576d9bda581119ddce27de
+            org.geops.web.variant=B32-integrated
+            org.geops.web.mdm_enabled=true
+      - id: recovery
+        uses: docker/build-push-action@v7
+        with:
+          context: target
+          file: target/scripts/deploy/b32-staging/api-b32-recovery.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/kmena/geops-api:06b6599779bbf95a45576d9bda581119ddce27de-b32-recovery-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.geops.application.commit=06b6599779bbf95a45576d9bda581119ddce27de
+      - name: Record immutable publication
+        env:
+          API: ${{ steps.api.outputs.digest }}
+          WEB: ${{ steps.web.outputs.digest }}
+          RECOVERY: ${{ steps.recovery.outputs.digest }}
+        run: |
+          test -n "$API" && test -n "$WEB" && test -n "$RECOVERY"
+          printf '{"applicationCommit":"06b6599779bbf95a45576d9bda581119ddce27de","promotionCommit":"%s","api":"ghcr.io/kmena/geops-api@%s","web":"ghcr.io/kmena/geops-web@%s","recovery":"ghcr.io/kmena/geops-api@%s"}\n' "$GITHUB_SHA" "$API" "$WEB" "$RECOVERY" > b32-publication.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b32-staging-publication-${{ github.sha }}
+          path: b32-publication.json
+          retention-days: 90
