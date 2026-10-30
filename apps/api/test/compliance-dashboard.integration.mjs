@@ -148,6 +148,7 @@ try {
   for (const [filter, value, key] of [
     ['agent_id', sample.agent_id, 'agent_id'],
     ['route_id', sample.route_id, 'route_id'],
+    ['assignment_id', sample.id, 'assignment_id'],
     ['client_id', sample.client_id, 'client_id'],
   ]) {
     const response = await call(cookie, urlFor(`&${filter}=${value}`));
@@ -157,6 +158,17 @@ try {
       `${filter} consistent`,
     );
   }
+  const assignmentPage = (await call(cookie, urlFor(`&assignment_id=${sample.id}`))).json();
+  const clientPage = (await call(cookie, urlFor(`&assignment_id=${sample.id}&client_id=${sample.client_id}`))).json();
+  check(
+    JSON.stringify(clientPage.routes) === JSON.stringify(assignmentPage.routes),
+    'client filter cannot change the complete assignment route verdict',
+  );
+  const statusPage = (await call(cookie, urlFor(`&assignment_id=${sample.id}&status=${page.items[0].status}`))).json();
+  check(
+    JSON.stringify(statusPage.routes) === JSON.stringify(assignmentPage.routes),
+    'status filter cannot change the complete assignment route verdict',
+  );
   const one = await call(cookie, urlFor('&limit=1'));
   check(one.statusCode === 200 && one.json().items.length === 1, 'pagination limit');
   if (count > 1) check(one.json().next_offset === 1, 'pagination continuation');

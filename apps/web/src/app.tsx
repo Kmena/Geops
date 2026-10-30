@@ -211,7 +211,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               aria-current={location.pathname === '/compliance' ? 'page' : undefined}
               to="/compliance"
             >
-              Cumplimiento de visitas
+              Verificación de rutas
             </Link>
             {canManageUsers && (
               <Link

@@ -739,7 +739,7 @@ export class VisitEvaluationService {
           AND (j.state IS NULL OR j.state='DONE')
         GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count,j.algorithm_revision,j.finished_at,a.ends_at
         HAVING j.state IS NULL OR j.algorithm_revision<>$2 OR count(p.event_id)>j.position_count
-          OR j.finished_at<a.ends_at
+          OR (j.finished_at<a.ends_at AND a.ends_at<=now())
         ORDER BY a.id LIMIT $1`,
         [maxAssignments, revision, this.now()],
       );
@@ -756,7 +756,8 @@ export class VisitEvaluationService {
           WHERE visit_evaluation_job.state='DONE' AND
             (visit_evaluation_job.algorithm_revision<>$5 OR visit_evaluation_job.position_count<$4
              OR visit_evaluation_job.finished_at<
-               (SELECT ends_at FROM route_assignment WHERE tenant_id=$1 AND id=$2))`,
+               (SELECT ends_at FROM route_assignment
+                WHERE tenant_id=$1 AND id=$2 AND ends_at<=now()))`,
           [row.tenant_id, row.assignment_id, row.requested_by, row.evidence_count, revision],
         );
         if (result.rowCount) {

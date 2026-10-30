@@ -36,6 +36,7 @@ export type ComplianceQuery = {
   to?: string;
   agent_id?: string;
   route_id?: string;
+  assignment_id?: string;
   client_id?: string;
   status?: string;
   sync_state?: string;
@@ -248,6 +249,19 @@ export function summarizeVisits(visits: ComplianceVisit[], now: Date = new Date(
   };
 }
 
+/** Keep route decisions based on every assigned visit, even when the table is filtered. */
+export function summarizeVisibleRoutes(
+  allVisits: ComplianceVisit[],
+  visibleVisits: ComplianceVisit[],
+  now: Date = new Date(),
+) {
+  const assignmentIds = new Set(visibleVisits.map((visit) => visit.assignment_id));
+  return summarizeVisits(
+    allVisits.filter((visit) => assignmentIds.has(visit.assignment_id)),
+    now,
+  );
+}
+
 export class ComplianceDashboardService {
   constructor(
     private readonly pool: Pool,
@@ -263,6 +277,7 @@ export class ComplianceDashboardService {
             'to',
             'agent_id',
             'route_id',
+            'assignment_id',
             'client_id',
             'status',
             'sync_state',
@@ -276,7 +291,7 @@ export class ComplianceDashboardService {
     const days =
       (Date.parse(`${query.to}T00:00:00Z`) - Date.parse(`${query.from}T00:00:00Z`)) / 86400000;
     if (days > 30) throw invalid();
-    for (const key of ['agent_id', 'route_id', 'client_id'] as const)
+    for (const key of ['agent_id', 'route_id', 'assignment_id', 'client_id'] as const)
       if (query[key] && !UUID.test(query[key])) throw invalid();
     if (query.status && !statuses.has(query.status)) throw invalid();
     if (query.sync_state && !syncStates.has(query.sync_state)) throw invalid();
@@ -346,10 +361,22 @@ export class ComplianceDashboardService {
          LEFT JOIN visit_evaluation_job j ON j.tenant_id=a.tenant_id AND j.assignment_id=a.id
          WHERE a.tenant_id=$1 AND a.local_date BETWEEN $2::date AND $3::date
            AND ($4::uuid IS NULL OR a.agent_id=$4) AND ($5::uuid IS NULL OR a.route_id=$5)
-           AND ($6::uuid IS NULL OR v.client_id=$6)
+           AND ($6::uuid IS NULL OR a.id=$6)
+           AND ($7::uuid IS NULL OR EXISTS (
+             SELECT 1 FROM assignment_visit selected_visit
+             WHERE selected_visit.tenant_id=a.tenant_id
+               AND selected_visit.assignment_id=a.id AND selected_visit.client_id=$7))
          ORDER BY a.local_date,a.agent_code,a.id,v.suggested_order NULLS LAST,v.stop_id
          LIMIT 10001`,
-        [tenant, from, to, query.agent_id ?? null, query.route_id ?? null, query.client_id ?? null],
+        [
+          tenant,
+          from,
+          to,
+          query.agent_id ?? null,
+          query.route_id ?? null,
+          query.assignment_id ?? null,
+          query.client_id ?? null,
+        ],
       );
       if (result.rows.length > 10000)
         throw new ApiError(422, 'dashboard_range_too_large', 'Invalid request');
@@ -382,23 +409,27 @@ export class ComplianceDashboardService {
           for (const row of sync.rows) syncByDevice.set(row.device_id, row);
         }
       }
-      const visits = normalized
-        .map((visit) => {
-          const sync = visit.device_id ? syncByDevice.get(visit.device_id) : undefined;
-          const lastAck = sync?.last_ack_at ?? null;
-          return {
-            ...visit,
-            sync_state: gpsSyncState(lastAck, sync ? Number(sync.backlog_reported) : null, now),
-            last_ack_at: lastAck?.toISOString() ?? null,
-            backlog_reported: sync ? Number(sync.backlog_reported) : null,
-          };
-        })
-        .filter(
-          (visit) =>
-            (!query.status || visit.status === query.status) &&
-            (!query.sync_state || visit.sync_state === query.sync_state),
-        );
+      const allVisits = normalized.map((visit) => {
+        const sync = visit.device_id ? syncByDevice.get(visit.device_id) : undefined;
+        const lastAck = sync?.last_ack_at ?? null;
+        return {
+          ...visit,
+          sync_state: gpsSyncState(lastAck, sync ? Number(sync.backlog_reported) : null, now),
+          last_ack_at: lastAck?.toISOString() ?? null,
+          backlog_reported: sync ? Number(sync.backlog_reported) : null,
+        };
+      });
+      const visits = allVisits.filter(
+        (visit) =>
+          (!query.client_id || visit.client_id === query.client_id) &&
+          (!query.status || visit.status === query.status) &&
+          (!query.sync_state || visit.sync_state === query.sync_state),
+      );
       const aggregates = summarizeVisits(visits, now);
+      const routeSummary = summarizeVisibleRoutes(allVisits, visits, now);
+      aggregates.routes = routeSummary.routes;
+      aggregates.indicators.completed_routes = routeSummary.indicators.completed_routes;
+      aggregates.indicators.incomplete_routes = routeSummary.indicators.incomplete_routes;
       const items = visits.slice(offset, offset + limit);
       const locations: ComplianceDeviceLocation[] = [];
       if (canReadLocation) {

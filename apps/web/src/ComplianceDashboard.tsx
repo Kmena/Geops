@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   api,
@@ -26,21 +26,25 @@ const statusLabels: Record<string, string> = {
   CANCELLED: 'Cancelada',
 };
 const syncLabels: Record<string, string> = {
-  UNKNOWN: 'Sin estado GPS comprobable',
-  BACKLOG_REPORTED: 'Backlog reportado',
-  ACK_RECENT: 'ACK reciente',
-  NO_RECENT_ACK: 'Sin ACK reciente',
+  UNKNOWN: 'Sin información de envío',
+  BACKLOG_REPORTED: 'Ubicaciones pendientes de enviar',
+  ACK_RECENT: 'Envío reciente confirmado',
+  NO_RECENT_ACK: 'Sin envío reciente',
 };
 const processingLabels: Record<string, string> = {
-  PENDING: 'Procesamiento pendiente',
-  RUNNING: 'Procesando',
-  DONE: 'Evaluación procesada',
-  FAILED: 'Error de procesamiento',
-  NOT_QUEUED: 'Evaluación no iniciada',
+  PENDING: 'Pendiente de cálculo',
+  RUNNING: 'Calculando',
+  DONE: 'Cálculo guardado',
+  FAILED: 'No se pudo calcular',
+  NOT_QUEUED: 'Cálculo no iniciado',
 };
 const label = (status: string) => statusLabels[status] ?? `Estado desconocido: ${status}`;
 const routeLabel = (status: string) =>
-  status === 'INCOMPLETE' ? 'Ruta incompleta: visitas obligatorias sin acreditar' : label(status);
+  status === 'INCOMPLETE'
+    ? 'Ruta sin acreditar por completo'
+    : status === 'PENDING'
+      ? 'Ruta pendiente de cálculo'
+      : label(status);
 const visitLabel = (visit: ComplianceVisit) =>
   visit.status === 'INCOMPLETE' && visit.non_compliance_enabled
     ? 'Incumplimiento con cobertura suficiente'
@@ -62,7 +66,16 @@ const today = () => {
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? '';
   return `${part('year')}-${part('month')}-${part('day')}`;
 };
-const fields = ['from', 'to', 'agent_id', 'route_id', 'client_id', 'status', 'sync_state'] as const;
+const fields = [
+  'from',
+  'to',
+  'agent_id',
+  'route_id',
+  'assignment_id',
+  'client_id',
+  'status',
+  'sync_state',
+] as const;
 type Field = (typeof fields)[number];
 type Filters = Record<Field, string>;
 const parseFilters = (params: URLSearchParams): Filters => ({
@@ -70,6 +83,7 @@ const parseFilters = (params: URLSearchParams): Filters => ({
   to: params.get('to') ?? params.get('from') ?? today(),
   agent_id: params.get('agent_id') ?? '',
   route_id: params.get('route_id') ?? '',
+  assignment_id: params.get('assignment_id') ?? '',
   client_id: params.get('client_id') ?? '',
   status: params.get('status') ?? '',
   sync_state: params.get('sync_state') ?? '',
@@ -94,6 +108,7 @@ function VisitDetail({
   locationAccess: boolean;
   csrf: string;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [history, setHistory] = useState<VisitEvaluationHistory[]>([]);
   const [intervals, setIntervals] = useState<VisitEvidenceInterval[]>([]);
   const [outsideIntervals, setOutsideIntervals] = useState<VisitOutsideInterval[]>([]);
@@ -114,6 +129,9 @@ function VisitDetail({
   const [preview, setPreview] = useState<VisitTechnicalPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
   useEffect(() => {
     let live = true;
     setLoading(true);
@@ -219,7 +237,7 @@ function VisitDetail({
       <div className="compliance-detail-head">
         <div>
           <span className="compliance-eyebrow">Evidencia histórica</span>
-          <h2>
+          <h2 ref={headingRef} tabIndex={-1}>
             {visit.client_name} · {visit.site_name}
           </h2>
         </div>
@@ -280,7 +298,7 @@ function VisitDetail({
           </dd>
         </div>
         <div>
-          <dt>Máximo potencial dentro</dt>
+          <dt>Tiempo potencial dentro de la zona</dt>
           <dd>
             {visit.potential_inside_upper_s === null
               ? 'Aún sin cálculo'
@@ -288,19 +306,19 @@ function VisitDetail({
           </dd>
         </div>
         <div>
-          <dt>Procesamiento</dt>
+          <dt>Cálculo</dt>
           <dd>
             {processingLabels[visit.processing_state] ?? visit.processing_state}
-            {visit.job_error_code ? ` · código: ${visit.job_error_code}` : ''}
+            {visit.job_error_code ? ' · requiere revisión' : ''}
           </dd>
         </div>
         <div>
           <dt>Sincronización GPS</dt>
           <dd>
-            {syncLabels[visit.sync_state] ?? visit.sync_state} · último ACK:{' '}
+            {syncLabels[visit.sync_state] ?? visit.sync_state} · última confirmación:{' '}
             {dateTime(visit.last_ack_at)}
             {visit.backlog_reported !== null
-              ? ` · backlog reportado: ${visit.backlog_reported}`
+              ? ` · ubicaciones pendientes de enviar: ${visit.backlog_reported}`
               : ''}
           </dd>
         </div>
@@ -319,10 +337,12 @@ function VisitDetail({
           <dd>{dateTime(visit.completed_at)}</dd>
         </div>
         <div>
-          <dt>Algoritmo</dt>
+          <dt>Regla de cálculo</dt>
           <dd>
             {visit.algorithm_id
-              ? `${visit.algorithm_id} · v${visit.algorithm_revision} · ${visit.algorithm_scope}`
+              ? visit.algorithm_scope === 'TECHNICAL_ONLY'
+                ? 'Prueba técnica: no declara incumplimientos oficiales'
+                : `Revisión ${visit.algorithm_revision} aprobada`
               : 'Aún sin evaluación'}
           </dd>
         </div>
@@ -332,8 +352,8 @@ function VisitDetail({
         </div>
       </dl>
       <p className="compliance-note">
-        La ruta y la geozona proceden del snapshot de la asignación. La evidencia puede llegar
-        después de la evaluación.
+        Se usan la ruta y la zona definidas para esta jornada. Si llegan ubicaciones nuevas, el
+        resultado puede actualizarse.
       </p>
       {!visit.evaluation_id && (
         <p className="compliance-note" role="status">
@@ -574,15 +594,17 @@ function VisitDetail({
 
 export function ComplianceDashboard() {
   const { profile } = useAuth();
+  const detailTrigger = useRef<HTMLButtonElement>(null);
   const [params, setParams] = useSearchParams();
   const applied = useMemo(() => parseFilters(params), [params]);
   const [draft, setDraft] = useState<Filters>(applied);
   const [page, setPage] = useState<CompliancePage | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<ComplianceVisit | null>(null);
-  const [tab, setTab] = useState<'visits' | 'routes' | 'agents' | 'clients' | 'map'>('visits');
+  const [tab, setTab] = useState<'visits' | 'routes' | 'agents' | 'clients' | 'map'>('routes');
   useEffect(() => {
     setDraft(applied);
     setOffset(0);
@@ -605,6 +627,8 @@ export function ComplianceDashboard() {
       try {
         const next = await api.compliance(query);
         setPage(next);
+        setLastUpdatedAt(new Date());
+        setError('');
         setSelected((current) =>
           current
             ? (next.items.find(
@@ -614,10 +638,12 @@ export function ComplianceDashboard() {
             : null,
         );
       } catch (failure) {
-        if (!silent) {
-          setPage(null);
-          setError(errorText(failure));
-        }
+        if (!silent) setPage(null);
+        setError(
+          silent
+            ? 'No se pudo actualizar. Comprueba la conexión y pulsa Actualizar.'
+            : errorText(failure),
+        );
       } finally {
         if (!silent) setLoading(false);
       }
@@ -626,6 +652,19 @@ export function ComplianceDashboard() {
   );
   useEffect(() => {
     void reload();
+  }, [reload]);
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void reload(true);
+    };
+    const timer = window.setInterval(refreshWhenVisible, 60_000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshWhenVisible);
+    };
   }, [reload]);
   useEffect(() => {
     if (!selected || !['PENDING', 'RUNNING'].includes(selected.processing_state)) return;
@@ -639,17 +678,30 @@ export function ComplianceDashboard() {
     setParams(next);
   };
   const change = (field: Field, value: string) =>
-    setDraft((current) => ({ ...current, [field]: value }));
-  const showVisits = (field: 'agent_id' | 'route_id' | 'client_id', value: string) => {
+    setDraft((current) => ({ ...current, assignment_id: '', [field]: value }));
+  const showVisits = (field: 'agent_id' | 'assignment_id' | 'client_id', value: string) => {
     const next = new URLSearchParams(params);
+    if (field === 'assignment_id') {
+      next.delete('client_id');
+      next.delete('status');
+      next.delete('sync_state');
+    } else next.delete('assignment_id');
     next.set(field, value);
     setParams(next);
     setTab('visits');
   };
+  const openDetail = (visit: ComplianceVisit, trigger?: HTMLButtonElement) => {
+    detailTrigger.current = trigger ?? null;
+    setSelected(visit);
+  };
+  const closeDetail = () => {
+    setSelected(null);
+    window.requestAnimationFrame(() => detailTrigger.current?.focus());
+  };
   const indicators = page?.indicators;
   const tiles = indicators
     ? ([
-        ['Dispositivos con rutas', indicators.agents_with_routes],
+        ['Agentes con rutas', indicators.agents_with_routes],
         ['Rutas programadas', indicators.scheduled_routes],
         ['Visitas programadas', indicators.scheduled_visits],
         ['Completadas', indicators.completed_visits],
@@ -665,13 +717,20 @@ export function ComplianceDashboard() {
     <div className="compliance-page">
       <header className="compliance-hero">
         <div>
-          <span className="compliance-eyebrow">SPEC-03 · Wave 5</span>
-          <h1>Cumplimiento de visitas</h1>
-          <p>Resultados calculados a partir de asignaciones y evaluaciones persistidas.</p>
+          <h1>Verificación de rutas</h1>
+          <p>Revisa cuántas visitas obligatorias quedaron acreditadas en cada ruta.</p>
         </div>
-        <button type="button" className="secondary" onClick={() => void reload()}>
-          Actualizar
-        </button>
+        <div className="compliance-refresh">
+          {lastUpdatedAt && (
+            <span role="status">
+              Actualizado a las{' '}
+              {lastUpdatedAt.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button type="button" className="secondary" onClick={() => void reload()}>
+            Actualizar
+          </button>
+        </div>
       </header>
       <form className="compliance-filters" onSubmit={apply} aria-label="Filtros de cumplimiento">
         <label>
@@ -770,8 +829,8 @@ export function ComplianceDashboard() {
       {page && (
         <>
           <div className="compliance-warning" role="status">
-            Resultados provisionales: todavía no hay política aprobada de cierre de evidencia
-            tardía. La falta de datos o comunicación no significa incumplimiento.
+            Los resultados pueden cambiar si llegan ubicaciones GPS más tarde. Cuando faltan datos,
+            no se confirma ni la visita ni la ausencia del agente.
           </div>
           <section aria-label="Indicadores de cumplimiento" className="compliance-indicators">
             {tiles.map(([title, value]) => (
@@ -815,6 +874,26 @@ export function ComplianceDashboard() {
           </div>
           {tab === 'visits' && (
             <section aria-label="Visitas">
+              {applied.assignment_id && (
+                <div className="compliance-scope">
+                  <span>
+                    Visitas de {page.routes[0]?.route_name ?? 'la ruta seleccionada'} ·{' '}
+                    {page.routes[0]?.local_date ?? 'jornada seleccionada'}
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      const next = new URLSearchParams(params);
+                      next.delete('assignment_id');
+                      setParams(next);
+                      setTab('routes');
+                    }}
+                  >
+                    Volver a rutas
+                  </button>
+                </div>
+              )}
               <p>
                 {page.total_visits} visitas coinciden con los filtros. Se muestran{' '}
                 {page.items.length} en esta página.
@@ -866,7 +945,7 @@ export function ComplianceDashboard() {
                           <button
                             type="button"
                             className="secondary"
-                            onClick={() => setSelected(visit)}
+                            onClick={(event) => openDetail(visit, event.currentTarget)}
                           >
                             Ver evidencia
                           </button>
@@ -919,14 +998,17 @@ export function ComplianceDashboard() {
                   <p>
                     {route.visits} visitas programadas · {minutes(route.credited_s)} acreditados
                   </p>
-                  <span className="compliance-status">
-                    {routeLabel(route.status)} · Provisional
+                  <span
+                    className={`compliance-status compliance-route-status status-${route.status.toLowerCase()}`}
+                  >
+                    {routeLabel(route.status)}
                   </span>
+                  <small className="compliance-route-note">Resultado provisional</small>
                   <p>
                     <button
                       type="button"
                       className="secondary"
-                      onClick={() => showVisits('route_id', route.route_id)}
+                      onClick={() => showVisits('assignment_id', route.assignment_id)}
                     >
                       Ver visitas y permanencia
                     </button>
@@ -985,11 +1067,7 @@ export function ComplianceDashboard() {
                 Geozonas históricas de las visitas en esta página ({page.items.length} de{' '}
                 {page.total_visits}). Selecciona un marcador para consultar la evidencia.
               </p>
-              <ComplianceMap
-                visits={page.items}
-                locations={page.locations}
-                onSelect={setSelected}
-              />
+              <ComplianceMap visits={page.items} locations={page.locations} onSelect={openDetail} />
               {page.location_access ? (
                 <div className="compliance-device-list">
                   <h2>Comunicación de dispositivos vinculados</h2>
@@ -1048,7 +1126,7 @@ export function ComplianceDashboard() {
         <VisitDetail
           key={`${selected.assignment_id}:${selected.stop_id}`}
           visit={selected}
-          onClose={() => setSelected(null)}
+          onClose={closeDetail}
           onQueued={() => reload(true)}
           canRequest={page?.evaluation_access.can_request ?? false}
           algorithmApproved={page?.evaluation_access.algorithm_approved ?? false}

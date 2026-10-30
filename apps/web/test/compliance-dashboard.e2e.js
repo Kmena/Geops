@@ -5,27 +5,40 @@ async (page) => {
   const date = new Date(Date.now() + 32 * 86400000).toISOString().slice(0, 10);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`http://127.0.0.1:3501/compliance?from=${date}&to=${date}`);
-  await page.getByRole('heading', { name: 'Cumplimiento de visitas' }).waitFor();
+  await page.getByRole('heading', { name: 'Verificación de rutas' }).waitFor();
   check(page.url().includes('/compliance'), 'dashboard opens');
   await page.locator('.compliance-tile').first().waitFor();
-  check(await page.locator('.compliance-tile').count() === 10, 'indicator grid');
-  check((await page.getByText('Resultados provisionales:', { exact: false }).count()) === 1,
+  check(await page.locator('.compliance-tile').count() === 11, 'indicator grid');
+  check((await page.getByText('Los resultados pueden cambiar', { exact: false }).count()) === 1,
     'provisional warning shown');
   const response = await page.evaluate(async (date) => {
     return fetch(`/v1/admin/compliance?from=${date}&to=${date}&limit=50`).then(r => r.json());
   }, date);
   check(response.total_visits > 0, 'persisted visits shown');
+  check(await page.getByRole('tab', { name: 'Rutas' }).getAttribute('aria-selected') === 'true',
+    'route verification is the initial view');
+  check(await page.locator('.compliance-cards article').count() === response.routes.length,
+    'route breakdown');
+  await page.getByRole('tab', { name: 'Visitas' }).click();
   check((await page.locator('.compliance-table-wrap tbody tr').count()) === response.items.length,
     'table matches API page');
   await page.getByRole('tab', { name: 'Rutas' }).click();
-  check(await page.locator('.compliance-cards article').count() === response.routes.length,
-    'route breakdown');
   await page.locator('.compliance-cards article').first().getByRole('button', { name: 'Ver visitas y permanencia' }).click();
-  await page.waitForURL(/route_id=/);
+  await page.waitForURL(/assignment_id=/);
   check(await page.getByRole('tab', { name: 'Visitas' }).getAttribute('aria-selected') === 'true',
     'route drilldown opens matching visits');
+  const assignmentId = new URL(page.url()).searchParams.get('assignment_id');
+  check((await page.locator('.compliance-table-wrap tbody tr').count()) > 0, 'assignment has visits');
+  const assignmentResponse = await page.evaluate(async () => {
+    const params = new URLSearchParams(location.search);
+    params.set('limit', '50');
+    return fetch(`/v1/admin/compliance?${params}`).then(r => r.json());
+  });
+  check(assignmentResponse.items.every(item => item.assignment_id === assignmentId),
+    'route drilldown contains only the selected assignment');
   await page.goto(`http://127.0.0.1:3501/compliance?from=${date}&to=${date}`);
   await page.locator('.compliance-tile').first().waitFor();
+  await page.getByRole('tab', { name: 'Visitas' }).click();
   await page.getByRole('tab', { name: 'Dispositivos / agentes' }).click();
   check(await page.locator('.compliance-cards article').count() === response.agents.length,
     'agent breakdown');
@@ -62,6 +75,7 @@ async (page) => {
   await page.reload();
   await page.locator('.compliance-tile').first().waitFor();
   check(page.url().includes(`agent_id=${response.items[0].agent_id}`), 'filter survives reload');
+  await page.getByRole('tab', { name: 'Visitas' }).click();
   await page.getByLabel('Dispositivo / agente', { exact: true }).fill('');
   await page.getByLabel('Desde').fill('2030-01-01');
   await page.getByLabel('Hasta').fill('2030-01-01');
@@ -81,5 +95,8 @@ async (page) => {
   check(await page.locator('.compliance-filters').isVisible(), 'mobile filters visible');
   check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     'mobile dashboard has no page overflow');
+  await page.getByRole('tab', { name: 'Rutas' }).click();
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    'mobile route cards have no page overflow');
   return { result: 'PASS', checks };
 }

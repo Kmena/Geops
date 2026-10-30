@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import type { Pool } from 'pg';
-import { summarizeVisits, type ComplianceVisit } from '../src/compliance-dashboard.js';
+import {
+  summarizeVisibleRoutes,
+  summarizeVisits,
+  type ComplianceVisit,
+} from '../src/compliance-dashboard.js';
 import { VisitEvaluationScheduler } from '../src/visit-evaluation-scheduler.js';
 import type { VisitEvaluationService } from '../src/visit-evaluation.js';
 import { isTechnicalStagingRuntime } from '../src/visit-technical-staging.js';
@@ -109,6 +113,11 @@ test('route summary completes only after every required visit is accredited', ()
   assert.equal(incomplete.routes[0]?.status, 'INCOMPLETE');
   assert.equal(incomplete.indicators.incomplete_routes, 1);
   assert.equal(incomplete.indicators.completed_routes, 0);
+  const clientFiltered = summarizeVisibleRoutes(visits, [visits[0]], afterWindow);
+  assert.equal(clientFiltered.routes[0]?.required_visits, 2);
+  assert.equal(clientFiltered.routes[0]?.completed_required_visits, 1);
+  assert.equal(clientFiltered.routes[0]?.status, 'INCOMPLETE');
+  assert.equal(clientFiltered.indicators.incomplete_routes, 1);
   const beforeWindow = summarizeVisits(visits, new Date('2026-10-29T03:00:00Z'));
   assert.equal(beforeWindow.routes[0]?.status, 'PENDING');
   const processing = summarizeVisits(

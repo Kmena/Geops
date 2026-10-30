@@ -111,7 +111,7 @@ try {
   $complianceOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $complianceTestFile
   if ($LASTEXITCODE -ne 0) { throw "Compliance browser E2E failed: $complianceOutput" }
   $complianceResult = ($complianceOutput | Out-String).Trim() | ConvertFrom-Json
-  if ($complianceResult.result -ne 'PASS' -or $complianceResult.checks -ne 21) { throw "Unexpected compliance browser E2E result: $complianceOutput" }
+  if ($complianceResult.result -ne 'PASS' -or $complianceResult.checks -ne 25) { throw "Unexpected compliance browser E2E result: $complianceOutput" }
   Write-Output "SPEC-03 Wave 5 browser E2E: $($complianceResult.checks) checks passed (desktop and 390 px mobile)."
   Push-Location -LiteralPath $root
   try {

@@ -163,7 +163,8 @@ async (page) => {
   await page.waitForFunction(() => document.querySelectorAll('.schedule-event').length >= 3);
   check((await page.locator('.schedule-event').count()) >= 3, 'agent filter applied');
   await page.goto(`http://127.0.0.1:3501/compliance?from=${date}&to=${date}`);
-  await page.getByRole('heading', { name: 'Cumplimiento de visitas' }).waitFor();
+  await page.getByRole('heading', { name: 'Verificación de rutas' }).waitFor();
+  await page.getByRole('tab', { name: 'Visitas' }).click();
   const pendingVisit = page.locator('tr').filter({ hasText: 'Pendiente de evaluación' }).first();
   await pendingVisit.getByRole('button', { name: 'Ver evidencia' }).click();
   check(await pendingVisit.getByText('Aún sin cálculo').count() === 1, 'unevaluated visit does not show zero dwell');
