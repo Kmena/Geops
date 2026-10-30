@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { VisitEvaluationService } from './visit-evaluation.js';
+import { isTechnicalStagingDatabase } from './visit-technical-staging.js';
 
 export interface VisitEvaluationTick {
   skipped: 'LOCKED' | 'ALGORITHM_NOT_APPROVED' | null;
@@ -26,7 +27,15 @@ export class VisitEvaluationScheduler {
       const algorithm = await db.query(
         "SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1' AND scope='APPROVED' AND calibration_evidence_ref IS NOT NULL AND activated_at<=now() LIMIT 1",
       );
-      if (!algorithm.rowCount)
+      const technicalStaging =
+        !algorithm.rowCount &&
+        (await isTechnicalStagingDatabase(db)) &&
+        (
+          await db.query(
+            "SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1' AND revision=3 AND scope='TECHNICAL_ONLY' LIMIT 1",
+          )
+        ).rowCount === 1;
+      if (!algorithm.rowCount && !technicalStaging)
         return { skipped: 'ALGORITHM_NOT_APPROVED', queued: 0, processed: 0 };
       const queued = await this.evaluation.reconcileOperational(100);
       const processed = (await this.evaluation.drain(100)).length;

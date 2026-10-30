@@ -368,7 +368,11 @@ export interface CompliancePage {
   total_visits: number;
   next_offset: number | null;
   reconciliation_policy: string;
-  evaluation_access: { can_request: boolean; algorithm_approved: boolean };
+  evaluation_access: {
+    can_request: boolean;
+    algorithm_approved: boolean;
+    technical_available: boolean;
+  };
 }
 
 export interface ComplianceDeviceLocation {

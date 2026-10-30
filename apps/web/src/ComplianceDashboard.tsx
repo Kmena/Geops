@@ -78,6 +78,7 @@ function VisitDetail({
   onQueued,
   canRequest,
   algorithmApproved,
+  technicalAvailable,
   locationAccess,
   csrf,
 }: {
@@ -86,6 +87,7 @@ function VisitDetail({
   onQueued: () => Promise<void>;
   canRequest: boolean;
   algorithmApproved: boolean;
+  technicalAvailable: boolean;
   locationAccess: boolean;
   csrf: string;
 }) {
@@ -158,9 +160,12 @@ function VisitDetail({
       setQueueError(
         failure instanceof ApiClientError && failure.code === 'algorithm_not_approved'
           ? 'La regla de permanencia aún no está aprobada para visitas reales.'
-          : failure instanceof ApiClientError && failure.status === 403
-            ? 'No tienes permiso para solicitar esta evaluación.'
-            : 'No se pudo solicitar la evaluación. Actualiza el estado e inténtalo de nuevo.',
+          : failure instanceof ApiClientError &&
+              failure.code === 'technical_assignment_out_of_scope'
+            ? 'Esta asignación es anterior a la revisión 3 y queda fuera de las pruebas técnicas.'
+            : failure instanceof ApiClientError && failure.status === 403
+              ? 'No tienes permiso para solicitar esta evaluación.'
+              : 'No se pudo solicitar la evaluación. Actualiza el estado e inténtalo de nuevo.',
       );
     } finally {
       setQueueing(false);
@@ -325,14 +330,29 @@ function VisitDetail({
               required
             />
           </label>
-          <button type="submit" disabled={!algorithmApproved || !eligible || activeJob || queueing}>
+          <button
+            type="submit"
+            disabled={
+              (!algorithmApproved && !technicalAvailable) || !eligible || activeJob || queueing
+            }
+          >
             {queueing
               ? 'Solicitando…'
-              : visit.evaluation_id
-                ? 'Reevaluar visita'
-                : 'Evaluar visita'}
+              : technicalAvailable && !algorithmApproved
+                ? visit.evaluation_id
+                  ? 'Reevaluar en prueba técnica'
+                  : 'Solicitar prueba técnica'
+                : visit.evaluation_id
+                  ? 'Reevaluar visita'
+                  : 'Evaluar visita'}
           </button>
-          {!algorithmApproved && (
+          {technicalAvailable && !algorithmApproved && (
+            <p>
+              Resultado técnico de staging, sin incumplimiento oficial. Solo se admiten asignaciones
+              creadas después de instalar la revisión 3.
+            </p>
+          )}
+          {!algorithmApproved && !technicalAvailable && (
             <p>La regla de permanencia requiere aprobación antes de evaluar visitas reales.</p>
           )}
           {!eligible && visit.status !== 'CANCELLED' && (
@@ -952,6 +972,7 @@ export function ComplianceDashboard() {
           onQueued={() => reload(true)}
           canRequest={page?.evaluation_access.can_request ?? false}
           algorithmApproved={page?.evaluation_access.algorithm_approved ?? false}
+          technicalAvailable={page?.evaluation_access.technical_available ?? false}
           locationAccess={page?.location_access ?? false}
           csrf={profile?.csrf_token ?? ''}
         />

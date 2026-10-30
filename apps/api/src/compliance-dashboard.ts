@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { appendAudit } from './audit/index.js';
+import { isTechnicalStagingDatabase } from './visit-technical-staging.js';
 import { ApiError } from './errors.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -487,6 +488,13 @@ export class ComplianceDashboardService {
           AND activated_at<=now()) AS algorithm_approved`,
         [actor],
       );
+      const technicalAvailable =
+        (await isTechnicalStagingDatabase(db)) &&
+        (
+          await db.query(
+            "SELECT 1 FROM visit_algorithm_revision WHERE algorithm_id='dwell-pair-v1' AND revision=3 AND scope='TECHNICAL_ONLY' LIMIT 1",
+          )
+        ).rowCount === 1;
       return {
         ...aggregates,
         filters: { ...query, limit, offset },
@@ -496,9 +504,9 @@ export class ComplianceDashboardService {
         location_access: canReadLocation,
         next_offset: offset + limit < visits.length ? offset + limit : null,
         reconciliation_policy: 'PENDING_APPROVAL',
-        evaluation_access: evaluationAccess.rows[0] ?? {
-          can_request: false,
-          algorithm_approved: false,
+        evaluation_access: {
+          ...(evaluationAccess.rows[0] ?? { can_request: false, algorithm_approved: false }),
+          technical_available: technicalAvailable,
         },
       };
     } finally {
