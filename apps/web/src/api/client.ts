@@ -320,6 +320,7 @@ export interface CompliancePage {
     insufficient_evidence_visits: number;
     unattributable_visits: number;
     completed_routes: number;
+    incomplete_routes: number;
     accredited_compliance_percent: number | null;
     compliance_denominator: number;
     provisional: boolean;

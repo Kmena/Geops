@@ -39,6 +39,8 @@ const processingLabels: Record<string, string> = {
   NOT_QUEUED: 'Evaluación no iniciada',
 };
 const label = (status: string) => statusLabels[status] ?? `Estado desconocido: ${status}`;
+const routeLabel = (status: string) =>
+  status === 'INCOMPLETE' ? 'Ruta incompleta: visitas obligatorias sin acreditar' : label(status);
 const visitLabel = (visit: ComplianceVisit) =>
   visit.status === 'INCOMPLETE' && visit.non_compliance_enabled
     ? 'Incumplimiento con cobertura suficiente'
@@ -167,12 +169,9 @@ function VisitDetail({
       setQueueError(
         failure instanceof ApiClientError && failure.code === 'algorithm_not_approved'
           ? 'La regla de permanencia aún no está aprobada para visitas reales.'
-          : failure instanceof ApiClientError &&
-              failure.code === 'technical_assignment_out_of_scope'
-            ? 'Esta asignación es anterior a la revisión 3 y queda fuera de las pruebas técnicas.'
-            : failure instanceof ApiClientError && failure.status === 403
-              ? 'No tienes permiso para solicitar esta evaluación.'
-              : 'No se pudo solicitar la evaluación. Actualiza el estado e inténtalo de nuevo.',
+          : failure instanceof ApiClientError && failure.status === 403
+            ? 'No tienes permiso para solicitar esta evaluación.'
+            : 'No se pudo solicitar la evaluación. Actualiza el estado e inténtalo de nuevo.',
       );
     } finally {
       setQueueing(false);
@@ -374,8 +373,8 @@ function VisitDetail({
           </button>
           {technicalAvailable && !algorithmApproved && (
             <p>
-              Resultado técnico de staging, sin incumplimiento oficial. Solo se admiten asignaciones
-              creadas después de instalar la revisión 3.
+              Resultado técnico de staging, sin incumplimiento oficial. El scheduler también calcula
+              y guarda automáticamente las visitas al terminar su jornada.
             </p>
           )}
           {!algorithmApproved && !technicalAvailable && (
@@ -659,6 +658,7 @@ export function ComplianceDashboard() {
         ['Evidencia insuficiente', indicators.insufficient_evidence_visits],
         ['Sin atribución', indicators.unattributable_visits],
         ['Rutas completadas', indicators.completed_routes],
+        ['Rutas incompletas', indicators.incomplete_routes],
       ] as const)
     : [];
   return (
@@ -919,7 +919,9 @@ export function ComplianceDashboard() {
                   <p>
                     {route.visits} visitas programadas · {minutes(route.credited_s)} acreditados
                   </p>
-                  <span className="compliance-status">{label(route.status)} · Provisional</span>
+                  <span className="compliance-status">
+                    {routeLabel(route.status)} · Provisional
+                  </span>
                   <p>
                     <button
                       type="button"

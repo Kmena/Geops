@@ -165,20 +165,11 @@ export class VisitEvaluationService {
     if (!selected.rows[0]) throw new ApiError(409, 'algorithm_not_approved', 'Conflict');
     if (selected.rows[0].scope !== 'APPROVED') await assertTechnicalDatabase(db);
     const revision = Number(selected.rows[0].revision);
-    const assignment = await db.query<{ created_at: Date; in_scope: boolean }>(
-      `SELECT created_at, created_at >=
-        (SELECT created_at FROM visit_algorithm_revision
-         WHERE algorithm_id='dwell-pair-v1' AND revision=3) AS in_scope
-       FROM route_assignment WHERE tenant_id=$1 AND id=$2 AND state='PLANNED'`,
+    const assignment = await db.query(
+      `SELECT 1 FROM route_assignment WHERE tenant_id=$1 AND id=$2 AND state='PLANNED'`,
       [tenant, assignmentId],
     );
     if (!assignment.rowCount) throw missing();
-    if (
-      isTechnicalStagingRuntime() &&
-      selected.rows[0].scope === 'TECHNICAL_ONLY' &&
-      !assignment.rows[0]?.in_scope
-    )
-      throw new ApiError(409, 'technical_assignment_out_of_scope', 'Conflict');
     await this.insertJob(db, tenant, assignmentId, actor, why, revision);
   }
 
@@ -369,18 +360,9 @@ export class VisitEvaluationService {
     const operational = algorithm.rows[0].scope !== 'LAB_ONLY';
     if (algorithm.rows[0].scope === 'LAB_ONLY') await assertLabDatabase(db);
     if (algorithm.rows[0].scope === 'TECHNICAL_ONLY') await assertTechnicalDatabase(db);
-    if (algorithm.rows[0].scope === 'TECHNICAL_ONLY' && isTechnicalStagingRuntime()) {
-      const scope = await db.query<{ in_scope: boolean }>(
-        `SELECT a.created_at >= r.created_at AS in_scope
-         FROM route_assignment a JOIN visit_algorithm_revision r
-           ON r.algorithm_id='dwell-pair-v1' AND r.revision=3
-         WHERE a.tenant_id=$1 AND a.id=$2`,
-        [tenant, assignmentId],
-      );
-      if (!scope.rows[0]?.in_scope)
-        throw new ApiError(409, 'technical_assignment_out_of_scope', 'Conflict');
-    }
     const params = validateDwellParameters(algorithm.rows[0].parameters);
+    if (algorithm.rows[0].scope === 'TECHNICAL_ONLY' && params.non_compliance_enabled !== false)
+      throw new ApiError(409, 'algorithm_not_approved', 'Conflict');
     const visits = await db.query<Row>(
       `SELECT stop_id,geofence_revision,latitude,longitude,radius_m,min_dwell_effective_s
       FROM assignment_visit WHERE tenant_id=$1 AND assignment_id=$2 ORDER BY stop_id`,
@@ -754,14 +736,12 @@ export class VisitEvaluationService {
           AND p.captured_at<least(a.ends_at,coalesce(l.valid_to,'infinity'::timestamptz))
         LEFT JOIN visit_evaluation_job j ON j.tenant_id=a.tenant_id AND j.assignment_id=a.id
         WHERE a.state='PLANNED' AND a.ends_at<=$3
-          AND (NOT $4::boolean OR a.created_at >=
-            (SELECT created_at FROM visit_algorithm_revision
-             WHERE algorithm_id='dwell-pair-v1' AND revision=3))
           AND (j.state IS NULL OR j.state='DONE')
-        GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count,j.algorithm_revision
+        GROUP BY a.tenant_id,a.id,a.created_by,j.state,j.position_count,j.algorithm_revision,j.finished_at,a.ends_at
         HAVING j.state IS NULL OR j.algorithm_revision<>$2 OR count(p.event_id)>j.position_count
+          OR j.finished_at<a.ends_at
         ORDER BY a.id LIMIT $1`,
-        [maxAssignments, revision, this.now(), isTechnicalStagingRuntime()],
+        [maxAssignments, revision, this.now()],
       );
       let queued = 0;
       for (const row of rows.rows) {
@@ -774,7 +754,9 @@ export class VisitEvaluationService {
           requested_at=now(),next_attempt_at=now(),attempts=0,
           started_at=NULL,finished_at=NULL,last_error_code=NULL
           WHERE visit_evaluation_job.state='DONE' AND
-            (visit_evaluation_job.algorithm_revision<>$5 OR visit_evaluation_job.position_count<$4)`,
+            (visit_evaluation_job.algorithm_revision<>$5 OR visit_evaluation_job.position_count<$4
+             OR visit_evaluation_job.finished_at<
+               (SELECT ends_at FROM route_assignment WHERE tenant_id=$1 AND id=$2))`,
           [row.tenant_id, row.assignment_id, row.requested_by, row.evidence_count, revision],
         );
         if (result.rowCount) {

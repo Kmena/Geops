@@ -157,7 +157,7 @@ export function normalizeVisit(row: DbRow, now: Date): ComplianceVisit {
   };
 }
 
-export function summarizeVisits(visits: ComplianceVisit[]) {
+export function summarizeVisits(visits: ComplianceVisit[], now: Date = new Date()) {
   const active = visits.filter((visit) => visit.status !== 'CANCELLED');
   const required = active.filter((visit) => visit.required);
   const completed = required.filter((visit) => visit.status === 'COMPLETED').length;
@@ -189,7 +189,14 @@ export function summarizeVisits(visits: ComplianceVisit[]) {
           ? 'COMPLETED'
           : obligations.some((item) => item.status === 'IN_PROGRESS')
             ? 'IN_PROGRESS'
-            : 'PENDING',
+            : obligations.some(
+                  (item) =>
+                    item.processing_state === 'PENDING' || item.processing_state === 'RUNNING',
+                )
+              ? 'PENDING'
+              : obligations.length > 0 && now.getTime() >= Date.parse(first.ends_at)
+                ? 'INCOMPLETE'
+                : 'PENDING',
       provisional: true,
     };
   });
@@ -228,6 +235,7 @@ export function summarizeVisits(visits: ComplianceVisit[]) {
       ).length,
       unattributable_visits: active.filter((visit) => visit.status === 'UNATTRIBUTABLE').length,
       completed_routes: routeItems.filter((route) => route.status === 'COMPLETED').length,
+      incomplete_routes: routeItems.filter((route) => route.status === 'INCOMPLETE').length,
       accredited_compliance_percent: required.length
         ? Math.round((completed * 10000) / required.length) / 100
         : null,
@@ -390,7 +398,7 @@ export class ComplianceDashboardService {
             (!query.status || visit.status === query.status) &&
             (!query.sync_state || visit.sync_state === query.sync_state),
         );
-      const aggregates = summarizeVisits(visits);
+      const aggregates = summarizeVisits(visits, now);
       const items = visits.slice(offset, offset + limit);
       const locations: ComplianceDeviceLocation[] = [];
       if (canReadLocation) {

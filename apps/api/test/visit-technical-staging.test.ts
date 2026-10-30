@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import type { Pool } from 'pg';
+import { summarizeVisits, type ComplianceVisit } from '../src/compliance-dashboard.js';
 import { VisitEvaluationScheduler } from '../src/visit-evaluation-scheduler.js';
 import type { VisitEvaluationService } from '../src/visit-evaluation.js';
 import { isTechnicalStagingRuntime } from '../src/visit-technical-staging.js';
@@ -73,4 +74,55 @@ test('technical revision runs only for exact staging runtime and database', asyn
     processed: 0,
   });
   assert.deepEqual(wrongOrigin.calls, { queued: 0, drained: 0 });
+});
+
+test('route summary completes only after every required visit is accredited', () => {
+  const base = {
+    assignment_id: 'route-1',
+    agent_id: 'agent-1',
+    agent_name: 'Paco',
+    route_id: 'route-template-1',
+    route_code: 'NOCHE',
+    route_name: 'Noche',
+    route_revision: 1,
+    local_date: '2026-10-28',
+    ends_at: '2026-10-29T04:00:00Z',
+    required: true,
+    credited_s: 600,
+    status: 'COMPLETED',
+    processing_state: 'DONE',
+    device_id: null,
+  } as ComplianceVisit;
+  const visits = [
+    { ...base, stop_id: 'sila', client_id: 'sila', client_name: 'SILA' },
+    {
+      ...base,
+      stop_id: 'other',
+      client_id: 'other',
+      client_name: 'Otro cliente',
+      status: 'INSUFFICIENT_EVIDENCE',
+      credited_s: 0,
+    },
+  ];
+  const afterWindow = new Date('2026-10-30T03:00:00Z');
+  const incomplete = summarizeVisits(visits, afterWindow);
+  assert.equal(incomplete.routes[0]?.status, 'INCOMPLETE');
+  assert.equal(incomplete.indicators.incomplete_routes, 1);
+  assert.equal(incomplete.indicators.completed_routes, 0);
+  const beforeWindow = summarizeVisits(visits, new Date('2026-10-29T03:00:00Z'));
+  assert.equal(beforeWindow.routes[0]?.status, 'PENDING');
+  const processing = summarizeVisits(
+    [
+      { ...visits[0], status: 'COMPLETED' },
+      { ...visits[1], processing_state: 'PENDING' },
+    ],
+    afterWindow,
+  );
+  assert.equal(processing.routes[0]?.status, 'PENDING');
+  const completed = summarizeVisits(
+    [{ ...visits[0] }, { ...visits[1], status: 'COMPLETED', credited_s: 600 }],
+    afterWindow,
+  );
+  assert.equal(completed.routes[0]?.status, 'COMPLETED');
+  assert.equal(completed.indicators.completed_routes, 1);
 });
