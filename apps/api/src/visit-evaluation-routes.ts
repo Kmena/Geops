@@ -55,6 +55,20 @@ export function registerVisitEvaluationRoutes(
       return service.history(admin.id, request.params.id, request.params.stopId);
     },
   );
+  app.get<{ Params: Params }>(
+    '/v1/admin/assignments/:id/visits/:stopId/technical-preview',
+    async (request, reply) => {
+      const admin = await requireAdmin(request, auth);
+      reply.header('cache-control', 'no-store');
+      return service.technicalPreview(
+        admin.id,
+        request.id,
+        request.params.id,
+        request.params.stopId,
+        header(request.headers['x-geops-access-reason']) ?? '',
+      );
+    },
+  );
   app.get<{ Params: Params }>('/v1/admin/assignments/:id/visits/:stopId/map', async (request) => {
     const admin = await requireAdmin(request, auth);
     return service.visitMap(

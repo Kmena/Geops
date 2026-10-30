@@ -413,6 +413,29 @@ export interface VisitMapData {
   }>;
 }
 
+export interface VisitTechnicalPreview {
+  assignment_id: string;
+  stop_id: string;
+  algorithm_id: string;
+  algorithm_revision: 3;
+  algorithm_scope: 'TECHNICAL_ONLY';
+  persisted: false;
+  non_compliance_enabled: false;
+  status: string;
+  required_s: number;
+  credited_s: number;
+  outside_credited_s: number | null;
+  unknown_s: number | null;
+  coverage_percent: number | null;
+  potential_inside_upper_s: number | null;
+  sample_count: number;
+  first_qualified_at: string | null;
+  last_qualified_at: string | null;
+  completed_at: string | null;
+  source_watermark: string | null;
+  credited_intervals: Array<{ from_at: string; to_at: string; credited_s: number }>;
+}
+
 export interface VisitEvaluationHistory {
   id: string;
   evaluation_no: number;
@@ -587,6 +610,11 @@ export const api = {
     read<VisitMapData>(`/v1/admin/assignments/${assignmentId}/visits/${stopId}/map`, {
       headers: { 'x-geops-access-reason': reason },
     }),
+  visitTechnicalPreview: (assignmentId: string, stopId: string, reason: string) =>
+    read<VisitTechnicalPreview>(
+      `/v1/admin/assignments/${assignmentId}/visits/${stopId}/technical-preview`,
+      { headers: { 'x-geops-access-reason': reason } },
+    ),
   requestVisitEvaluation: (assignmentId: string, reason: string, csrf: string) =>
     routeWrite<{ assignment_id: string; state: 'PENDING' }>(
       `/v1/admin/assignments/${assignmentId}/evaluations`,

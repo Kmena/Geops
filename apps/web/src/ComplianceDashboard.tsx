@@ -9,6 +9,7 @@ import {
   type VisitEvidenceInterval,
   type VisitOutsideInterval,
   type VisitMapData,
+  type VisitTechnicalPreview,
 } from './api/client.js';
 import { ComplianceMap } from './ComplianceMap.js';
 import { VisitEvidenceMap } from './VisitEvidenceMap.js';
@@ -105,6 +106,12 @@ function VisitDetail({
   const [mapData, setMapData] = useState<VisitMapData | null>(null);
   const [mapLoading, setMapLoading] = useState(false);
   const [mapError, setMapError] = useState('');
+  const [previewReason, setPreviewReason] = useState(
+    `Simulación técnica de visita del ${visit.local_date}`,
+  );
+  const [preview, setPreview] = useState<VisitTechnicalPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   useEffect(() => {
     let live = true;
     setLoading(true);
@@ -185,6 +192,25 @@ function VisitDetail({
       );
     } finally {
       setMapLoading(false);
+    }
+  };
+  const simulateVisit = async (event: FormEvent) => {
+    event.preventDefault();
+    setPreviewLoading(true);
+    setPreviewError('');
+    setPreview(null);
+    try {
+      setPreview(
+        await api.visitTechnicalPreview(visit.assignment_id, visit.stop_id, previewReason.trim()),
+      );
+    } catch (failure) {
+      setPreviewError(
+        failure instanceof ApiClientError && failure.status === 403
+          ? 'Tu cuenta necesita permiso para consultar la evidencia GPS de esta visita.'
+          : 'No se pudo simular la visita. Actualiza la página e inténtalo de nuevo.',
+      );
+    } finally {
+      setPreviewLoading(false);
     }
   };
   const activeJob = visit.processing_state === 'PENDING' || visit.processing_state === 'RUNNING';
@@ -362,6 +388,58 @@ function VisitDetail({
           {queueMessage && <p role="status">{queueMessage}</p>}
           {queueError && <p role="alert">{queueError}</p>}
         </form>
+      )}
+      {technicalAvailable && locationAccess && (
+        <section aria-label="Simulación técnica de permanencia">
+          <h3>Simulación técnica de permanencia</h3>
+          <p className="compliance-note">
+            Calcula con la geozona histórica y las posiciones vinculadas. No guarda una evaluación
+            ni modifica la visita; la revisión 3 no emite incumplimientos oficiales.
+          </p>
+          <form
+            className="compliance-evaluation-action"
+            onSubmit={(event) => void simulateVisit(event)}
+          >
+            <label>
+              Motivo de la simulación
+              <input
+                value={previewReason}
+                onChange={(event) => setPreviewReason(event.target.value)}
+                minLength={8}
+                maxLength={240}
+                required
+              />
+            </label>
+            <button type="submit" disabled={previewLoading}>
+              {previewLoading ? 'Calculando…' : 'Simular permanencia sin guardar'}
+            </button>
+          </form>
+          {previewError && <p role="alert">{previewError}</p>}
+          {preview && (
+            <div role="status">
+              <p>
+                <strong>{label(preview.status)}</strong> · {minutes(preview.credited_s)} de{' '}
+                {minutes(preview.required_s)} acreditados · {preview.sample_count} posiciones
+                examinadas por el cálculo.
+              </p>
+              <p>
+                {preview.outside_credited_s === null || preview.unknown_s === null
+                  ? 'Tiempo fuera y desconocido: sin cálculo.'
+                  : `${minutes(preview.outside_credited_s)} fuera · ${minutes(preview.unknown_s)} desconocido.`}{' '}
+                Cobertura:{' '}
+                {preview.coverage_percent === null ? 'sin cálculo' : `${preview.coverage_percent}%`}
+                .
+              </p>
+              <p>
+                {preview.credited_intervals.length} intervalos acreditados · última evidencia
+                recibida: {dateTime(preview.source_watermark)}.
+              </p>
+              <small>
+                Vista técnica calculada ahora; no aparece en el historial de evaluaciones.
+              </small>
+            </div>
+          )}
+        </section>
       )}
       {locationAccess && (
         <section aria-label="Mapa de evidencia GPS">

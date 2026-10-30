@@ -2,7 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { appendAudit } from './audit/index.js';
 import { ApiError } from './errors.js';
-import { isTechnicalStagingRuntime } from './visit-technical-staging.js';
+import {
+  isTechnicalStagingDatabase,
+  isTechnicalStagingRuntime,
+} from './visit-technical-staging.js';
 import {
   evaluateDwell,
   uniquePhysicalSeconds,
@@ -864,6 +867,103 @@ export class VisitEvaluationService {
           : rows.rows.some((row) => row.algorithm_scope === 'TECHNICAL_ONLY')
             ? 'TECHNICAL_ONLY'
             : 'PENDING',
+      };
+    });
+  }
+
+  async technicalPreview(
+    actor: string,
+    requestId: string,
+    assignmentId: string,
+    stopId: string,
+    accessReason: string,
+  ) {
+    const id = uuid(assignmentId),
+      stop = uuid(stopId),
+      why = reason(accessReason);
+    return this.read(actor, 'visit.result.read', async (db, tenant) => {
+      if (!(await isTechnicalStagingDatabase(db)))
+        throw new ApiError(409, 'technical_preview_unavailable', 'Conflict');
+      const permissions = await db.query(
+        `SELECT permission FROM admin_permission WHERE admin_id=$1
+         AND permission IN ('gps.location.read','visit.device.read') AND revoked_at IS NULL`,
+        [actor],
+      );
+      if (permissions.rows.length !== 2)
+        throw new ApiError(403, 'visit_map_forbidden', 'Forbidden');
+      const assignment = await this.assignment(db, tenant, id);
+      if (assignment.state !== 'PLANNED')
+        throw new ApiError(409, 'cancelled_assignment', 'Conflict');
+      const visit = await db.query<Row>(
+        `SELECT stop_id,geofence_revision,latitude,longitude,radius_m,min_dwell_effective_s
+         FROM assignment_visit WHERE tenant_id=$1 AND assignment_id=$2 AND stop_id=$3`,
+        [tenant, id, stop],
+      );
+      if (!visit.rows[0]) throw missing();
+      const algorithm = await db.query<{ scope: string; parameters: unknown }>(
+        `SELECT scope,parameters FROM visit_algorithm_revision
+         WHERE algorithm_id='dwell-pair-v1' AND revision=3`,
+      );
+      if (algorithm.rows[0]?.scope !== 'TECHNICAL_ONLY')
+        throw new ApiError(409, 'technical_preview_unavailable', 'Conflict');
+      const params = validateDwellParameters(algorithm.rows[0].parameters);
+      if (params.non_compliance_enabled !== false)
+        throw new ApiError(409, 'technical_preview_unavailable', 'Conflict');
+      const links = await db.query(
+        `SELECT 1 FROM agent_device_link WHERE tenant_id=$1 AND agent_id=$2
+         AND state<>'REVOKED' AND valid_from<$4
+         AND coalesce(valid_to,'infinity'::timestamptz)>$3 LIMIT 1`,
+        [tenant, assignment.agent_id, assignment.starts_at, assignment.ends_at],
+      );
+      const evidence = links.rowCount
+        ? await this.samples(db, tenant, assignment, visit.rows[0], true)
+        : { samples: [] as DwellSample[], barriers: [] as string[], watermark: null };
+      const calculated = links.rowCount
+        ? evaluateDwell({
+            samples: evidence.samples,
+            barriers: evidence.barriers,
+            radiusM: number(visit.rows[0].radius_m),
+            requiredS: number(visit.rows[0].min_dwell_effective_s),
+            startsAt: dateIso(assignment.starts_at),
+            endsAt: dateIso(assignment.ends_at),
+            now: this.now().toISOString(),
+            parameters: params,
+          })
+        : null;
+      await appendAudit(db, {
+        actorType: 'ADMIN',
+        actorId: actor,
+        action: 'visit.evaluation.technical_preview',
+        outcome: 'success',
+        correlationId: requestId,
+        metadata: { tenant_id: tenant, assignment_id: id, stop_id: stop, access_reason: why },
+      });
+      return {
+        assignment_id: id,
+        stop_id: stop,
+        algorithm_id: 'dwell-pair-v1',
+        algorithm_revision: 3,
+        algorithm_scope: 'TECHNICAL_ONLY' as const,
+        persisted: false as const,
+        non_compliance_enabled: false as const,
+        status: calculated?.status ?? 'UNATTRIBUTABLE',
+        required_s: number(visit.rows[0].min_dwell_effective_s),
+        credited_s: calculated?.creditedS ?? 0,
+        outside_credited_s: calculated?.outsideCreditedS ?? null,
+        unknown_s: calculated?.unknownS ?? null,
+        coverage_percent: calculated?.coveragePercent ?? null,
+        potential_inside_upper_s: calculated?.potentialInsideUpperS ?? null,
+        sample_count: calculated?.sampleCount ?? 0,
+        first_qualified_at: calculated?.firstQualifiedAt ?? null,
+        last_qualified_at: calculated?.lastQualifiedAt ?? null,
+        completed_at: calculated?.completedAt ?? null,
+        source_watermark: evidence.watermark,
+        credited_intervals:
+          calculated?.intervals.map((interval) => ({
+            from_at: interval.creditedFromAt,
+            to_at: interval.toAt,
+            credited_s: interval.creditedS,
+          })) ?? [],
       };
     });
   }
