@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.UserManager
 import android.content.RestrictionsManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.provider.Settings
 import android.net.Uri
 import android.text.InputType
@@ -59,7 +61,15 @@ class EnrollmentActivity : ComponentActivity() {
             if (!diagnosticInFlight) {
                 diagnosticInFlight = true
                 work.execute {
-                    val report = runCatching { AgentRuntime.diagnostics(applicationContext) }
+                    val report = runCatching { if (AppVariant.corporate)
+                        "GPS: ${if (AgentRuntime.isGpsActive()) "activo" else "inactivo"}. Diagnóstico disponible para administradores autorizados."
+                        else {
+                            val connectivity = getSystemService(ConnectivityManager::class.java)
+                            val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+                            val connected = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                            "Conectividad: ${if (connected) "disponible" else "sin Internet validado"}.\n" +
+                                AgentRuntime.diagnostics(applicationContext)
+                        } }
                         .getOrElse { "No se pudo leer el diagnóstico local. Vuelve a abrir GEOPS." }
                     runOnUiThread {
                         if (visible) diagnostics.text = report
@@ -80,8 +90,10 @@ class EnrollmentActivity : ComponentActivity() {
     private val restrictionsReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED) {
-                tryManagedEnrollment()
-                maybeStartManagedTracking()
+                if (AppVariant.corporate) {
+                    tryManagedEnrollment()
+                    maybeStartManagedTracking()
+                }
             }
         }
     }
@@ -89,6 +101,7 @@ class EnrollmentActivity : ComponentActivity() {
     private var completionMessage: String? = null
     private val qrScanner = registerForActivityResult(ScanContract()) { result ->
         val contents = result.contents
+        if (AppVariant.corporate) return@registerForActivityResult
         if (contents == null) {
             show("No se leyó el QR. Comprueba el permiso de cámara, vuelve a escanear o introduce los datos manualmente.")
             return@registerForActivityResult
@@ -168,8 +181,11 @@ class EnrollmentActivity : ComponentActivity() {
             it.setOnClickListener { action() }
             content.addView(it)
         }
-        paragraph("GEOPS · inscripción supervisada de prueba")
-        paragraph("La ubicación se captura durante la jornada autorizada. En dispositivos MDM con seguimiento aprobado individualmente, la política cubre las 24 horas. Android mostrará la notificación de seguimiento.")
+        paragraph(if (AppVariant.corporate) "GEOPS Corporate · dispositivo administrado" else
+            "GEOPS Personal · jornada laboral")
+        paragraph(if (AppVariant.corporate)
+            "El seguimiento continuo requiere inscripción MDM, autorización individual y política corporativa del servidor. Android mostrará los indicadores obligatorios de ubicación."
+            else "La ubicación se captura solo durante la jornada laboral autorizada, incluso fuera de rutas asignadas. Android mostrará sus indicadores de ubicación. Puedes revisar permisos, conectividad y última sincronización aquí.")
         val hasDevice = !saved.getString("device_id", null).isNullOrBlank()
         val hasActivation = hasDevice && !saved.getString("key_id", null).isNullOrBlank() &&
             !saved.getString("installation_id", null).isNullOrBlank()
@@ -179,11 +195,15 @@ class EnrollmentActivity : ComponentActivity() {
             hasDevice -> "Inscripción solicitada. Espera la confirmación en GEOPS Web y escanea el QR de activación."
             else -> "Sin inscripción local. No se captura ubicación."
         })
-        button("Iniciar seguimiento") {
-            if (saved.getBoolean("managed_enrolled", false))
-                saved.edit().putBoolean("managed_auto_start_enabled", true).apply()
+        val startButton = button("Iniciar seguimiento") {
             startTracking()
         }
+        startButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
+        val permissionsButton = button("Revisar permisos de ubicación") {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName")))
+        }
+        permissionsButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
         paragraph("Estado del seguimiento")
         diagnostics = paragraph("Cargando diagnóstico local…").apply {
             textSize = 15f
@@ -198,31 +218,36 @@ class EnrollmentActivity : ComponentActivity() {
                 setOrientationLocked(false)
             })
         }
+        scannerButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
         val manualFields = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
         content.addView(manualFields)
-        button("Introducir invitación manualmente") {
+        val manualInvitationButton = button("Introducir invitación manualmente") {
             manualFields.visibility = if (manualFields.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
+        manualInvitationButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
         deviceField = field("ID de dispositivo GEOPS", saved.getString("device_id", "") ?: "", manualFields)
-        mdmField = field("ID MDM sintético", parent = manualFields)
+        mdmField = field("Código de vínculo del dispositivo", parent = manualFields)
         invitationField = field("ID de invitación", parent = manualFields)
         secretField = field("Código de inscripción de un solo uso", parent = manualFields).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
         }
         claimButton = button("Reclamar invitación") { enroll() }
-        paragraph("Tras la confirmación en GEOPS Web, escanea el QR de activación y pulsa Iniciar seguimiento.")
+        claimButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
+        if (!AppVariant.corporate)
+            paragraph("Tras la confirmación en GEOPS Web, escanea el QR de activación y pulsa Iniciar seguimiento.")
         val manualActivation = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
         content.addView(manualActivation)
-        button("Introducir activación manualmente") {
+        val manualActivationButton = button("Introducir activación manualmente") {
             manualActivation.visibility = if (manualActivation.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
+        manualActivationButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
         keyField = field("ID de clave activada", saved.getString("key_id", "") ?: "", manualActivation)
         installationField = field("ID de instalación GPS", saved.getString("installation_id", "") ?: "", manualActivation)
         Button(this).also {
@@ -231,8 +256,9 @@ class EnrollmentActivity : ComponentActivity() {
             manualActivation.addView(it)
         }
         stopButton = button("Detener seguimiento") {
-            if (saved.getBoolean("managed_enrolled", false)) {
-                show("El seguimiento administrado se gestiona desde GEOPS Web.")
+            if (AppVariant.corporate) return@button
+            if (AgentRuntime.isWithinAuthorizedWindow(applicationContext)) {
+                show("Durante la jornada autorizada, el seguimiento se detiene automáticamente al terminar el horario.")
                 return@button
             }
             work.execute {
@@ -245,29 +271,32 @@ class EnrollmentActivity : ComponentActivity() {
                 show(message)
             }
         }
-        stopButton.visibility = if (saved.getBoolean("managed_enrolled", false)) View.GONE else View.VISIBLE
-        button("Ver diagnóstico técnico") {
+        stopButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
+        val adminDiagnostics = button("Ver diagnóstico técnico") {
             work.execute {
                 val message = try { AgentRuntime.diagnosticSummary(applicationContext) }
                     catch (_: Exception) { "Diagnóstico local no disponible. Comprueba la clave y el almacenamiento del teléfono." }
                 show(message)
             }
         }
+        adminDiagnostics.visibility = if (AppVariant.corporate && !adminDiagnosticsEnabled())
+            View.GONE else View.VISIBLE
         setContentView(ScrollView(this).apply { addView(content) })
     }
 
     override fun onResume() {
         super.onResume()
         visible = true
-        stopButton.visibility = if (getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
-                .getBoolean("managed_enrolled", false)) View.GONE else View.VISIBLE
+        stopButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
         diagnosticHandler.post(diagnosticRefresh)
         val filter = IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(restrictionsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(restrictionsReceiver, filter)
         restrictionsReceiverRegistered = true
-        tryManagedEnrollment()
-        maybeStartManagedTracking()
+        if (AppVariant.corporate) {
+            tryManagedEnrollment()
+            maybeStartManagedTracking()
+        }
     }
     override fun onPause() {
         visible = false
@@ -286,7 +315,13 @@ class EnrollmentActivity : ComponentActivity() {
 
     private fun show(message: String) = runOnUiThread { status.text = message }
 
+    private fun adminDiagnosticsEnabled(): Boolean =
+        (getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager)
+            ?.applicationRestrictions?.getBoolean("admin_diagnostics_enabled", false) == true
+
     private fun tryManagedEnrollment() {
+        if (!AppVariant.corporate) return
+        if (!AppVariant.corporate) return
         if (managedEnrollmentInFlight || enrollmentInFlight) return
         val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
         val restrictions = (getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager)
@@ -361,6 +396,8 @@ class EnrollmentActivity : ComponentActivity() {
 
     /** A visible MDM launch can start GPS only after Android has granted every required permission. */
     private fun maybeStartManagedTracking() {
+        if (!AppVariant.corporate) return
+        if (!AppVariant.corporate) return
         val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
         if (!visible || !saved.getBoolean("managed_auto_start_enabled", false) ||
             saved.getString("key_id", null).isNullOrBlank() || AgentRuntime.isRunning()) return
@@ -384,6 +421,7 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun enroll() {
+        if (AppVariant.corporate) return
         val invitationId = invitationField.text.toString().trim()
         if (completedInvitationId == invitationId) {
             completionMessage?.let(::show)
@@ -448,6 +486,7 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun saveManualActivation() {
+        if (AppVariant.corporate) return
         val saved = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
         if (saved.getString("device_id", null).isNullOrBlank() ||
             runCatching { AndroidKeys.existingEnrollmentSigner(AgentRuntime.SIGNING_ALIAS) }.isFailure) {
@@ -466,6 +505,8 @@ class EnrollmentActivity : ComponentActivity() {
     }
 
     private fun startTracking() {
+        try { AppVariant.requireEnrollment(applicationContext) }
+        catch (_: Exception) { show("La inscripción o configuración de esta variante no está autorizada."); return }
         if (trackingStartInFlight) return
         if (AgentRuntime.isRunning()) {
             show("El seguimiento ya está iniciado. Consulta las sesiones y ubicaciones en GEOPS Web.")

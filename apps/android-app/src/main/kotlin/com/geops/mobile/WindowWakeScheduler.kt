@@ -38,11 +38,13 @@ internal object WindowWakeScheduler {
 
     private fun local(context: Context): LocalState? = runCatching {
         val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        AppVariant.requireEnrollment(context)
         val identity = Identity(preferences.getString("device_id", null) ?: return null,
             preferences.getString("installation_id", null) ?: return null)
         val key = AndroidKeys.existingStateKey(AgentRuntime.STATE_ALIAS)
         val store = EncryptedFileAgentStore(
             AgentStateFiles.resolve(context.filesDir.toPath(), identity, key), key)
+        store.read().snapshot?.let(AppVariant::requireSnapshot)
         LocalState(PolicyEngine(identity, AndroidAgentClock(context) { AgentRuntime.currentBootId(context) },
             store) { android.icu.util.TimeZone.getTZDataVersion() },
             EncryptedDiagnosticJournal(

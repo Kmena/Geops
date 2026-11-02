@@ -14,9 +14,7 @@
     <application android:name="com.geops.mobile.GeopsApplication"
         android:allowBackup="false" android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true"
-        android:label="GEOPS" android:theme="@android:style/Theme.Material.Light.NoActionBar">
-        <meta-data android:name="android.content.APP_RESTRICTIONS"
-            android:resource="@xml/app_restrictions" />
+        android:label="@string/app_name" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name="com.geops.mobile.EnrollmentActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

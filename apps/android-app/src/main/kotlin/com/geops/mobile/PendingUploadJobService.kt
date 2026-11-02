@@ -127,7 +127,8 @@ class PendingUploadJobService : JobService() {
                 android.icu.util.TimeZone.getTZDataVersion()
             }
             val before = clock.read()
-            val incoming = PopConfigTransport(http).fetch(identity)
+            AppVariant.requireEnrollment(context)
+            val incoming = AppVariant.checked(PopConfigTransport(http)).fetch(identity)
             if (stopped.get() || AgentRuntime.isRunning()) return
             val latest = store.read()
             if (latest.uploadAuthBlocked ||

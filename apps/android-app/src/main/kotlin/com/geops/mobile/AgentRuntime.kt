@@ -62,7 +62,10 @@ object AgentRuntime {
 
     @Synchronized fun isRunning(): Boolean = starting || scheduler != null
     @Synchronized fun isGpsActive(): Boolean = scheduler != null && service?.isGpsRegistered() == true
+    @Synchronized fun isWithinAuthorizedWindow(context: Context): Boolean =
+        !AppVariant.corporate && activePolicy?.assessReadOnly()?.window != null
     private var activeStore: AgentStore? = null
+    private var activePolicy: PolicyEngine? = null
     private var activeController: TrackingController? = null
     private var starting = false
     private var stopGeneration = 0L
@@ -102,6 +105,7 @@ object AgentRuntime {
         try {
             val context = locationService.applicationContext
             val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+            AppVariant.requireEnrollment(context)
             val deviceId = preferences.getString("device_id", null) ?: error("device_missing")
             val keyId = preferences.getString("key_id", null) ?: error("key_missing")
             val installationId = preferences.getString("installation_id", null) ?: error("installation_missing")
@@ -126,6 +130,8 @@ object AgentRuntime {
             val http = PopHttpClient(SYNTHETIC_STAGING_BASE_URL, sessionProvider,
                 AndroidKeys.existingSigningKey(SIGNING_ALIAS, keyId), clock)
             val policy = PolicyEngine(identity, clock, store) { android.icu.util.TimeZone.getTZDataVersion() }
+            synchronized(this) { activePolicy = policy }
+            store.read().snapshot?.let(AppVariant::requireSnapshot)
             lastGpsCallbackMs = -1
             lastGpsDecision = null
             val priorIntent = store.read().trackingIntent
@@ -168,7 +174,7 @@ object AgentRuntime {
                     (queued.snapshot?.policy?.syncIntervalS ?: 300) * 1000L)
             }
             synchronized(this) { activeController = controller }
-            val config = PopConfigTransport(http)
+            val config = AppVariant.checked(PopConfigTransport(http))
             try { controller.refreshConfig(config); lastConfigIssue = null }
             catch (failure: Exception) {
                 if (!transientConfigFailure(failure) ||
@@ -279,6 +285,7 @@ object AgentRuntime {
         scheduler = null
         captureExecutor = null
         activeStore = null
+        activePolicy = null
         activeController = null
         service = null
     }
@@ -450,6 +457,7 @@ object AgentRuntime {
     }
 
     fun stopByUser(context: Context) {
+        require(!AppVariant.corporate && !isWithinAuthorizedWindow(context)) { "stop_not_allowed" }
         val runningService: GeopsLocationService?
         synchronized(this) {
             try { activeController?.stop("USER_REQUESTED") } catch (_: Exception) { }

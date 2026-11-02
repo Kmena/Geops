@@ -78,6 +78,7 @@ Thumbs.db
 *.jks
 *.keystore
 apps/android-app/.local-signing/
+apps/android-app/.spec04-debug/
 *.asc
 id_rsa*
 id_ed25519*

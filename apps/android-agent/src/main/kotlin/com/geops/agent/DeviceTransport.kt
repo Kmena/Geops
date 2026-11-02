@@ -197,7 +197,10 @@ object ConfigParser {
             at(o.getString("offline_not_after")), windows, policy, display, schema,
             if (schema == 2 && active) at(o.getString("assignment_start")) else null,
             if (schema == 2 && active) at(o.getString("authorization_until")) else null,
-            if (schema == 2 && active) o.getString("tzdb_version") else null)
+            if (schema == 2 && active) o.getString("tzdb_version") else null,
+            if (schema == 2 && o.has("ownership")) o.getString("ownership") else null,
+            if (schema == 2 && o.has("tracking_mode")) o.getString("tracking_mode") else null,
+            if (schema == 2 && o.has("authorization_version")) o.getLong("authorization_version") else null)
     }
     private fun at(value: String) = Instant.parse(value).toEpochMilli()
     private fun keys(o: JSONObject, allowed: Set<String>) {

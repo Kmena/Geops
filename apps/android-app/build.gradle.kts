@@ -11,12 +11,25 @@ android {
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
-        applicationId = "com.geops.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.1.8-enterprise-candidate"
+        versionCode = 1
+        versionName = "1.0.0-spec04-test"
     }
+    flavorDimensions += "ownership"
+    productFlavors {
+        create("corporate") {
+            dimension = "ownership"
+            applicationId = "com.geops.corporate"
+            buildConfigField("String", "GEOPS_VARIANT", "\"CORPORATE_MANAGED\"")
+        }
+        create("personal") {
+            dimension = "ownership"
+            applicationId = "com.geops.personal"
+            buildConfigField("String", "GEOPS_VARIANT", "\"PERSONAL_BYOD\"")
+        }
+    }
+    buildFeatures { buildConfig = true }
     sourceSets.getByName("main") {
         java.srcDirs("../android-agent/src/main/kotlin", "../android-agent/src/android/kotlin")
     }

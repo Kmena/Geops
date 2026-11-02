@@ -1,18 +1,18 @@
-# GEOPS Android Enterprise candidate
+# GEOPS Android SPEC-04
 
-This module packages one APK (`com.geops.mobile`) for supervised QR enrollment or per-device ManageEngine Managed Configurations. The origin is currently the GEOPS Staging URL compiled into the client. No physical device has been tested in this branch. Android does not launch an APK merely because MDM installed it; validate ManageEngine **Launch app after installation** on a Fully Managed device. Offline GPS authorization remains limited to 12 hours.
+Two Android product flavors share `android-agent`: `corporate` (`com.geops.corporate`) and `personal` (`com.geops.personal`). Both compile against GEOPS Staging and require an authenticated GPS v2 policy matching the APK. Corporate requires ManageEngine Managed Configurations and individual server authorization; Personal uses visible QR enrollment and work-window tracking. See [the delivery matrix and physical test plan](../../docs/operations/spec04-dual-apk-readiness.md).
 
-For managed enrollment, the administrator issues a one-use invitation for one linked MDM device and assigns its five values through Managed Configurations. The visible activity reads them, signs the challenge with Android Keystore, and starts GPS automatically only if Android has granted all required permissions. The foreground service displays a notification. The QR supervised path remains available. See [Android Enterprise readiness](../../specs/spec-03-clients-geofences-routes/android-enterprise-mdm-readiness.md) for the exact ManageEngine procedure and physical validation gates.
+## Authorized debug builds
 
-## Local build and signing
-
-Build with JDK 17+, Android SDK 36 and Gradle 8.14, or use `Dockerfile.build` from the repository root. Without signing variables, `assembleRelease` produces `build/outputs/apk/release/GeopsAndroid-release-unsigned.apk`; this file must not be uploaded to MDM. An authorized operator must provide the existing approved keystore outside the repository through all four environment variables: `GEOPS_ANDROID_RELEASE_KEYSTORE`, `GEOPS_ANDROID_RELEASE_STORE_PASSWORD`, `GEOPS_ANDROID_RELEASE_KEY_ALIAS` and `GEOPS_ANDROID_RELEASE_KEY_PASSWORD`. Gradle fails if the set is incomplete or the file is missing. There is no fallback to a test key.
+Use the standard Android debug signer only for authorized physical tests. Keep the local debug signing home outside Git and separate from the discontinued `com.geops.mobile` app:
 
 ```powershell
-docker build -t geops-android-build:local -f apps/android-app/Dockerfile.build apps/android-app
-docker run --rm -v "${PWD}:/workspace" -w /workspace/apps/android-app -e GRADLE_USER_HOME=/tmp/geops-gradle geops-android-build:local gradle assembleRelease --no-daemon
+New-Item -ItemType Directory -Path apps/android-app/.spec04-debug -Force | Out-Null
+docker run --rm -v "${PWD}:/workspace" -v "${PWD}/apps/android-app/.spec04-debug:/root/.android" -w /workspace/apps/android-app -e GRADLE_USER_HOME=/workspace/apps/android-app/.gradle geops-android-build:local gradle assembleCorporateDebug assemblePersonalDebug --no-daemon
 ```
 
-The example produces an unsigned APK. To sign, mount the approved keystore read-only if using Docker and inject the four variables from the operator's protected environment; never put passwords in arguments, repository env files or logs. Verify the signed APK with Android SDK `apksigner verify --verbose --print-certs`, record its SHA-256, compare the certificate with the installed APK, and check that `versionCode` increased. Do not uninstall as an update workaround: that can lose the Android Keystore identity and encrypted offline queue.
+The APKs appear under `build/outputs/apk/corporate/debug/` and `build/outputs/apk/personal/debug/`. Verify each with `apksigner verify --verbose --print-certs` and `aapt dump badging` before copying to a controlled test bundle. Preserve the same debug key for updates to these test installations. Never upload a debug APK automatically to MDM or use it for production.
 
-No APK was installed or published in this branch. Do not upload the unsigned APK or disclose invitation secrets.
+## Future release signing
+
+`assembleCorporateRelease assemblePersonalRelease` produces unsigned APKs until an approved release keystore is provided through all four `GEOPS_ANDROID_RELEASE_*` variables. The existing `geops-test.jks` is excluded. Do not generate or use a release key before the separate key custody procedure is approved. Both new application IDs require new installation and enrollment; an APK for `com.geops.mobile` cannot update either flavor.

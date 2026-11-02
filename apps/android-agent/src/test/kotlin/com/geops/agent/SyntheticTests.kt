@@ -285,7 +285,7 @@ fun main() {
         p.load(snap(version = 8, active = false)); check(p.current() == null)
         check(runCatching { p.load(snap(version = 7)) }.isFailure)
     }
-    test("V1 authorization expiry accepts an inactive same-version snapshot only after expiry") {
+    test("SPEC-04 authenticated v2 ownership revocation stops same-version capture immediately") {
         val clock = FakeClock(); val (policy, _) = engine(clock)
         val active = snap().copy(schemaVersion = 2, assignmentStartMs = start,
             authorizedUntilMs = start + 60_000L, tzdbVersion = tzdb("America/Guatemala"),
@@ -293,10 +293,26 @@ fun main() {
         policy.load(active)
         val tombstone = snap(active = false).copy(schemaVersion = 2,
             serverTimeMs = start + 30_000L, verifiedAtMs = start + 30_000L)
-        check(runCatching { policy.load(tombstone) }.isFailure)
-        clock.advance(60_000L)
-        policy.load(tombstone.copy(serverTimeMs = clock.wall, verifiedAtMs = clock.wall))
+        policy.load(tombstone)
         check(policy.current() == null)
+    }
+    test("SPEC-04 APK policy gate rejects exchanged ownership and continuous BYOD") {
+        val base = snap().copy(schemaVersion = 2, authorizationVersion = 1,
+            ownership = "PERSONAL_BYOD", trackingMode = "WORK_WINDOW")
+        VariantPolicyGate.requireAllowed(base, "PERSONAL_BYOD")
+        check(runCatching { VariantPolicyGate.requireAllowed(base, "CORPORATE_MANAGED") }.isFailure)
+        val continuous = base.copy(ownership = "CORPORATE_MANAGED", trackingMode = "CONTINUOUS",
+            policy = base.policy!!.copy(mdmContinuous = true, captureIntervalS = 60))
+        VariantPolicyGate.requireAllowed(continuous, "CORPORATE_MANAGED")
+        val restored = StateCodec.decode(StateCodec.encode(AgentState(snapshot = continuous))).snapshot!!
+        VariantPolicyGate.requireAllowed(restored, "CORPORATE_MANAGED")
+        check(runCatching { VariantPolicyGate.requireAllowed(continuous, "PERSONAL_BYOD") }.isFailure)
+        check(runCatching { VariantPolicyGate.requireAllowed(continuous.copy(
+            policy = continuous.policy!!.copy(captureIntervalS = 120)), "CORPORATE_MANAGED") }.isFailure)
+        val inactive = base.copy(active = false, policy = null, trackingMode = "OFF")
+        VariantPolicyGate.requireAllowed(inactive, "PERSONAL_BYOD")
+        check(runCatching { VariantPolicyGate.requireAllowed(base.copy(schemaVersion = 1),
+            "PERSONAL_BYOD") }.isFailure)
     }
     test("V06 changed window, V07 offline end, V08 drift and reboot") {
         val clock = FakeClock(); val (p, _) = engine(clock)

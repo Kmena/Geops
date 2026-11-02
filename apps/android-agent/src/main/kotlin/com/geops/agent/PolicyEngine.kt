@@ -30,8 +30,31 @@ data class Snapshot(
     val offlineNotAfterMs: Long, val windows: List<Window>, val policy: Policy?,
     val display: PolicyDisplay? = null,
     val schemaVersion: Int = 1, val assignmentStartMs: Long? = null,
-    val authorizedUntilMs: Long? = null, val tzdbVersion: String? = null
+    val authorizedUntilMs: Long? = null, val tzdbVersion: String? = null,
+    val ownership: String? = null, val trackingMode: String? = null,
+    val authorizationVersion: Long? = null
 )
+
+/** Defense in depth for the two APKs; server ownership and PoP remain authoritative. */
+object VariantPolicyGate {
+    fun requireAllowed(snapshot: Snapshot, ownership: String) {
+        require(ownership == "CORPORATE_MANAGED" || ownership == "PERSONAL_BYOD") { "invalid_variant" }
+        require(snapshot.schemaVersion == 2 && snapshot.authorizationVersion != null &&
+            snapshot.ownership != null && snapshot.trackingMode != null) { "spec04_policy_required" }
+        if (!snapshot.active) {
+            require(snapshot.trackingMode == "OFF") { "invalid_inactive_mode" }
+            return
+        }
+        val corporate = ownership == "CORPORATE_MANAGED"
+        require(snapshot.ownership == ownership &&
+            snapshot.trackingMode == (if (corporate) "CONTINUOUS" else "WORK_WINDOW")) {
+            "variant_policy_mismatch"
+        }
+        require(snapshot.policy?.mdmContinuous == corporate) { "variant_policy_mismatch" }
+        if (corporate) require(snapshot.policy.captureIntervalS == 60) { "corporate_interval_mismatch" }
+    }
+}
+
 data class ClockReading(val wallMs: Long, val elapsedMs: Long, val bootId: String,
                         val automaticTimeEnabled: Boolean = true)
 interface AgentClock { fun read(): ClockReading }
@@ -67,8 +90,11 @@ class PolicyEngine(
         require(incoming.assignmentVersion >= old.highestAssignmentVersion) { "assignment_downgrade" }
         if (incoming.assignmentVersion == old.highestAssignmentVersion && old.snapshot != null) {
             val upgrade = old.snapshot!!.schemaVersion == 1 && incoming.schemaVersion == 2
+            // An authenticated revocation must take effect immediately, even if the
+            // assignment version has not changed with the ownership grant.
             val expiredTombstone = old.snapshot!!.active && !incoming.active &&
-                old.snapshot!!.authorizedUntilMs?.let { incoming.serverTimeMs >= it } == true
+                (incoming.schemaVersion == 2 ||
+                    old.snapshot!!.authorizedUntilMs?.let { incoming.serverTimeMs >= it } == true)
             require(expiredTombstone ||
                 (incoming.active == old.snapshot!!.active && incoming.policy == old.snapshot!!.policy &&
                     (upgrade || (incoming.authorizedUntilMs == old.snapshot!!.authorizedUntilMs &&

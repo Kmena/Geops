@@ -176,6 +176,8 @@ internal object StateCodec {
                 .put("offline_end", v.offlineNotAfterMs).put("contract", v.schemaVersion)
                 .put("assignment_start", v.assignmentStartMs)
                 .put("authorized_until", v.authorizedUntilMs).put("tzdb", v.tzdbVersion)
+                .put("ownership", v.ownership).put("tracking_mode", v.trackingMode)
+                .put("authorization_version", v.authorizationVersion)
             val windows = JSONArray()
             v.windows.forEach { windows.put(JSONObject().put("id", it.scheduledSessionId).put("start", it.startMs).put("end", it.endMs)) }
             snap.put("windows", windows)
@@ -251,7 +253,11 @@ internal object StateCodec {
                 v.getLong("offline_end"), list, p, display, v.optInt("contract", 1),
                 v.optLong("assignment_start").takeIf { v.has("assignment_start") && !v.isNull("assignment_start") },
                 v.optLong("authorized_until").takeIf { v.has("authorized_until") && !v.isNull("authorized_until") },
-                v.optString("tzdb").takeUnless { it.isEmpty() || it == "null" })
+                v.optString("tzdb").takeUnless { it.isEmpty() || it == "null" },
+                v.optString("ownership").takeUnless { it.isEmpty() || it == "null" },
+                v.optString("tracking_mode").takeUnless { it.isEmpty() || it == "null" },
+                v.optLong("authorization_version").takeIf {
+                    v.has("authorization_version") && !v.isNull("authorization_version") })
         }
         o.optJSONObject("session")?.let { s.session = LocalSession(it.getString("id"), it.getString("scheduled"),
             it.getLong("version"), it.getInt("revision"), it.getLong("started"), it.getString("state")) }

@@ -10,4 +10,6 @@
         android:restrictionType="string" />
     <restriction android:key="expires_at" android:title="Invitation expiry (UTC)"
         android:restrictionType="string" />
+    <restriction android:key="admin_diagnostics_enabled" android:title="Allow administrator diagnostics"
+        android:restrictionType="bool" android:defaultValue="false" />
 </restrictions>
