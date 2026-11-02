@@ -1,6 +1,6 @@
 # GEOPS GPS por propiedad del dispositivo — SDD
 
-Estado: V1 parcial en checkout; despliegue y activación corporativa pendientes. Base auditada: `codex/apk-v9-b32-staging-integration`, 2026-11-02.
+Estado: V1 desplegada en staging con 35 migraciones; activación corporativa real pendiente del mapeo de tenant y autorización individual. Base auditada: `codex/apk-v9-b32-staging-integration`, 2026-11-02.
 
 La V1 exige autorización **individual**. Vincular inventario ManageEngine no activa GPS. Ningún dispositivo existente se reclasifica o habilita por migración. La mutación administrativa usa `If-Match` sobre `gps_device_ownership.version`, guarda base, evidencia, aviso y vigencia; la configuración v2 devuelve propiedad, modo y versión y cierra captura para `UNVERIFIED`. La política BYOD reusa las ventanas GPS existentes. Una revocación recibida produce configuración inactiva y conserva la subida de cola.
 
@@ -33,7 +33,7 @@ Una caída temporal de ManageEngine conserva evidencia MDM previamente verificad
 | MDM | `mdm_inventory_device` y `gps_mdm_continuous_authorization` identifican equipos administrados. La integración no debe convertirse en latido necesario de cada fix. Verificar la interpretación real de `managed_status` y propiedad de ManageEngine en el tenant piloto. |
 | Rutas / visitas | `route_assignment` tiene tiempo de visita y vínculo histórico `agent_device_link`. `visit_evaluation` y revisión 3 `TECHNICAL_ONLY` permanecen. No hay llamada de rutas desde el motor Android. |
 | Web | `/gps/devices` y políticas GPS muestran sesiones y ventanas. Falta propiedad explícita y jornada BYOD en la ficha de dispositivo. Las rutas tienen editor propio. |
-| Staging B32 | Checkout con migraciones 0033 y despliegue simple en `scripts/deploy/simple`; hay modificaciones locales previas en controladores y wrapper. No usar esos controladores para cambios ordinarios. |
+| Staging SPEC-04 | Despliegue simple de migraciones 0034–0035, API/Web por digest y gate abierto. El dispositivo heredado identificado quedó `DECOMMISSIONED` con cero autorizaciones offline registradas aún vigentes. |
 
 ## Contrato objetivo y persistencia
 
