@@ -243,7 +243,7 @@ export function registerIdentityRoutes(
       return { status: 'REVOKED' };
     },
   );
-  for (const action of ['suspend', 'reactivate', 'retire'] as const) {
+  for (const action of ['suspend', 'reactivate', 'retire', 'decommission'] as const) {
     app.post<{ Params: { device_id: string }; Body: unknown }>(
       `/v1/admin/devices/:device_id/${action}`,
       async (request) => {
@@ -252,9 +252,15 @@ export function registerIdentityRoutes(
         const reason = string(data, 'reason', 240).trim();
         if (reason.length < 8) throw new ApiError(400, 'reason_required', 'Invalid request', true);
         const deviceId = uuid(request.params.device_id);
-        await lifecycle[action](deviceId, admin.id, request.id, reason);
+        const result = await lifecycle[action](deviceId, admin.id, request.id, reason);
         return {
-          status: { suspend: 'SUSPENDED', reactivate: 'ACTIVE', retire: 'RETIRED' }[action],
+          status: {
+            suspend: 'SUSPENDED',
+            reactivate: 'ACTIVE',
+            retire: 'RETIRED',
+            decommission: 'DECOMMISSIONED',
+          }[action],
+          ...(action === 'decommission' ? result : {}),
         };
       },
     );

@@ -207,6 +207,21 @@
         "responses": { "200": { "description": "RETIRED" }, "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" }, "409": { "description": "Binding conflict" } }
       }
     },
+    "/v1/admin/devices/{device_id}/decommission": {
+      "post": {
+        "tags": ["GpsAdmin"], "operationId": "decommissionLegacyDevice",
+        "description": "Audited terminal transition for one explicitly identified synthetic-tenant device. Revokes server-side GPS grants, preserves history and returns possible offline authorizations. Does not attest that an offline phone has stopped.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeviceId" }, { "$ref": "#/components/parameters/Origin" }, { "$ref": "#/components/parameters/Csrf" }],
+        "requestBody": { "$ref": "#/components/requestBodies/DeviceLifecycleReason" },
+        "responses": {
+          "200": { "description": "DECOMMISSIONED, offline_pending and offline_not_after" },
+          "401": { "description": "Unauthenticated" }, "403": { "description": "Forbidden" },
+          "404": { "description": "Device outside synthetic tenant" },
+          "409": { "description": "Invalid transition" }
+        }
+      }
+    },
     "/v1/admin/devices/{device_id}/invitations/{invitation_id}": {
       "delete": {
         "tags": ["GpsAdmin"], "operationId": "cancelDeviceInvitation",
@@ -1898,6 +1913,36 @@
         } } } }, "401": { "description": "Unauthenticated" }, "403": { "description": "Missing capability" } }
       }
     },
+    "/v1/admin/gps-devices/{id}/tracking-authorization": {
+      "put": {
+        "operationId": "setGpsTrackingAuthorization",
+        "description": "Explicit per-device tracking authorization. Requires gps.policy.assign and tenant access. If-Match is the quoted ownership version; zero creates an unclassified record. Corporate activation additionally requires current server-side ManageEngine evidence and a communicated privacy notice. No bulk activation.",
+        "security": [{ "adminCookie": [], "csrfHeader": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "If-Match", "in": "header", "required": true, "schema": { "type": "string", "pattern": "^\"[0-9]+\"$" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["ownership", "reason"],
+          "properties": {
+            "ownership": { "type": "string", "enum": ["CORPORATE_MANAGED", "PERSONAL_BYOD", "UNVERIFIED"] },
+            "valid_until": { "type": "string", "format": "date-time" },
+            "authorization_basis": { "type": "string", "minLength": 8, "maxLength": 240 },
+            "privacy_notice_at": { "type": "string", "format": "date-time" },
+            "evidence_ref": { "type": "string", "minLength": 8, "maxLength": 240 },
+            "reason": { "type": "string", "minLength": 8, "maxLength": 240 }
+          }
+        } } } },
+        "responses": {
+          "200": { "description": "Authorization version advanced" },
+          "403": { "description": "Missing capability or tenant access" },
+          "409": { "description": "MDM evidence invalid or BYOD device managed" },
+          "412": { "description": "Version conflict" },
+          "422": { "description": "Invalid authorization" },
+          "428": { "description": "If-Match required" }
+        }
+      }
+    },
     "/v1/admin/gps-installations": {
       "post": {
         "operationId": "activateGpsInstallation",
@@ -2633,13 +2678,17 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["schema_version", "capture_anchor_id", "device_id", "installation_id",
-          "assignment_version", "active", "server_time", "verified_at", "offline_not_after", "window_instances"],
+          "assignment_version", "authorization_version", "ownership", "tracking_mode",
+          "active", "server_time", "verified_at", "offline_not_after", "window_instances"],
         "properties": {
           "schema_version": {"const": 2},
           "capture_anchor_id": {"type": "string", "format": "uuid"},
           "device_id": {"type": "string", "format": "uuid"},
           "installation_id": {"type": "string", "format": "uuid"},
           "assignment_version": {"type": "integer", "minimum": 0},
+          "authorization_version": {"type": "integer", "minimum": 0},
+          "ownership": {"type": "string", "enum": ["CORPORATE_MANAGED", "PERSONAL_BYOD", "UNVERIFIED"]},
+          "tracking_mode": {"type": "string", "enum": ["CONTINUOUS", "WORK_WINDOW", "OFF"]},
           "active": {"type": "boolean"},
           "server_time": {"type": "string", "format": "date-time"},
           "verified_at": {"type": "string", "format": "date-time"},
@@ -3331,6 +3380,11 @@
                 },
                 "accuracy_m": {
                   "type": "number"
+                },
+                "route_classification": {
+                  "type": "string",
+                  "enum": ["EN_RUTA", "FUERA_DE_RUTA"],
+                  "description": "Clasificación por vínculo y asignación histórica a la hora de captura; no indica geozona."
                 }
               }
             }

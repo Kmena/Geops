@@ -157,6 +157,17 @@ export function GpsDeviceWorkspace() {
   const [selectedPoint, setSelectedPoint] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [overviewToken, setOverviewToken] = useState(0);
+  const [authorizationMode, setAuthorizationMode] = useState<
+    '' | 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED'
+  >('');
+  const [authorizationUntil, setAuthorizationUntil] = useState('');
+  const [privacyNoticeAt, setPrivacyNoticeAt] = useState('');
+  const [authorizationBasis, setAuthorizationBasis] = useState('');
+  const [evidenceRef, setEvidenceRef] = useState('');
+  const [authorizationReason, setAuthorizationReason] = useState('');
+  const [authorizationBusy, setAuthorizationBusy] = useState(false);
+  const [authorizationError, setAuthorizationError] = useState<string | null>(null);
+  const [authorizationSuccess, setAuthorizationSuccess] = useState(false);
   const names = useMemo(() => deviceNames(devices), [devices]);
   const active = devices.find((item) => item.device_id === selected);
   const canRead = capabilities?.includes('gps.location.read') ?? false;
@@ -435,10 +446,64 @@ export function GpsDeviceWorkspace() {
 
   function changeDevice(value: string) {
     setSelected(value);
+    setAuthorizationMode('');
+    setAuthorizationError(null);
+    setAuthorizationSuccess(false);
     setFilterSession('');
     setResult(null);
     setSelectedPoint(null);
     setPositionError(null);
+  }
+  async function saveAuthorization() {
+    if (!profile || !active || !authorizationMode) return;
+    setAuthorizationError(null);
+    setAuthorizationSuccess(false);
+    const needsProof = authorizationMode !== 'UNVERIFIED';
+    const until = Date.parse(authorizationUntil);
+    const notice = Date.parse(privacyNoticeAt);
+    if (
+      authorizationReason.trim().length < 8 ||
+      (needsProof &&
+        (!Number.isFinite(until) ||
+          until <= Date.now() ||
+          !Number.isFinite(notice) ||
+          notice > Date.now() ||
+          authorizationBasis.trim().length < 8 ||
+          evidenceRef.trim().length < 8))
+    ) {
+      setAuthorizationError('Completa motivo, vigencia, base, evidencia y fecha del aviso.');
+      return;
+    }
+    setAuthorizationBusy(true);
+    try {
+      await remote.setTrackingAuthorization(
+        selected,
+        active.ownership_version ?? 0,
+        {
+          ownership: authorizationMode,
+          reason: authorizationReason.trim(),
+          ...(needsProof
+            ? {
+                valid_until: new Date(until).toISOString(),
+                privacy_notice_at: new Date(notice).toISOString(),
+                authorization_basis: authorizationBasis.trim(),
+                evidence_ref: evidenceRef.trim(),
+              }
+            : {}),
+        },
+        profile.csrf_token,
+      );
+      setAuthorizationSuccess(true);
+      setAuthorizationMode('');
+      setAuthorizationReason('');
+      setOverviewToken((old) => old + 1);
+    } catch (error) {
+      setAuthorizationError(
+        error instanceof Error ? error.message : 'No se pudo guardar la autorización.',
+      );
+    } finally {
+      setAuthorizationBusy(false);
+    }
   }
   function changePreset(value: TimePreset) {
     setPreset(value);
@@ -541,6 +606,20 @@ export function GpsDeviceWorkspace() {
             <div className="gps-device-status">
               <strong>{names.get(selected)}</strong>
               <span>
+                {active?.ownership === 'CORPORATE_MANAGED'
+                  ? 'Corporativo administrado'
+                  : active?.ownership === 'PERSONAL_BYOD'
+                    ? 'Personal · jornada laboral'
+                    : 'Propiedad sin verificar'}
+              </span>
+              <span>
+                {active?.tracking_authorized
+                  ? active.ownership === 'CORPORATE_MANAGED'
+                    ? 'Política GPS continua · 60 s objetivo'
+                    : 'Política GPS de jornada laboral'
+                  : 'Captura sin autorización V1'}
+              </span>
+              <span>
                 {health
                   ? `${health.state} · ${health.source === 'DEVICE_OBSERVATION' ? 'observado por dispositivo' : 'inferido por servidor'}`
                   : 'Estado de salud sin consultar'}
@@ -568,8 +647,128 @@ export function GpsDeviceWorkspace() {
                   <dt>Seguimiento</dt>
                   <dd>{latest ? 'Ubicaciones recibidas' : 'Sin datos suficientes'}</dd>
                 </div>
+                <div>
+                  <dt>MDM</dt>
+                  <dd>
+                    {active?.mdm_state === 'VERIFIED'
+                      ? 'Verificado'
+                      : (active?.mdm_state ?? 'Sin verificar')}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Captura observada</dt>
+                  <dd>{active?.capture_state ?? 'Sin observación'}</dd>
+                </div>
+                <div>
+                  <dt>Última ubicación</dt>
+                  <dd>{format(active?.last_location_at, zone)}</dd>
+                </div>
+                <div>
+                  <dt>Última sincronización</dt>
+                  <dd>{format(active?.last_ack_at, zone)}</dd>
+                </div>
               </dl>
             </details>
+            {active?.ownership === 'PERSONAL_BYOD' && (
+              <p>
+                La jornada laboral se configura en <Link to="/gps/policies">Políticas GPS</Link>.
+                Las ventanas de rutas no controlan la captura.
+              </p>
+            )}
+            {capabilities?.includes('gps.policy.assign') && (
+              <details className="gps-device-technical">
+                <summary>Autorizar o revocar seguimiento</summary>
+                <p>
+                  La activación se aplica solo a este dispositivo. Requiere evidencia y aviso de
+                  privacidad comunicado.
+                </p>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveAuthorization();
+                  }}
+                >
+                  <label>
+                    Modalidad
+                    <select
+                      value={authorizationMode}
+                      onChange={(event) =>
+                        setAuthorizationMode(event.target.value as typeof authorizationMode)
+                      }
+                      required
+                    >
+                      <option value="">Selecciona una modalidad</option>
+                      <option value="CORPORATE_MANAGED">Corporativo MDM · continuo</option>
+                      <option value="PERSONAL_BYOD">Personal BYOD · jornada</option>
+                      <option value="UNVERIFIED">Revocar · sin verificar</option>
+                    </select>
+                  </label>
+                  {authorizationMode && authorizationMode !== 'UNVERIFIED' && (
+                    <>
+                      <label>
+                        Vigente hasta
+                        <input
+                          type="datetime-local"
+                          value={authorizationUntil}
+                          onChange={(event) => setAuthorizationUntil(event.target.value)}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Aviso comunicado el
+                        <input
+                          type="datetime-local"
+                          value={privacyNoticeAt}
+                          onChange={(event) => setPrivacyNoticeAt(event.target.value)}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Base de autorización
+                        <input
+                          value={authorizationBasis}
+                          onChange={(event) => setAuthorizationBasis(event.target.value)}
+                          minLength={8}
+                          maxLength={240}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Referencia de evidencia
+                        <input
+                          value={evidenceRef}
+                          onChange={(event) => setEvidenceRef(event.target.value)}
+                          minLength={8}
+                          maxLength={240}
+                          required
+                        />
+                      </label>
+                    </>
+                  )}
+                  <label>
+                    Motivo del cambio
+                    <input
+                      value={authorizationReason}
+                      onChange={(event) => setAuthorizationReason(event.target.value)}
+                      minLength={8}
+                      maxLength={240}
+                      required
+                    />
+                  </label>
+                  <button
+                    className="gps-tracking-submit"
+                    type="submit"
+                    disabled={authorizationBusy || !authorizationMode}
+                  >
+                    {authorizationBusy ? 'Guardando…' : 'Guardar autorización'}
+                  </button>
+                  {authorizationError && <p role="alert">{authorizationError}</p>}
+                  {authorizationSuccess && (
+                    <p role="status">Autorización actualizada para este dispositivo.</p>
+                  )}
+                </form>
+              </details>
+            )}
             <details className="gps-device-technical">
               <summary>Detalles técnicos y permisos</summary>
               <dl>
@@ -598,6 +797,18 @@ export function GpsDeviceWorkspace() {
                 <div>
                   <dt>Versión asignada</dt>
                   <dd>{active?.assignment_version ?? 'No disponible'}</dd>
+                </div>
+                <div>
+                  <dt>Versión de propiedad</dt>
+                  <dd>{active?.ownership_version ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Fuente de verificación</dt>
+                  <dd>{active?.verification_source ?? 'Sin verificar'}</dd>
+                </div>
+                <div>
+                  <dt>Vigencia de propiedad</dt>
+                  <dd>{format(active?.ownership_valid_until, zone)}</dd>
                 </div>
                 <div>
                   <dt>Empresas autorizadas</dt>
@@ -822,6 +1033,14 @@ export function GpsDeviceWorkspace() {
                   <span>Antigüedad de la captura: {age(selectedPosition.captured_at)}</span>
                   <span>{positionSession(selectedPosition.session_id)}</span>
                   <span>
+                    Ruta:{' '}
+                    {selectedPosition.route_classification === 'EN_RUTA'
+                      ? 'En ruta asignada'
+                      : selectedPosition.route_classification === 'FUERA_DE_RUTA'
+                        ? 'Fuera de ruta asignada'
+                        : 'Sin clasificación disponible'}
+                  </span>
+                  <span>
                     Precisión ±{selectedPosition.accuracy_m} m
                     {selectedPosition.accuracy_m >= LOW_ACCURACY_M ? ' · precisión baja' : ''}
                   </span>
@@ -928,6 +1147,7 @@ export function GpsDeviceWorkspace() {
                       <th scope="col">Retraso</th>
                       <th scope="col">Precisión</th>
                       <th scope="col">Sesión</th>
+                      <th scope="col">Ruta</th>
                       <th scope="col">Coordenadas</th>
                     </tr>
                   </thead>
@@ -955,6 +1175,13 @@ export function GpsDeviceWorkspace() {
                         </td>
                         <td>{positionSession(item.session_id)}</td>
                         <td>
+                          {item.route_classification === 'EN_RUTA'
+                            ? 'En ruta'
+                            : item.route_classification === 'FUERA_DE_RUTA'
+                              ? 'Fuera de ruta'
+                              : 'Sin dato'}
+                        </td>
+                        <td>
                           {item.latitude.toFixed(5)}, {item.longitude.toFixed(5)}
                         </td>
                       </tr>
@@ -973,7 +1200,7 @@ export function GpsDeviceWorkspace() {
               <dl>
                 <div>
                   <dt>Última captura recibida</dt>
-                  <dd>{format(latest?.captured_at, zone)}</dd>
+                  <dd>{format(active?.last_location_at ?? latest?.captured_at, zone)}</dd>
                 </div>
                 <div>
                   <dt>Última recepción de ubicación</dt>
@@ -981,7 +1208,7 @@ export function GpsDeviceWorkspace() {
                 </div>
                 <div>
                   <dt>Última sincronización confirmada</dt>
-                  <dd>No disponible</dd>
+                  <dd>{format(active?.last_ack_at, zone)}</dd>
                 </div>
                 <div>
                   <dt>Posiciones pendientes en el teléfono</dt>

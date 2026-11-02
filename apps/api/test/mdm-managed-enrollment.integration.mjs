@@ -20,7 +20,7 @@ if (
   throw new Error('Disposable synthetic DB required');
 const pool = new pg.Pool({ connectionString: url });
 try {
-  assert.equal((await applyMigrations(pool)).length, 32);
+  assert.equal((await applyMigrations(pool)).length, 34);
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
     csrfKey: Buffer.alloc(32, 12),
@@ -149,17 +149,14 @@ try {
         [draft.id],
       )
     ).rows[0].n,
-    1,
+    0,
   );
   const config = new GpsDeviceConfigService(pool);
   const principal = { deviceId: draft.id, keyId: activated.key_id, sessionId: randomUUID() };
   const v2 = await config.snapshot(principal, randomUUID(), 2);
-  assert.equal(v2.active, true);
-  assert.equal(v2.policy.mdm_continuous, true);
-  assert.equal(v2.policy.capture_interval_s, 60);
-  assert.equal(v2.policy.sync_interval_s, 300);
-  assert.ok(v2.window_instances.length >= 7);
-  assert.ok(Date.parse(v2.offline_not_after) > Date.now() + 11 * 3_600_000);
+  assert.equal(v2.active, false, 'MDM enrollment alone does not authorize continuous capture');
+  assert.equal(v2.ownership, 'UNVERIFIED');
+  assert.equal(v2.tracking_mode, 'OFF');
   const v1 = await config.snapshot(principal, randomUUID(), 1);
   assert.equal(v1.active, false);
 

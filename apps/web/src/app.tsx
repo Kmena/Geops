@@ -413,7 +413,8 @@ function Inventory() {
             )}
             <EnrollmentPanel
               devices={managedDevices.filter(
-                (item) => !['SUSPENDED', 'REVOKED', 'RETIRED'].includes(item.status),
+                (item) =>
+                  !['SUSPENDED', 'REVOKED', 'RETIRED', 'DECOMMISSIONED'].includes(item.status),
               )}
               capabilities={gpsAccess.data?.capabilities ?? []}
               refresh={refreshInventory}
@@ -915,7 +916,9 @@ function MdmAdminWorkspace({ refreshStatus }: { refreshStatus: () => void }) {
                 >
                   <option value="">Seleccionar registro</option>
                   {(geops.data?.items ?? [])
-                    .filter((item) => !['REVOKED', 'RETIRED'].includes(item.status))
+                    .filter(
+                      (item) => !['REVOKED', 'RETIRED', 'DECOMMISSIONED'].includes(item.status),
+                    )
                     .map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.display_label} · {item.id}

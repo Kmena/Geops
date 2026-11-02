@@ -121,8 +121,22 @@ object ConfigParser {
         keys(o, setOf("schema_version", "capture_anchor_id", "device_id", "installation_id",
             "assignment_version", "active", "policy_id", "policy_revision", "policy",
             "server_time", "verified_at", "offline_not_after", "tzdb_version", "window_instances",
-            "assignment_start", "authorization_until"))
+            "assignment_start", "authorization_until", "ownership",
+            "authorization_version", "tracking_mode"))
         require(schema == 2 || (!o.has("assignment_start") && !o.has("authorization_until")))
+        if (o.has("ownership") || o.has("authorization_version") || o.has("tracking_mode")) {
+            require(schema == 2 && o.has("ownership") && o.has("authorization_version") &&
+                o.has("tracking_mode")) { "incomplete_tracking_authorization" }
+            val ownership = o.getString("ownership")
+            val mode = o.getString("tracking_mode")
+            require(ownership in setOf("CORPORATE_MANAGED", "PERSONAL_BYOD", "UNVERIFIED") &&
+                o.getLong("authorization_version") >= 0L &&
+                mode in setOf("CONTINUOUS", "WORK_WINDOW", "OFF"))
+            require((!o.getBoolean("active") && mode == "OFF") ||
+                (o.getBoolean("active") &&
+                    ((ownership == "CORPORATE_MANAGED" && mode == "CONTINUOUS") ||
+                     (ownership == "PERSONAL_BYOD" && mode == "WORK_WINDOW"))))
+        }
         val identity = Identity(o.getString("device_id"), o.getString("installation_id"))
         require(identity == expected) { "foreign_config" }
         val active = o.getBoolean("active")
@@ -140,6 +154,8 @@ object ConfigParser {
             val begins = p.getString("start_local")
             val ends = p.getString("end_local")
             val mdmContinuous = p.optBoolean("mdm_continuous", false)
+            if (o.has("tracking_mode"))
+                require(mdmContinuous == (o.getString("tracking_mode") == "CONTINUOUS"))
             require(!p.has("mdm_continuous") || (schema == 2 && p.getBoolean("mdm_continuous")))
             require(begins.matches(localTime) && ends.matches(localTime) &&
                 (if (mdmContinuous) begins == "00:00" && ends == "00:00" &&

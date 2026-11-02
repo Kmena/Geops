@@ -187,11 +187,17 @@ export class DeviceLifecycleService {
     return this.repository.retire(deviceId, adminId, correlationId, reason);
   }
 
+  decommission(deviceId: string, adminId: string, correlationId: string, reason: string) {
+    return this.repository.decommission(deviceId, adminId, correlationId, reason);
+  }
+
   async replace(oldDeviceId: string, newLabel: string): Promise<DeviceRecord> {
     if (!newLabel.trim() || newLabel.length > 120)
       throw new ApiError(400, 'invalid_label', 'Invalid request', true);
     return transaction(this.pool, async (db) => {
       const old = await this.repository.getDeviceForUpdate(db, oldDeviceId);
+      if (old.status === 'DECOMMISSIONED')
+        throw new ApiError(409, 'invalid_transition', 'Conflict', true);
       if (old.status !== 'REVOKED') {
         await db.query(
           "UPDATE geops_device SET status='REVOKED',version=version+1,updated_at=now() WHERE id=$1",

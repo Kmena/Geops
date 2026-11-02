@@ -77,6 +77,16 @@ export interface RemoteGpsDevice {
   tenant_id: string;
   installation_id: string | null;
   assignment_version: number;
+  ownership?: 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED';
+  mdm_state?: 'VERIFIED' | 'REVOKED' | 'NOT_APPLICABLE' | 'UNKNOWN';
+  verification_source?: string;
+  ownership_valid_until?: string | null;
+  ownership_version?: number;
+  tracking_authorized?: boolean;
+  privacy_notice_at?: string | null;
+  last_location_at?: string | null;
+  last_ack_at?: string | null;
+  capture_state?: string;
 }
 
 export interface RemoteGpsSession {
@@ -100,6 +110,7 @@ export interface RemotePosition {
   latitude: number;
   longitude: number;
   accuracy_m: number;
+  route_classification?: 'EN_RUTA' | 'FUERA_DE_RUTA';
 }
 
 export interface RemoteContinuityAlert {
@@ -267,7 +278,10 @@ export class GpsRemote {
     csrf: string,
     etag?: string,
   ): Promise<T> {
-    if (!csrf || (etag !== undefined && !etag.startsWith('"gps-policy:')))
+    if (
+      !csrf ||
+      (etag !== undefined && !etag.startsWith('"gps-policy:') && !/^"[0-9]+"$/.test(etag))
+    )
       throw new ApiClientError(422, 'invalid_mutation');
     const response = await this.send(apiPath(path), {
       method,
@@ -376,6 +390,30 @@ export class GpsRemote {
 
   devices(signal?: AbortSignal): Promise<{ items: RemoteGpsDevice[] }> {
     return this.get('/v1/admin/gps-devices', undefined, signal);
+  }
+
+  setTrackingAuthorization(
+    deviceId: string,
+    version: number,
+    details: {
+      ownership: 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED';
+      valid_until?: string;
+      authorization_basis?: string;
+      privacy_notice_at?: string;
+      evidence_ref?: string;
+      reason: string;
+    },
+    csrf: string,
+  ): Promise<{ authorization_version: number }> {
+    if (!uuid.test(deviceId) || !Number.isSafeInteger(version) || version < 0)
+      throw new ApiClientError(422, 'invalid_tracking_authorization');
+    return this.mutate(
+      'PUT',
+      `/v1/admin/gps-devices/${deviceId}/tracking-authorization`,
+      details,
+      csrf,
+      `"${version}"`,
+    );
   }
 
   sessions(

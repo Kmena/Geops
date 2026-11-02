@@ -92,6 +92,15 @@ try {
   check((await getConfig()).statusCode === 403, 'config does not auto-provision installation');
   await pool.query('INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_binding_id,activation_tenant_id) VALUES($1,$2,$3,$4,$5)',
     [installationId, deviceId, iso(-60_000), bindingId, 'tenant-a']);
+  const unverified = await getConfig();
+  check(unverified.statusCode === 200 && unverified.json().active === false,
+    'unverified installation has no capture authorization');
+  await pool.query(`INSERT INTO gps_device_ownership(device_id,ownership,mdm_state,
+    verification_source,evidence_ref,verified_at,valid_until,tracking_authorized,
+    authorization_basis,privacy_notice_at,updated_by,change_reason)
+    VALUES($1,'PERSONAL_BYOD','NOT_APPLICABLE','ADMIN_EVIDENCE',$2,now(),$3,true,
+      'Synthetic BYOD work authorization',$4,$5,'Synthetic config authorization')`,
+    [deviceId, 'SYNTHETIC-CONFIG-CONSENT', iso(3 * 86_400_000), iso(-86_400_000), adminId]);
   const delivered = await getConfig();
   if (delivered.statusCode !== 200) console.error('config status', delivered.statusCode, delivered.payload);
   check(delivered.statusCode === 200 && delivered.headers['cache-control'] === 'no-store',

@@ -67,9 +67,12 @@ class PolicyEngine(
         require(incoming.assignmentVersion >= old.highestAssignmentVersion) { "assignment_downgrade" }
         if (incoming.assignmentVersion == old.highestAssignmentVersion && old.snapshot != null) {
             val upgrade = old.snapshot!!.schemaVersion == 1 && incoming.schemaVersion == 2
-            require(incoming.active == old.snapshot!!.active && incoming.policy == old.snapshot!!.policy &&
-                (upgrade || (incoming.authorizedUntilMs == old.snapshot!!.authorizedUntilMs &&
-                    incoming.display == old.snapshot!!.display))) {
+            val expiredTombstone = old.snapshot!!.active && !incoming.active &&
+                old.snapshot!!.authorizedUntilMs?.let { incoming.serverTimeMs >= it } == true
+            require(expiredTombstone ||
+                (incoming.active == old.snapshot!!.active && incoming.policy == old.snapshot!!.policy &&
+                    (upgrade || (incoming.authorizedUntilMs == old.snapshot!!.authorizedUntilMs &&
+                        incoming.display == old.snapshot!!.display)))) {
                 "same_version_conflict"
             }
         }

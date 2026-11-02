@@ -190,6 +190,20 @@ export class GpsPolicyService {
       [deviceId, now],
     );
     if (changed.rowCount) {
+      const device = await db.query<{ status: string }>(
+        'SELECT status FROM geops_device WHERE id=$1',
+        [deviceId],
+      );
+      if (device.rows[0]?.status === 'DECOMMISSIONED') return;
+      await db.query(
+        `UPDATE gps_device_ownership SET ownership='UNVERIFIED',mdm_state='UNKNOWN',
+         verification_source='NONE',evidence_ref=NULL,verified_at=NULL,valid_until=NULL,
+         tracking_authorized=false,authorization_basis=NULL,privacy_notice_at=NULL,
+         version=version+1,updated_by=NULL,updated_at=$2,
+         change_reason='MDM administration revoked or device unlinked'
+         WHERE device_id=$1 AND ownership='CORPORATE_MANAGED'`,
+        [deviceId, now],
+      );
       await this.rebuildDevice(db, deviceId, now);
       await appendAudit(db, {
         actorType: adminId ? 'ADMIN' : 'SYSTEM',
@@ -757,6 +771,11 @@ export class GpsPolicyService {
       "UPDATE gps_scheduled_session SET state='CANCELLED' WHERE device_id=$1 AND state='SCHEDULED' AND start_at >= $2",
       [deviceId, at],
     );
+    const device = await db.query<{ status: string }>(
+      'SELECT status FROM geops_device WHERE id=$1',
+      [deviceId],
+    );
+    if (device.rows[0]?.status !== 'ACTIVE') return;
     const source = await db.query<{
       id: string;
       policy_id: string;

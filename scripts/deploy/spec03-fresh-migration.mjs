@@ -16,7 +16,7 @@ if (
 const pool = new pg.Pool({ connectionString: url });
 try {
   const catalog = await loadMigrations();
-  assert.equal(catalog.length, 33);
+  assert.equal(catalog.length, 35);
   assert.deepEqual(
     await applyMigrations(pool),
     catalog.map((item) => item.version),
@@ -44,7 +44,7 @@ try {
   ]) {
     assert.equal((await pool.query('SELECT to_regclass($1) AS name', [table])).rows[0].name, table);
   }
-  console.log('SPEC-03 fresh 0001 -> 0033, schema, checksum and replay: PASS');
+  console.log('GEOPS fresh 0001 -> 0035, schema, checksum and replay: PASS');
 } finally {
   await pool.end();
 }

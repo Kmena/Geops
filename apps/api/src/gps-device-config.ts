@@ -64,6 +64,24 @@ export class GpsDeviceConfigService {
       if (!Number.isSafeInteger(version))
         throw new ApiError(503, 'gps_version_unavailable', 'Service unavailable', true);
       const now = this.now();
+      const grant = await db.query<{
+        ownership: 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED';
+        version: string;
+        valid_until: Date | null;
+        tracking_authorized: boolean;
+        mdm_verified: boolean;
+      }>(
+        `SELECT o.ownership,o.version,o.valid_until,o.tracking_authorized,
+           EXISTS(SELECT 1 FROM gps_mdm_continuous_authorization c
+             JOIN mdm_inventory_device m ON m.provider=c.provider AND m.region=c.region
+               AND m.customer_id=c.customer_id AND m.mdm_device_id=c.mdm_device_id
+             WHERE c.device_id=o.device_id AND c.revoked_at IS NULL
+               AND m.geops_device_id=o.device_id AND m.status='managed'
+               AND m.platform='android' AND NOT m.removed) AS mdm_verified
+         FROM gps_device_ownership o WHERE o.device_id=$1 FOR SHARE`,
+        [principal.deviceId],
+      );
+      const authorization = grant.rows[0];
       const active = await db.query<Assignment>(
         `SELECT e.policy_id,e.revision,r.published_name,r.days_iso,
            to_char(r.start_local,'HH24:MI') AS start_local,
@@ -85,8 +103,20 @@ export class GpsDeviceConfigService {
         throw new ApiError(503, 'gps_assignment_ambiguous', 'Service unavailable', true);
       // A v1 client has no full-day managed-policy semantics. Fail closed with
       // an inactive snapshot instead of sending a schedule it cannot parse.
+      const candidate = active.rows[0];
+      const validGrant =
+        authorization?.tracking_authorized &&
+        (authorization.valid_until?.getTime() ?? 0) > now.getTime() &&
+        (authorization.ownership === 'PERSONAL_BYOD' ||
+          (authorization.ownership === 'CORPORATE_MANAGED' && authorization.mdm_verified));
+      const modeMatches =
+        candidate &&
+        ((authorization?.ownership === 'CORPORATE_MANAGED' && candidate.mdm_continuous) ||
+          (authorization?.ownership === 'PERSONAL_BYOD' && !candidate.mdm_continuous));
       const assignment =
-        contractVersion === 1 && active.rows[0]?.mdm_continuous ? undefined : active.rows[0];
+        validGrant && modeMatches && !(contractVersion === 1 && candidate?.mdm_continuous)
+          ? candidate
+          : undefined;
       const anchorId = randomUUID();
       const horizon = new Date(now.getTime() + 7 * 86_400_000);
       const windowRows = assignment
@@ -108,6 +138,7 @@ export class GpsDeviceConfigService {
           now.getTime() + 12 * 3_600_000,
           assignment?.assignment_until.getTime() ?? Number.POSITIVE_INFINITY,
           assignment?.valid_until.getTime() ?? Number.POSITIVE_INFINITY,
+          authorization?.valid_until?.getTime() ?? Number.POSITIVE_INFINITY,
           firstWindowEnd,
         ),
       );
@@ -117,6 +148,17 @@ export class GpsDeviceConfigService {
         device_id: principal.deviceId,
         installation_id: holder.installation_id,
         assignment_version: version,
+        ...(contractVersion === 2
+          ? {
+              ownership: authorization?.ownership ?? 'UNVERIFIED',
+              authorization_version: Number(authorization?.version ?? 0),
+              tracking_mode: assignment?.mdm_continuous
+                ? 'CONTINUOUS'
+                : assignment
+                  ? 'WORK_WINDOW'
+                  : 'OFF',
+            }
+          : {}),
         active: Boolean(assignment),
         server_time: iso(now),
         verified_at: iso(now),
@@ -155,6 +197,7 @@ export class GpsDeviceConfigService {
                       Math.min(
                         assignment.assignment_until.getTime(),
                         assignment.valid_until.getTime(),
+                        authorization?.valid_until?.getTime() ?? Number.POSITIVE_INFINITY,
                       ),
                     ),
                   ),
@@ -205,7 +248,11 @@ export class GpsDeviceConfigService {
           contractVersion === 2 ? (assignment?.assignment_start ?? null) : null,
           contractVersion === 2 && assignment
             ? new Date(
-                Math.min(assignment.assignment_until.getTime(), assignment.valid_until.getTime()),
+                Math.min(
+                  assignment.assignment_until.getTime(),
+                  assignment.valid_until.getTime(),
+                  authorization?.valid_until?.getTime() ?? Number.POSITIVE_INFINITY,
+                ),
               )
             : null,
         ],

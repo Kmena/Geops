@@ -402,6 +402,44 @@ paths:
                     const: REVOKED
         '403':
           $ref: '#/components/responses/IdentityError'
+  /v1/admin/devices/{device_id}/decommission:
+    post:
+      tags: [Identity]
+      operationId: decommissionLegacyDevice
+      description: Audited server-side retirement of one device selected by UUID; returns possible offline authorization expiry.
+      security:
+        - adminCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 8, maxLength: 240}
+      responses:
+        '200':
+          description: Server-side decommission; offline authorization may still be effective on the phone.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, offline_pending, offline_not_after]
+                properties:
+                  status: {type: string, const: DECOMMISSIONED}
+                  offline_pending: {type: integer, minimum: 0}
+                  offline_not_after: {type: [string, 'null'], format: date-time}
+        '403':
+          $ref: '#/components/responses/IdentityError'
+        '404':
+          $ref: '#/components/responses/IdentityError'
+        '409':
+          $ref: '#/components/responses/IdentityError'
   /v1/admin/mdm/status:
     get:
       tags: [MDM]
@@ -578,7 +616,7 @@ components:
         mdm_binding_id: {$ref: '#/components/schemas/Uuid'}
         status:
           type: string
-          enum: [DRAFT, INVITED, PENDING_CONFIRMATION, ACTIVE, SUSPENDED, REVOKED, RETIRED]
+          enum: [DRAFT, INVITED, PENDING_CONFIRMATION, ACTIVE, SUSPENDED, REVOKED, RETIRED, DECOMMISSIONED]
     DevicePage:
       type: object
       additionalProperties: false

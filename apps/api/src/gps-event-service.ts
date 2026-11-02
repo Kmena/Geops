@@ -1351,13 +1351,26 @@ export class GpsEventService {
       latitude: number;
       longitude: number;
       accuracy_m: number;
+      route_classification: 'EN_RUTA' | 'FUERA_DE_RUTA';
     }>(
-      `SELECT event_id,session_id,captured_at,received_at,ST_Y(geom::geometry) AS latitude,
-         ST_X(geom::geometry) AS longitude,accuracy_m FROM position_event
-       WHERE device_id=$1 AND tenant_id=ANY($2::text[]) AND
-         captured_at >=$3 AND captured_at<$4 AND ($8::uuid IS NULL OR session_id=$8) AND
-         ($5::timestamptz IS NULL OR (captured_at,event_id)<($5::timestamptz,$6::uuid))
-       ORDER BY captured_at DESC,event_id DESC LIMIT $7`,
+      `SELECT p.event_id,p.session_id,p.captured_at,p.received_at,
+         ST_Y(p.geom::geometry) AS latitude,ST_X(p.geom::geometry) AS longitude,p.accuracy_m,
+         CASE WHEN route.id IS NULL THEN 'FUERA_DE_RUTA' ELSE 'EN_RUTA' END AS route_classification
+       FROM position_event p
+       LEFT JOIN LATERAL (
+         SELECT a.id FROM agent_device_link link
+         JOIN route_assignment a ON a.tenant_id=link.tenant_id AND a.agent_id=link.agent_id
+           AND a.starts_at<=p.captured_at AND p.captured_at<a.ends_at
+           AND (a.state='PLANNED' OR a.cancelled_at>p.captured_at)
+         WHERE link.device_id=p.device_id AND link.tenant_id=p.tenant_id
+           AND link.state<>'REVOKED' AND link.valid_from<=p.captured_at
+           AND (link.valid_to IS NULL OR p.captured_at<link.valid_to)
+         ORDER BY a.starts_at DESC,a.id LIMIT 1
+       ) route ON true
+       WHERE p.device_id=$1 AND p.tenant_id=ANY($2::text[]) AND
+         p.captured_at >=$3 AND p.captured_at<$4 AND ($8::uuid IS NULL OR p.session_id=$8) AND
+         ($5::timestamptz IS NULL OR (p.captured_at,p.event_id)<($5::timestamptz,$6::uuid))
+       ORDER BY p.captured_at DESC,p.event_id DESC LIMIT $7`,
       [
         deviceId,
         tenantIds,
@@ -1389,6 +1402,7 @@ export class GpsEventService {
         latitude: row.latitude,
         longitude: row.longitude,
         accuracy_m: row.accuracy_m,
+        route_classification: row.route_classification,
       })),
       next_cursor:
         rows.rows.length > limit && last

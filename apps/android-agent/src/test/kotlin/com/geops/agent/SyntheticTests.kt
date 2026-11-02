@@ -285,6 +285,19 @@ fun main() {
         p.load(snap(version = 8, active = false)); check(p.current() == null)
         check(runCatching { p.load(snap(version = 7)) }.isFailure)
     }
+    test("V1 authorization expiry accepts an inactive same-version snapshot only after expiry") {
+        val clock = FakeClock(); val (policy, _) = engine(clock)
+        val active = snap().copy(schemaVersion = 2, assignmentStartMs = start,
+            authorizedUntilMs = start + 60_000L, tzdbVersion = tzdb("America/Guatemala"),
+            display = PolicyDisplay("Work", (1..7).toList(), "08:00", "17:00", "America/Guatemala"))
+        policy.load(active)
+        val tombstone = snap(active = false).copy(schemaVersion = 2,
+            serverTimeMs = start + 30_000L, verifiedAtMs = start + 30_000L)
+        check(runCatching { policy.load(tombstone) }.isFailure)
+        clock.advance(60_000L)
+        policy.load(tombstone.copy(serverTimeMs = clock.wall, verifiedAtMs = clock.wall))
+        check(policy.current() == null)
+    }
     test("V06 changed window, V07 offline end, V08 drift and reboot") {
         val clock = FakeClock(); val (p, _) = engine(clock)
         p.load(snap(version = 8, windows = listOf(Window(scheduled, start + 3_600_000, end))))

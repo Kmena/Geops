@@ -264,7 +264,10 @@ export class MdmInventoryService {
           'SELECT status FROM geops_device WHERE id=$1 FOR UPDATE',
           [deviceId],
         );
-        if (!geops.rows[0] || ['REVOKED', 'RETIRED'].includes(geops.rows[0].status))
+        if (
+          !geops.rows[0] ||
+          ['REVOKED', 'RETIRED', 'DECOMMISSIONED'].includes(geops.rows[0].status)
+        )
           throw new ApiError(409, 'device_unavailable', 'Conflict');
         const result = await db.query<{
           geops_device_id: string | null;
@@ -292,12 +295,8 @@ export class MdmInventoryService {
          WHERE provider='manageengine' AND region=$1 AND customer_id=$2 AND mdm_device_id=$3`,
           [this.config.region, this.config.customerId, mdmId, deviceId],
         );
-        await new GpsPolicyService(this.pool).activateMdmContinuous(
-          db,
-          deviceId,
-          { region: this.config.region, customerId: this.config.customerId, mdmDeviceId: mdmId },
-          adminId,
-        );
+        // Linking inventory proves device identity; tracking requires a separate,
+        // explicit per-device authorization by an administrator.
         await appendAudit(db, {
           actorType: 'ADMIN',
           actorId: adminId,

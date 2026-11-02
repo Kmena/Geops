@@ -72,6 +72,7 @@ class EnrollmentActivity : ComponentActivity() {
     }
     private lateinit var scannerButton: Button
     private lateinit var claimButton: Button
+    private lateinit var stopButton: Button
     private var enrollmentInFlight = false
     private var managedEnrollmentInFlight = false
     private var trackingStartInFlight = false
@@ -168,7 +169,7 @@ class EnrollmentActivity : ComponentActivity() {
             content.addView(it)
         }
         paragraph("GEOPS · inscripción supervisada de prueba")
-        paragraph("La ubicación se captura durante la ventana autorizada. En dispositivos MDM vinculados, esa ventana cubre las 24 horas. Android mostrará la notificación de seguimiento.")
+        paragraph("La ubicación se captura durante la jornada autorizada. En dispositivos MDM con seguimiento aprobado individualmente, la política cubre las 24 horas. Android mostrará la notificación de seguimiento.")
         val hasDevice = !saved.getString("device_id", null).isNullOrBlank()
         val hasActivation = hasDevice && !saved.getString("key_id", null).isNullOrBlank() &&
             !saved.getString("installation_id", null).isNullOrBlank()
@@ -229,7 +230,11 @@ class EnrollmentActivity : ComponentActivity() {
             it.setOnClickListener { saveManualActivation() }
             manualActivation.addView(it)
         }
-        button("Detener seguimiento") {
+        stopButton = button("Detener seguimiento") {
+            if (saved.getBoolean("managed_enrolled", false)) {
+                show("El seguimiento administrado se gestiona desde GEOPS Web.")
+                return@button
+            }
             work.execute {
                 val message = try {
                     AgentRuntime.stopByUser(applicationContext)
@@ -240,6 +245,7 @@ class EnrollmentActivity : ComponentActivity() {
                 show(message)
             }
         }
+        stopButton.visibility = if (saved.getBoolean("managed_enrolled", false)) View.GONE else View.VISIBLE
         button("Ver diagnóstico técnico") {
             work.execute {
                 val message = try { AgentRuntime.diagnosticSummary(applicationContext) }
@@ -253,6 +259,8 @@ class EnrollmentActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         visible = true
+        stopButton.visibility = if (getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+                .getBoolean("managed_enrolled", false)) View.GONE else View.VISIBLE
         diagnosticHandler.post(diagnosticRefresh)
         val filter = IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(restrictionsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -340,6 +348,7 @@ class EnrollmentActivity : ComponentActivity() {
                     keyField.setText(activation.keyId)
                     installationField.setText(activation.installationId)
                     status.text = "Inscripción MDM activada. Verificando permisos y política GPS…"
+                    stopButton.visibility = View.GONE
                     if (visible) maybeStartManagedTracking()
                 }
             } catch (failure: Exception) {

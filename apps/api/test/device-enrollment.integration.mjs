@@ -739,7 +739,7 @@ try {
       .json()
       .items.some((item) => item.id === foreignId),
   );
-  for (const action of ['suspend', 'reactivate', 'revoke', 'retire']) {
+  for (const action of ['suspend', 'reactivate', 'revoke', 'retire', 'decommission']) {
     assert.equal(
       (
         await admin('POST', `/v1/admin/devices/${foreignId}/${action}`, {
@@ -753,6 +753,48 @@ try {
     (await pool.query('SELECT status FROM geops_device WHERE id=$1', [foreignId])).rows[0].status,
     'ACTIVE',
   );
+  const legacyId = randomUUID();
+  await pool.query(
+    "INSERT INTO geops_device(id,status,display_label) VALUES($1,'ACTIVE','Legacy synthetic fixture')",
+    [legacyId],
+  );
+  await pool.query(
+    "INSERT INTO mdm_binding(id,geops_device_id,provider,customer_id,mdm_device_id,state) VALUES($1,$2,'fake','synthetic',$3,'ACTIVE')",
+    [randomUUID(), legacyId, `legacy-${legacyId}`],
+  );
+  await pool.query(
+    "INSERT INTO gps_device_ownership(device_id,change_reason) VALUES($1,'Legacy fixture unclassified')",
+    [legacyId],
+  );
+  const decommission = await admin('POST', `/v1/admin/devices/${legacyId}/decommission`, {
+    reason: 'Retiro de prueba del dispositivo heredado',
+  });
+  assert.equal(decommission.statusCode, 200);
+  assert.equal(decommission.json().status, 'DECOMMISSIONED');
+  assert.equal(decommission.json().offline_pending, 0);
+  assert.equal((await pool.query('SELECT status FROM geops_device WHERE id=$1', [legacyId])).rows[0].status,
+    'DECOMMISSIONED');
+  assert.equal((await pool.query('SELECT ownership FROM gps_device_ownership WHERE device_id=$1',
+    [legacyId])).rows[0].ownership, 'UNVERIFIED');
+  assert.equal((await pool.query("SELECT count(*)::int AS count FROM audit_event WHERE device_id=$1 AND action='device.decommission' AND outcome='success'",
+    [legacyId])).rows[0].count, 1);
+  assert.equal((await pool.query('SELECT status FROM geops_device WHERE id=$1', [foreignId])).rows[0].status,
+    'ACTIVE');
+  assert.ok((await admin('GET', '/v1/admin/enrollment/devices')).json().items.some(
+    (item) => item.id === legacyId && item.status === 'DECOMMISSIONED'));
+  assert.equal((await admin('POST', `/v1/admin/devices/${legacyId}/reactivate`, {
+    reason: 'No se permite reactivar este dispositivo',
+  })).statusCode, 409);
+  await assert.rejects(
+    pool.query('UPDATE gps_device_ownership SET tracking_authorized=true WHERE device_id=$1',
+      [legacyId]),
+    { code: '23514' },
+  );
+  assert.equal((await admin('POST', `/v1/admin/devices/${legacyId}/decommission`, {
+    reason: 'Consulta idempotente del retiro anterior',
+  })).json().status, 'DECOMMISSIONED');
+  assert.equal((await pool.query("SELECT count(*)::int AS count FROM audit_event WHERE device_id=$1 AND action='device.decommission' AND outcome='success'",
+    [legacyId])).rows[0].count, 1);
   const audit = await pool.query(
     "SELECT action FROM audit_event WHERE action IN ('device.draft.create','device.invitation.issue','device.invitation.cancel','device.enrollment.inventory.read')",
   );

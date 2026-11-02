@@ -188,7 +188,7 @@ export class DeviceRepository {
         WHERE $4::boolean AND device_id=d.id AND tenant_id='synthetic'
         ORDER BY started_at DESC LIMIT 1
       ) ses ON true
-      WHERE (d.status IN ('REVOKED','RETIRED') OR b.state IN ('PENDING','ACTIVE'))
+      WHERE (d.status IN ('REVOKED','RETIRED','DECOMMISSIONED') OR b.state IN ('PENDING','ACTIVE'))
         AND NOT EXISTS (SELECT 1 FROM mdm_binding other WHERE other.geops_device_id=d.id
           AND other.state='ACTIVE' AND other.customer_id<>'synthetic')
         AND ($1::uuid IS NULL OR d.id>$1::uuid)
@@ -242,6 +242,128 @@ export class DeviceRepository {
     reason: string,
   ): Promise<void> {
     return this.terminal(deviceId, 'RETIRED', adminId, correlationId, reason);
+  }
+
+  async decommission(
+    deviceId: string,
+    adminId: string,
+    correlationId: string,
+    reason: string,
+  ): Promise<{ offline_pending: number; offline_not_after: string | null }> {
+    try {
+      return await transaction(this.pool, async (db) => {
+        await requireInstallationAccess(db, adminId, 'synthetic');
+        const device = await this.getDeviceForUpdate(db, deviceId);
+        const bindings = await db.query<{ provider: string; customer_id: string }>(
+          'SELECT provider,customer_id FROM mdm_binding WHERE geops_device_id=$1 FOR UPDATE',
+          [deviceId],
+        );
+        if (
+          !bindings.rows.length ||
+          bindings.rows.some((b) => b.provider !== 'fake' || b.customer_id !== 'synthetic')
+        )
+          throw new ApiError(404, 'device_missing', 'Not found', true);
+        if (device.status === 'DECOMMISSIONED') {
+          const pending = await db.query<{ count: number; until: Date | null }>(
+            `SELECT count(*)::int AS count,max(offline_not_after) AS until
+             FROM gps_policy_delivery WHERE device_id=$1 AND offline_not_after>now()
+               AND (authorized_until IS NULL OR authorized_until>now())`,
+            [deviceId],
+          );
+          return {
+            offline_pending: pending.rows[0]?.count ?? 0,
+            offline_not_after: pending.rows[0]?.until?.toISOString() ?? null,
+          };
+        }
+        if (!['ACTIVE', 'SUSPENDED', 'REVOKED'].includes(device.status))
+          throw new ApiError(409, 'invalid_transition', 'Conflict', true);
+        const pending = await db.query<{ count: number; until: Date | null }>(
+          `SELECT count(*)::int AS count,max(offline_not_after) AS until
+           FROM gps_policy_delivery WHERE device_id=$1 AND offline_not_after>now()
+             AND (authorized_until IS NULL OR authorized_until>now())`,
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE geops_device SET status='DECOMMISSIONED',version=version+1,updated_at=now() WHERE id=$1",
+          [deviceId],
+        );
+        await db.query(
+          `UPDATE gps_device_ownership SET tracking_authorized=false,
+             version=version+1,updated_by=$2,updated_at=now(),change_reason=$3
+           WHERE device_id=$1 AND tracking_authorized=true`,
+          [deviceId, adminId, reason],
+        );
+        await db.query(
+          'UPDATE gps_mdm_continuous_authorization SET revoked_at=now() WHERE device_id=$1 AND revoked_at IS NULL',
+          [deviceId],
+        );
+        await db.query(
+          'UPDATE gps_effective_assignment SET superseded_at=now() WHERE device_id=$1 AND superseded_at IS NULL',
+          [deviceId],
+        );
+        await db.query(
+          'UPDATE gps_group_member SET valid_until=now() WHERE device_id=$1 AND valid_until IS NULL',
+          [deviceId],
+        );
+        await db.query(
+          `UPDATE agent_device_link SET state='ENDED',valid_to=now(),ended_by=$2,
+             ended_at=now(),end_reason=$3,version=version+1
+           WHERE device_id=$1 AND state='ACTIVE' AND valid_from<now()`,
+          [deviceId, adminId, reason],
+        );
+        await db.query(
+          `UPDATE agent_device_link SET state='REVOKED',ended_by=$2,
+             ended_at=now(),end_reason=$3,version=version+1
+           WHERE device_id=$1 AND state='ACTIVE' AND valid_from>=now()`,
+          [deviceId, adminId, reason],
+        );
+        await db.query(
+          "UPDATE mdm_binding SET state='REVOKED',version=version+1 WHERE geops_device_id=$1 AND state<>'REVOKED'",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE device_invitation SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('ISSUED','CLAIMED')",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE enrollment_claim SET status='CANCELLED',version=version+1 WHERE geops_device_id=$1 AND status IN ('CLAIMED','PENDING_CONFIRMATION')",
+          [deviceId],
+        );
+        await db.query(
+          "UPDATE device_key SET status='REVOKED',revoked_at=now(),version=version+1 WHERE geops_device_id=$1 AND status<>'REVOKED'",
+          [deviceId],
+        );
+        await db.query(
+          'UPDATE device_session SET revoked_at=now() WHERE geops_device_id=$1 AND revoked_at IS NULL',
+          [deviceId],
+        );
+        await this.closeGps(db, deviceId);
+        await appendAudit(db, {
+          actorType: 'ADMIN',
+          actorId: adminId,
+          deviceId,
+          action: 'device.decommission',
+          outcome: 'success',
+          correlationId,
+          previousState: device.status,
+          nextState: 'DECOMMISSIONED',
+          metadata: {
+            reason,
+            offline_pending: pending.rows[0]?.count ?? 0,
+            ...(pending.rows[0]?.until
+              ? { offline_not_after: pending.rows[0].until.toISOString() }
+              : {}),
+          },
+        });
+        return {
+          offline_pending: pending.rows[0]?.count ?? 0,
+          offline_not_after: pending.rows[0]?.until?.toISOString() ?? null,
+        };
+      });
+    } catch (error) {
+      await this.rejectedLifecycle(adminId, deviceId, correlationId, 'device.decommission', error);
+      throw error;
+    }
   }
 
   private async closeGps(db: PoolClient, deviceId: string): Promise<void> {
@@ -411,7 +533,11 @@ export class DeviceRepository {
           }
           return;
         }
-        if (device.status === 'RETIRED' || (device.status === 'REVOKED' && target === 'REVOKED'))
+        if (
+          device.status === 'RETIRED' ||
+          device.status === 'DECOMMISSIONED' ||
+          (device.status === 'REVOKED' && target === 'REVOKED')
+        )
           throw new ApiError(409, 'invalid_transition', 'Conflict', true);
         if (adminId && device.status !== 'REVOKED') {
           const binding = await db.query<{ customer_id: string }>(

@@ -210,3 +210,32 @@ test('policy mutations send CSRF, unique idempotency keys and ETag without bypas
   assert.equal(((calls[2]?.init.headers ?? {}) as Record<string, string>)['if-match'], etag);
   assert.equal(((calls[3]?.init.headers ?? {}) as Record<string, string>)['if-match'], etag);
 });
+
+test('tracking authorization targets one device with ownership version and CSRF', async () => {
+  const calls: Array<{ path: string; init: RequestInit }> = [];
+  const remote = new GpsRemote(async (path, init) => {
+    calls.push({ path: String(path), init: init ?? {} });
+    return new Response(JSON.stringify({ authorization_version: 2 }), { status: 200 });
+  });
+  await remote.setTrackingAuthorization(
+    id,
+    1,
+    {
+      ownership: 'PERSONAL_BYOD',
+      reason: 'Synthetic BYOD authorization',
+      valid_until: '2026-12-01T00:00:00.000Z',
+      privacy_notice_at: '2026-11-01T00:00:00.000Z',
+      authorization_basis: 'Employee work agreement',
+      evidence_ref: 'SYNTHETIC-001',
+    },
+    'csrf-test',
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.ok(call);
+  assert.equal(call.path, `/v1/admin/gps-devices/${id}/tracking-authorization`);
+  assert.equal(call.init.method, 'PUT');
+  const headers = call.init.headers as Record<string, string>;
+  assert.equal(headers['if-match'], '"1"');
+  assert.equal(headers['x-csrf-token'], 'csrf-test');
+});

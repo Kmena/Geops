@@ -915,7 +915,7 @@
 }
 .gps-device-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 255px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -1466,4 +1466,24 @@
   .gps-map-shell {
     height: 360px;
   }
+}
+
+.gps-device-technical form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+.gps-device-technical form label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.gps-device-technical form input,
+.gps-device-technical form select {
+  width: 100%;
+  min-width: 0;
+}
+.gps-device-technical form button.gps-tracking-submit {
+  justify-self: start;
 }

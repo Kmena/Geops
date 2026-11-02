@@ -83,6 +83,12 @@ try {
   const published = await admin('POST', `/v1/admin/gps-policies/${policyId}/publish`,
     { reason: 'Synthetic event approval' }, assigned.headers.etag);
   check(published.statusCode === 200, 'policy published');
+  await pool.query(`INSERT INTO gps_device_ownership(device_id,ownership,mdm_state,
+    verification_source,evidence_ref,verified_at,valid_until,tracking_authorized,
+    authorization_basis,privacy_notice_at,updated_by,change_reason)
+    VALUES($1,'PERSONAL_BYOD','NOT_APPLICABLE','ADMIN_EVIDENCE',$2,now(),$3,true,
+      'Synthetic BYOD work authorization',$4,$5,'Synthetic GPS event approval')`,
+    [deviceId, 'SYNTHETIC-EVENT-CONSENT', iso(3 * DAY), iso(-DAY), adminId]);
 
   async function device(method, path, payload, nonce = randomBytes(16).toString('base64url')) {
     const body = payload === undefined ? '' : JSON.stringify(payload);
@@ -222,6 +228,8 @@ try {
     headers: { cookie, 'x-geops-access-reason': 'Synthetic review' } });
   check(locations.statusCode === 200 && locations.json().items.length === 2 &&
     locations.json().items[0].latitude === 14.61, 'authorized PostGIS coordinate read');
+  check(locations.json().items.every((item) => item.route_classification === 'FUERA_DE_RUTA'),
+    'legitimate positions without a route remain visible');
   const filtered = await app.inject({ method: 'GET', url: `${readPath}&session_id=${sessionId}`,
     headers: { cookie, 'x-geops-access-reason': 'Synthetic review' } });
   check(filtered.statusCode === 200 && filtered.json().items.every((item) => item.session_id === sessionId),

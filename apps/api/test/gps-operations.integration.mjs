@@ -41,11 +41,12 @@ const events = new GpsEventService(pool, policies, Buffer.alloc(32, 43));
 const health = new GpsHealthService(pool, policies);
 const config = new GpsDeviceConfigService(pool);
 const operations = new GpsAdministrationService(pool, policies);
+const deviceRepository = new DeviceRepository(pool);
 const app = createApp({
   readinessProbe: async () => true,
   logLevel: 'silent',
   adminAuth: auth,
-  devices: new DeviceRepository(pool),
+  devices: deviceRepository,
   mdm: new FakeMdmProvider(),
   deviceSessions: sessions,
   gpsPolicies: policies,
@@ -289,6 +290,25 @@ try {
   );
   const authorizedDevices = (await admin(operator, 'GET', '/v1/admin/gps-devices')).json().items;
   check(authorizedDevices.length === 1, 'tenant device visible after approved grant');
+  check(authorizedDevices[0].ownership === 'UNVERIFIED' &&
+    authorizedDevices[0].mdm_state === 'UNKNOWN' &&
+    authorizedDevices[0].ownership_version === 0,
+  'legacy device is not silently classified or authorized by the new inventory');
+  await pool.query(
+    "INSERT INTO gps_device_ownership(device_id,change_reason) VALUES($1,'Synthetic unverified inventory review')",
+    [deviceId],
+  );
+  check(
+    (await pool.query('SELECT count(*)::int AS n FROM gps_device_ownership_history WHERE device_id=$1',
+      [deviceId])).rows[0].n === 1 &&
+    (await admin(operator, 'GET', '/v1/admin/gps-devices')).json().items[0].ownership_version === 1,
+    'ownership inventory insert is versioned and visible without enabling capture',
+  );
+  await assert.rejects(
+    pool.query('DELETE FROM gps_device_ownership_history WHERE device_id=$1', [deviceId]),
+    /immutable/,
+  );
+  checks++;
   check(
     authorizedDevices[0].display_label === 'synthetic operations device',
     'GPS list includes device display label',
@@ -339,7 +359,30 @@ try {
     [deviceId],
   );
   check(initial.rows[0].n > 0, 'initial windows materialized');
+  const unverifiedConfig = await deviceConfig();
+  check(unverifiedConfig.statusCode === 200 && unverifiedConfig.json().active === false,
+    'unverified device cannot capture despite a published work policy');
+  const authorizationPath = `/v1/admin/gps-devices/${deviceId}/tracking-authorization`;
+  const byodAuthorization = {
+    ownership: 'PERSONAL_BYOD', valid_until: iso(3 * DAY),
+    authorization_basis: 'Synthetic employee work authorization',
+    privacy_notice_at: iso(-DAY), evidence_ref: 'SYNTHETIC-CONSENT-001',
+    reason: 'Synthetic BYOD work authorization',
+  };
+  check((await admin(operator, 'PUT', authorizationPath, byodAuthorization)).statusCode === 428,
+    'authorization requires a version precondition');
+  const approvedByod = await admin(operator, 'PUT', authorizationPath, byodAuthorization,
+    { 'if-match': '"1"' });
+  check(approvedByod.statusCode === 200 && approvedByod.json().authorization_version === 2,
+    'BYOD authorization advances version for one device');
+  check((await admin(operator, 'PUT', authorizationPath, byodAuthorization,
+    { 'if-match': '"1"' })).statusCode === 412, 'stale ownership version rejected');
+  check((await admin(operator, 'PUT', authorizationPath,
+    { ...byodAuthorization, ownership: 'CORPORATE_MANAGED' },
+    { 'if-match': '"2"' })).statusCode === 409,
+  'corporate activation requires server-side ManageEngine evidence');
   const liveConfig = (await deviceConfig()).json();
+  check(liveConfig.active === true, 'authorized BYOD receives its work-window policy');
   const currentWindow = liveConfig.window_instances.find(
     (item) =>
       Date.parse(item.start_at) <= Date.parse(liveConfig.server_time) &&
@@ -671,6 +714,32 @@ try {
     (await admin(unprivileged, 'GET', '/v1/admin/gps-devices')).statusCode === 403,
     'GPS device list requires permission',
   );
+  const offlineUntil = new Date(Date.now() + 3_600_000);
+  const anchorId = randomUUID();
+  await pool.query(
+    "INSERT INTO geops_device_tenant(device_id,tenant_id,established_by,source) VALUES($1,'synthetic',$2,'VERIFIED_BINDING')",
+    [fiveIds[0], adminId],
+  );
+  await pool.query(
+    `INSERT INTO gps_policy_delivery(capture_anchor_id,device_id,installation_id,
+      assignment_version,server_time,offline_not_after,health_tenant_id)
+     VALUES($1,$2,$3,1,now(),$4,'synthetic')`,
+    [anchorId, fiveIds[0], activeInstallationId, offlineUntil],
+  );
+  const retirement = await deviceRepository.decommission(
+    fiveIds[0], adminId, randomUUID(), 'Retiro probado del dispositivo heredado',
+  );
+  check(retirement.offline_pending === 1 && retirement.offline_not_after !== null,
+    'decommission reports outstanding offline authorization');
+  check(!(await admin(operator, 'GET', '/v1/admin/gps-devices')).json().items.some(
+    (item) => item.device_id === fiveIds[0]), 'decommission hides device from active GPS inventory');
+  check((await pool.query('SELECT capture_anchor_id FROM gps_policy_delivery WHERE capture_anchor_id=$1',
+    [anchorId])).rowCount === 1, 'decommission preserves delivery evidence');
+  check((await pool.query('SELECT retired_at FROM gps_device_installation WHERE installation_id=$1',
+    [activeInstallationId])).rows[0].retired_at !== null,
+  'decommission retires only the selected installation');
+  check((await pool.query('SELECT status FROM geops_device WHERE id=$1',
+    [fiveIds[1]])).rows[0].status === 'ACTIVE', 'another device remains active');
   console.log(`gps-operations integration PASS: ${checks} assertions`);
 } finally {
   await app.close();

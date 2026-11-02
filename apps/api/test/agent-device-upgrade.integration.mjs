@@ -13,7 +13,7 @@ if (
 const pool = new pg.Pool({ connectionString: url });
 try {
   const catalog = await loadMigrations();
-  assert.equal(catalog.length, 33);
+  assert.equal(catalog.length, 34);
   assert.equal(catalog[26].version, '0027_visit_dwell_engine.sql');
   assert.equal(catalog[27].version, '0028_agent_device_links.sql');
   assert.equal(catalog[28].version, '0029_geops_gps_identity.sql');
@@ -21,6 +21,7 @@ try {
   assert.equal(catalog[30].version, '0031_agent_responsibility_geocoding.sql');
   assert.equal(catalog[31].version, '0032_mdm_continuous_capture.sql');
   assert.equal(catalog[32].version, '0033_visit_coverage_calibration.sql');
+  assert.equal(catalog[33].version, '0034_gps_device_ownership.sql');
   assert.equal(
     (await pool.query("SELECT to_regclass('geops_schema_migrations') AS name")).rows[0].name,
     null,
@@ -55,6 +56,7 @@ try {
     '0031_agent_responsibility_geocoding.sql',
     '0032_mdm_continuous_capture.sql',
     '0033_visit_coverage_calibration.sql',
+    '0034_gps_device_ownership.sql',
   ]);
   assert.deepEqual(await applyMigrations(pool), []);
   assert.deepEqual(
@@ -70,7 +72,7 @@ try {
     (await pool.query("SELECT to_regclass('agent_device_link') AS name")).rows[0].name,
     'agent_device_link',
   );
-  console.log('SPEC-03 release 0027 -> 0033, checksum and replay: PASS');
+  console.log('SPEC-03 release 0027 -> 0034, checksum and replay: PASS');
 } finally {
   await pool.end();
 }

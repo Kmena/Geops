@@ -15,6 +15,7 @@ const states: Record<string, string> = {
   SUSPENDED: 'Suspendido',
   REVOKED: 'Revocado',
   RETIRED: 'Retirado',
+  DECOMMISSIONED: 'Retirado de operación',
 };
 const sessionStates: Record<string, string> = {
   OPEN: 'En curso',
@@ -61,11 +62,14 @@ export function filterDevices(devices: Device[], filter: DeviceFilter): Device[]
       case 'suspended':
         return device.status === 'SUSPENDED';
       case 'noGps':
-        return !device.installation_id && !['REVOKED', 'RETIRED'].includes(device.status);
+        return (
+          !device.installation_id &&
+          !['REVOKED', 'RETIRED', 'DECOMMISSIONED'].includes(device.status)
+        );
       case 'revoked':
         return device.status === 'REVOKED';
       case 'retired':
-        return device.status === 'RETIRED';
+        return ['RETIRED', 'DECOMMISSIONED'].includes(device.status);
       default:
         return true;
     }
@@ -73,7 +77,7 @@ export function filterDevices(devices: Device[], filter: DeviceFilter): Device[]
 }
 
 export function availableActions(device: Device): DeviceAction[] {
-  if (device.status === 'RETIRED') return [];
+  if (device.status === 'RETIRED' || device.status === 'DECOMMISSIONED') return [];
   if (device.status === 'REVOKED') return ['retire'];
   const result: DeviceAction[] = [];
   if (device.installation_id) result.push('stopGps');

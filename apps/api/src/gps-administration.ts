@@ -8,6 +8,8 @@ import { ApiError } from './errors.js';
 import { requireInstallationAccess } from './device-identity/admin-scope.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
 
+type TrackingOwnership = 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED';
+
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function input(value: unknown, keys: string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -93,9 +95,23 @@ export class GpsAdministrationService {
       tenant_id: string;
       installation_id: string | null;
       assignment_version: string | null;
+      ownership: 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED' | null;
+      mdm_state: string | null;
+      verification_source: string | null;
+      ownership_valid_until: Date | null;
+      ownership_version: string | null;
+      tracking_authorized: boolean | null;
+      privacy_notice_at: Date | null;
+      last_location_at: Date | null;
+      last_ack_at: Date | null;
+      capture_state: string | null;
     }>(
       `SELECT d.id AS device_id,d.display_label,coalesce(b.customer_id,t.tenant_id) AS tenant_id,i.installation_id,
-         s.assignment_version FROM geops_device d
+         s.assignment_version,o.ownership,o.mdm_state,o.verification_source,
+         o.valid_until AS ownership_valid_until,o.version AS ownership_version,
+         o.tracking_authorized,o.privacy_notice_at,
+         loc.captured_at AS last_location_at,sync.last_ack_at,health.tracking_state AS capture_state
+       FROM geops_device d
        LEFT JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
        LEFT JOIN geops_device_tenant t ON t.device_id=d.id AND b.id IS NULL
        JOIN gps_data_tenant_access g ON g.tenant_id=coalesce(b.customer_id,t.tenant_id)
@@ -104,6 +120,14 @@ export class GpsAdministrationService {
          AND i.activation_tenant_id=coalesce(b.customer_id,t.tenant_id)
          AND (i.activation_binding_id=b.id OR (b.id IS NULL AND i.activation_binding_id IS NULL))
        LEFT JOIN gps_device_assignment_state s ON s.device_id=d.id
+       LEFT JOIN gps_device_ownership o ON o.device_id=d.id
+       LEFT JOIN gps_sync_status sync ON sync.device_id=d.id
+       LEFT JOIN LATERAL (SELECT captured_at FROM position_event
+         WHERE device_id=d.id AND tenant_id=coalesce(b.customer_id,t.tenant_id)
+         ORDER BY captured_at DESC LIMIT 1) loc ON true
+       LEFT JOIN LATERAL (SELECT tracking_state FROM gps_device_health_event
+         WHERE device_id=d.id AND tenant_id=coalesce(b.customer_id,t.tenant_id)
+         ORDER BY observed_at DESC LIMIT 1) health ON true
        WHERE d.status='ACTIVE' ORDER BY d.id LIMIT 100`,
       [adminId],
     );
@@ -122,8 +146,187 @@ export class GpsAdministrationService {
         tenant_id: row.tenant_id,
         installation_id: row.installation_id,
         assignment_version: Number(row.assignment_version ?? 0),
+        ownership: row.ownership ?? 'UNVERIFIED',
+        mdm_state: row.mdm_state ?? 'UNKNOWN',
+        verification_source: row.verification_source ?? 'NONE',
+        ownership_valid_until: row.ownership_valid_until?.toISOString() ?? null,
+        ownership_version: Number(row.ownership_version ?? 0),
+        tracking_authorized: Boolean(
+          row.tracking_authorized &&
+            row.ownership_valid_until &&
+            row.ownership_valid_until > new Date(),
+        ),
+        privacy_notice_at: row.privacy_notice_at?.toISOString() ?? null,
+        last_location_at: row.last_location_at?.toISOString() ?? null,
+        last_ack_at: row.last_ack_at?.toISOString() ?? null,
+        capture_state: row.capture_state ?? 'UNKNOWN',
       })),
     };
+  }
+
+  async setTrackingAuthorization(
+    adminId: string,
+    requestId: string,
+    deviceId: string,
+    expectedVersion: number,
+    payload: {
+      ownership: TrackingOwnership;
+      valid_until?: string;
+      authorization_basis?: string;
+      privacy_notice_at?: string;
+      evidence_ref?: string;
+      reason: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    if (!uuid.test(deviceId)) throw new ApiError(422, 'invalid_device', 'Invalid request');
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0)
+      throw new ApiError(428, 'ownership_version_required', 'If-Match required');
+    const authorized = payload.ownership !== 'UNVERIFIED';
+    const until = authorized ? new Date(payload.valid_until ?? '') : null;
+    const notice = authorized ? new Date(payload.privacy_notice_at ?? '') : null;
+    if (
+      authorized &&
+      (!until ||
+        !Number.isFinite(until.getTime()) ||
+        until <= new Date() ||
+        !notice ||
+        !Number.isFinite(notice.getTime()) ||
+        notice > new Date() ||
+        typeof payload.authorization_basis !== 'string' ||
+        payload.authorization_basis.trim().length < 8 ||
+        payload.authorization_basis.length > 240 ||
+        typeof payload.evidence_ref !== 'string' ||
+        payload.evidence_ref.trim().length < 8 ||
+        payload.evidence_ref.length > 240)
+    )
+      throw new ApiError(422, 'invalid_tracking_authorization', 'Invalid request');
+    const db = await this.pool.connect();
+    try {
+      await db.query('BEGIN');
+      await this.lockedCapability(db, adminId, 'gps.policy.assign');
+      await requireInstallationAccess(db, adminId, 'synthetic');
+      const device = await db.query<{ status: string; tenant_id: string | null }>(
+        `SELECT d.status,coalesce(b.customer_id,t.tenant_id) AS tenant_id
+         FROM geops_device d
+         LEFT JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
+         LEFT JOIN geops_device_tenant t ON t.device_id=d.id AND b.id IS NULL
+         WHERE d.id=$1 FOR UPDATE OF d`,
+        [deviceId],
+      );
+      if (device.rows[0]?.status !== 'ACTIVE' || !device.rows[0].tenant_id)
+        throw new ApiError(404, 'not_found', 'Not found');
+      await requireInstallationAccess(db, adminId, device.rows[0].tenant_id);
+      const prior = await db.query<{ version: string }>(
+        'SELECT version FROM gps_device_ownership WHERE device_id=$1 FOR UPDATE',
+        [deviceId],
+      );
+      const version = Number(prior.rows[0]?.version ?? 0);
+      if (version !== expectedVersion)
+        throw new ApiError(412, 'ownership_version_conflict', 'Conflict');
+      let mdm: { region: string; customer_id: string; mdm_device_id: string } | undefined;
+      if (payload.ownership === 'CORPORATE_MANAGED') {
+        const found = await db.query<{
+          region: string;
+          customer_id: string;
+          mdm_device_id: string;
+        }>(
+          `SELECT m.region,m.customer_id,m.mdm_device_id
+            FROM mdm_inventory_device m
+            WHERE m.geops_device_id=$1 AND m.provider='manageengine'
+              AND m.status='managed' AND m.platform='android' AND NOT m.removed
+              AND m.customer_id=$2 FOR SHARE`,
+          [deviceId, device.rows[0].tenant_id],
+        );
+        if (found.rows.length !== 1 || !found.rows[0])
+          throw new ApiError(409, 'mdm_verification_required', 'Conflict');
+        mdm = found.rows[0];
+      }
+      if (payload.ownership === 'PERSONAL_BYOD') {
+        const managed = await db.query(
+          `SELECT 1 FROM mdm_inventory_device WHERE geops_device_id=$1
+           AND provider='manageengine' AND status='managed' AND NOT removed
+           UNION ALL SELECT 1 FROM mdm_binding WHERE geops_device_id=$1
+           AND provider='manageengine' AND state='ACTIVE'`,
+          [deviceId],
+        );
+        if (managed.rowCount) throw new ApiError(409, 'byod_mdm_conflict', 'Conflict');
+      }
+      const now = new Date();
+      const values = [
+        deviceId,
+        payload.ownership,
+        payload.ownership === 'CORPORATE_MANAGED'
+          ? 'VERIFIED'
+          : payload.ownership === 'PERSONAL_BYOD'
+            ? 'NOT_APPLICABLE'
+            : 'UNKNOWN',
+        payload.ownership === 'CORPORATE_MANAGED'
+          ? 'MANAGEENGINE'
+          : payload.ownership === 'PERSONAL_BYOD'
+            ? 'ADMIN_EVIDENCE'
+            : 'NONE',
+        authorized ? (payload.evidence_ref?.trim() ?? null) : null,
+        authorized ? now : null,
+        until,
+        authorized,
+        authorized ? (payload.authorization_basis?.trim() ?? null) : null,
+        notice,
+        version + 1,
+        adminId,
+        now,
+        payload.reason,
+      ];
+      await db.query(
+        `INSERT INTO gps_device_ownership(device_id,ownership,mdm_state,verification_source,
+         evidence_ref,verified_at,valid_until,tracking_authorized,authorization_basis,
+         privacy_notice_at,version,updated_by,updated_at,change_reason)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT(device_id) DO UPDATE SET ownership=$2,mdm_state=$3,
+           verification_source=$4,evidence_ref=$5,verified_at=$6,valid_until=$7,
+           tracking_authorized=$8,authorization_basis=$9,privacy_notice_at=$10,
+           version=$11,updated_by=$12,updated_at=$13,change_reason=$14`,
+        values,
+      );
+      if (payload.ownership === 'CORPORATE_MANAGED' && mdm) {
+        await this.policies.activateMdmContinuous(
+          db,
+          deviceId,
+          {
+            region: mdm.region,
+            customerId: mdm.customer_id,
+            mdmDeviceId: mdm.mdm_device_id,
+          },
+          adminId,
+        );
+      } else {
+        await this.policies.revokeMdmContinuous(db, deviceId, adminId);
+      }
+      // A new assignment version makes the authorization change visible to
+      // Android's monotonic local policy engine, even if the policy is unchanged.
+      await this.policies.rebuildDevice(db, deviceId, now);
+      await appendAudit(db, {
+        actorType: 'ADMIN',
+        actorId: adminId,
+        deviceId,
+        action: 'gps.tracking_authorization.set',
+        outcome: 'success',
+        correlationId: requestId,
+        metadata: { ownership: payload.ownership, version: version + 1 },
+      });
+      await db.query('COMMIT');
+      return {
+        device_id: deviceId,
+        ownership: payload.ownership,
+        tracking_authorized: authorized,
+        authorization_version: version + 1,
+      };
+    } catch (error) {
+      await db.query('ROLLBACK');
+      await this.rejected(adminId, requestId, 'gps.tracking_authorization.set', error);
+      throw error;
+    } finally {
+      db.release();
+    }
   }
 
   async activate(
@@ -423,6 +626,57 @@ export function registerGpsAdministrationRoutes(
     const admin = await requireAdmin(request, auth);
     return service.devices(admin.id, request.id);
   });
+  app.put<{ Params: { id: string } }>(
+    '/v1/admin/gps-devices/:id/tracking-authorization',
+    async (request) => {
+      const admin = await requireAdmin(request, auth, true);
+      const body = input(request.body, [
+        'ownership',
+        'valid_until',
+        'authorization_basis',
+        'privacy_notice_at',
+        'evidence_ref',
+        'reason',
+      ]);
+      if (!['CORPORATE_MANAGED', 'PERSONAL_BYOD', 'UNVERIFIED'].includes(String(body.ownership)))
+        throw new ApiError(422, 'invalid_ownership', 'Invalid request');
+      for (const field of [
+        'valid_until',
+        'authorization_basis',
+        'privacy_notice_at',
+        'evidence_ref',
+      ])
+        if (body[field] !== undefined && typeof body[field] !== 'string')
+          throw new ApiError(422, 'invalid_tracking_authorization', 'Invalid request');
+      if (
+        body.ownership === 'UNVERIFIED' &&
+        ['valid_until', 'authorization_basis', 'privacy_notice_at', 'evidence_ref'].some(
+          (field) => body[field] !== undefined,
+        )
+      )
+        throw new ApiError(422, 'invalid_tracking_authorization', 'Invalid request');
+      const match = /^"(0|[1-9][0-9]*)"$/.exec(String(request.headers['if-match'] ?? ''));
+      if (!match) throw new ApiError(428, 'ownership_version_required', 'If-Match required');
+      return service.setTrackingAuthorization(
+        admin.id,
+        request.id,
+        request.params.id,
+        Number(match[1]),
+        {
+          ownership: body.ownership as TrackingOwnership,
+          ...(body.valid_until !== undefined ? { valid_until: String(body.valid_until) } : {}),
+          ...(body.authorization_basis !== undefined
+            ? { authorization_basis: String(body.authorization_basis) }
+            : {}),
+          ...(body.privacy_notice_at !== undefined
+            ? { privacy_notice_at: String(body.privacy_notice_at) }
+            : {}),
+          ...(body.evidence_ref !== undefined ? { evidence_ref: String(body.evidence_ref) } : {}),
+          reason: reason(body.reason),
+        },
+      );
+    },
+  );
   app.post('/v1/admin/gps-installations', async (request, reply) => {
     const admin = await requireAdmin(request, auth, true);
     const body = input(request.body, ['device_id', 'reason']);
