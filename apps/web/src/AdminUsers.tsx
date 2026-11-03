@@ -13,6 +13,9 @@ const ASSIGNABLE = [
   'gps.audit.read',
   'gps.installation.manage',
   'gps.tenant.grant',
+  'catalog.import.read',
+  'catalog.import.write',
+  'catalog.import.confirm',
 ];
 
 function message(error: unknown): string {

@@ -23,7 +23,8 @@ export function compareInventories(before, after) {
 async function inventory(pool, expectedVersion) {
   const { loadMigrations } = await import('../../apps/api/dist/db/migration-manager.js');
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 18);
+  assert.ok(migrations.length >= 18);
+  assert.equal(migrations[17]?.version, '0018_mdm_inventory.sql');
   const versions = await pool.query('SELECT version,checksum FROM geops_schema_migrations');
   const actual = new Map(versions.rows.map((row) => [row.version, row.checksum]));
   const version = expectedVersion ?? actual.size;

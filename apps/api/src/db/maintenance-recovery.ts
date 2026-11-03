@@ -26,8 +26,10 @@ const versions = [
   '0016_gps_continuity_alerts.sql',
   '0017_gps_continuity_evaluated_at.sql',
   '0018_mdm_inventory.sql',
+  '0019_catalog_base.sql',
+  '0020_catalog_integrity.sql',
 ] as const;
-type SchemaVersion = 14 | 15 | 16 | 17 | 18;
+type SchemaVersion = 14 | 15 | 16 | 17 | 18 | 19 | 20;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -90,7 +92,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18].includes(actual.size) ||
+    ![14, 15, 16, 17, 18, 19, 20].includes(actual.size) ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -118,6 +120,18 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_sync_run', 18, 'r'],
     ['mdm_inventory_one_geops_device', 18, 'i'],
     ['mdm_inventory_customer', 18, 'i'],
+    ['catalog_revision', 19, 'r'],
+    ['catalog_source', 19, 'r'],
+    ['catalog_customer', 19, 'r'],
+    ['catalog_establishment', 19, 'r'],
+    ['catalog_customer_establishment', 19, 'r'],
+    ['catalog_pin', 19, 'r'],
+    ['catalog_territory_group', 19, 'r'],
+    ['catalog_territory_member', 19, 'r'],
+    ['catalog_route', 19, 'r'],
+    ['catalog_route_version', 19, 'r'],
+    ['catalog_route_stop', 19, 'r'],
+    ['audit_event_catalog_denial_request', 20, 'i'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -137,7 +151,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   if (
     !permission.rows[0]?.definition.includes('gps.installation.manage') ||
-    permission.rows[0].definition.includes('gps.user.manage') !== state >= 15
+    permission.rows[0].definition.includes('gps.user.manage') !== state >= 15 ||
+    permission.rows[0].definition.includes('catalog.import.read') !== state >= 19
   )
     throw new Error('Permission constraint mismatch');
   const columns: Array<[string, string, SchemaVersion, boolean]> = [
@@ -250,6 +265,13 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     )
       throw new Error('MDM inventory constraints mismatch');
   }
+  const integrityTriggers = await db.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM pg_trigger
+     WHERE NOT tgisinternal AND tgname IN
+       ('catalog_establishment_source_active','catalog_pin_target_active','catalog_stop_targets_active')`,
+  );
+  if (integrityTriggers.rows[0]?.count !== (state >= 20 ? 3 : 0))
+    throw new Error('Catalog integrity triggers mismatch');
   return state;
 }
 
@@ -274,6 +296,21 @@ async function identityFingerprint(db: PoolClient, baseline: SchemaVersion): Pro
     ...(baseline >= 16 ? ['gps_continuity_threshold', 'gps_continuity_alert'] : []),
     ...(baseline >= 17 ? ['gps_continuity_read_quota'] : []),
     ...(baseline >= 18 ? ['mdm_inventory_device', 'mdm_sync_run'] : []),
+    ...(baseline >= 19
+      ? [
+          'catalog_revision',
+          'catalog_source',
+          'catalog_customer',
+          'catalog_establishment',
+          'catalog_customer_establishment',
+          'catalog_pin',
+          'catalog_territory_group',
+          'catalog_territory_member',
+          'catalog_route',
+          'catalog_route_version',
+          'catalog_route_stop',
+        ]
+      : []),
   ];
   const digest = createHash('sha256');
   for (const table of tables) {
@@ -384,7 +421,7 @@ export async function recoverMaintenance(
       throw error;
     }
     await onStage?.('authorized');
-    for (let next = before + 1; next <= 18; next++) {
+    for (let next = before + 1; next <= versions.length; next++) {
       const migration = catalog[next - 1];
       if (!migration) throw new Error('Recovery migration missing');
       await db.query('BEGIN');
@@ -415,12 +452,13 @@ export async function recoverMaintenance(
         throw new Error('Identity or permission inventory changed during recovery');
     }
     await checkIdentity(db, path, auth);
-    if ((await schemaState(db, catalog)) !== 18) throw new Error('Schema 18 not committed');
+    if ((await schemaState(db, catalog)) !== versions.length)
+      throw new Error('Final schema not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');
     try {
-      await audit(db, auth, 'maintenance.recovery.validated', 18);
+      await audit(db, auth, 'maintenance.recovery.validated', versions.length);
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK');
@@ -429,7 +467,7 @@ export async function recoverMaintenance(
     await onStage?.('audited');
     const gate = await checkIdentity(db, path, auth);
     if (
-      (await schemaState(db, catalog)) !== 18 ||
+      (await schemaState(db, catalog)) !== versions.length ||
       identities !== (await identityFingerprint(db, before))
     )
       throw new Error('Final maintenance integrity check failed');

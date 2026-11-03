@@ -22,8 +22,8 @@ try {
     /^geops_verify_[0-9]+$/,
   );
   const applied = await applyMigrations(pool);
-  assert.equal(applied.length, 18);
-  assert.deepEqual(applied.slice(-2), [
+  assert.equal(applied.length, 20);
+  assert.deepEqual(applied.slice(16, 18), [
     '0017_gps_continuity_evaluated_at.sql',
     '0018_mdm_inventory.sql',
   ]);
