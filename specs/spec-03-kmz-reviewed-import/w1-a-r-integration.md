@@ -1,55 +1,54 @@
-# SPEC-03 — Informe de integración local W1-A-R
+# SPEC-03 — Integración local W1-A-R / W1-A-R2
 
-**Estado:** `W1AR_LOCAL_INTEGRATION_BLOCKED`
+**Estado final:** `W1AR_LOCAL_INTEGRATION_PASS`
 **Fecha:** 2026-11-03
-**Alcance:** preflight y continuación solicitada el 2026-11-03; no se ejecutó merge, cherry-pick, rebase ni commit de integración.
+**Rama destino:** `codex/geops-integration`
+**SHA base:** `90ab9e9f10f6377e739e8bb64da9aef378c59fe2`
+**SHA integrado y validado:** `98e1c1f39546c15e6d37b38b5d3997c936ec8ad7`
+**Origen auditado:** `codex/spec-03-w1a-r` / `6ee99d7fe6683fdb1981774e0dd503874817336c`
 
-Este informe conserva el estado del preflight anterior a W1-A-R2. La preparación posterior, ejecutada únicamente en una rama aislada, se documenta en [w1-a-r2-evidence.md](w1-a-r2-evidence.md). La rama `codex/geops-integration` sigue sin recibir el merge final.
+## Integración Git y preservación
 
-## Referencias y estrategia
+La rama `codex/spec-03-w1a-r2` se preparó desde el SHA base en un worktree aislado. Su commit de correcciones es `cae70d0a4ca187543c684a12eded0c87ae3630ef`; el informe R2 se registró en `dffc59b0e0c124831be2e74162414bf9bef84d4e`. Con aprobación explícita, `codex/geops-integration` avanzó por **fast-forward local** desde `90ab9e9` hasta `dffc59b`. El checkout Windows mostró 11 errores de formato por CRLF en scripts `.mjs` integrados. El commit `98e1c1f` fijó LF solo para esos scripts; se normalizaron sus copias de trabajo, sin cambio de blobs ni de pruebas, y la rama destino avanzó por otro fast-forward a ese SHA. No se creó merge commit.
 
-- Origen: `codex/spec-03-w1a-r`, commit auditado `6ee99d7fe6683fdb1981774e0dd503874817336c`; worktree de origen limpio al iniciar.
-- Destino identificado para la integración: `codex/geops-integration`, HEAD `90ab9e9f10f6377e739e8bb64da9aef378c59fe2`, por ser la rama de integración activa con GPS/MDM posteriores a la base `26efc9a39d1a1c95ede6cb353656e3c54bfd92cf`. La rama del checkout físico principal, `codex/spec-02-wave-1`, permanece en `26efc9a` y tiene cambios locales; `main` local está desactualizada.
-- Relación: `codex/geops-integration` tiene 20 commits y W1-A-R uno desde la base común `26efc9a`. No se asumiría fast-forward.
-- Estrategia prevista: integración aislada desde el HEAD del destino, sin tocar los dos checkouts ocupados. Se creó `C:\Users\kmena\.codex\worktrees\geops-w1ar-integration-check\Geops` en HEAD separado para el preflight. No se aplicaron cambios allí.
-- SHA de integración: **ninguno**.
+Antes y después, el checkout destino mantuvo sus dos archivos GPS modificados y `apps/web/src/gps/policy-time-zones.ts` sin seguimiento. Ninguno se añadió a los commits de integración. El checkout físico principal `codex/spec-02-wave-1` y el worktree origen permanecieron intactos. La rama destino quedó **ahead 3** de `origin/codex/geops-integration`, sin push. La rama aislada coincide con el SHA de código integrado antes de este informe de cierre.
 
-## Gate obligatorio de lint
+Los conflictos de `apps/api/src/app.ts` y `apps/api/src/main.ts` se resolvieron en R2 agregando solo el registro e inicialización del catálogo a la base GPS/MDM; el diff contra `90ab9e9` no elimina rutas, hooks, autenticación, monitor GPS, MDM real ni timers. Las migraciones nuevas son `0019_catalog_base.sql` y `0020_catalog_integrity.sql`; las migraciones GPS 0016/0017 y MDM 0018 no cambiaron. [Detalle de correcciones y hashes](w1-a-r2-evidence.md).
 
-Se usó Biome 2.5.15 con el comando `lint` del paquete raíz en ambos árboles. Destino: **31 errores, 12 advertencias**. Origen: **30 errores, 12 advertencias**. La comparación por archivo y regla muestra un error `format` que existe solo en el destino (`apps/api/test/maintenance-recovery-versions.integration.mjs`) y ninguno exclusivo del origen dentro de ese comando. Los restantes errores del comando raíz son heredados y quedan como deuda técnica fuera de alcance.
+## Validaciones posteriores al fast-forward
 
-El comando raíz no incluye dos pruebas añadidas por `6ee99d7`. Al ejecutar Biome sobre **todos los archivos TS/TSX/MJS cambiados por el commit**, aparecen **dos errores nuevos** de severidad `error`, regla `format`. El resultado se confirmó de nuevo en la continuación (2 errores, 0 advertencias en ese conjunto):
+| Verificación | Resultado |
+| --- | --- |
+| Lint dirigido de los 18 archivos TS/TSX/MJS integrados | PASS: 0 errores, 0 advertencias. El paso inicial sobre el checkout Windows marcó 11 archivos por CRLF; se corrigió con `98e1c1f` y se repitió con PASS. |
+| Lint raíz en el checkout destino | 0 errores, 12 advertencias heredadas. Comparación previa en worktree aislado: base 31/12, R2 26/12, sin errores nuevos por archivo y regla. |
+| Catálogo W1-A y W1-A-R | PASS: cuatro scripts en bases sintéticas independientes. Instalación limpia, permisos, CRUD solo DRAFT, auditoría, rollback, historia e idempotencia. |
+| Migraciones | PASS: 0018→0020 y 0019→0020 con fallo inducido y rollback. Ledger sintético de 20 entradas; checksums 0019/0020 iguales a los SQL fuente. Recuperación supervisada 0018→0020 PASS. |
+| API y Web | PASS: suites de ambos workspaces; Web 49 pruebas, incluidos los cambios GPS locales preservados. |
+| GPS, MDM y administración | PASS: migración GPS hasta 0020, GPS continuity 44 aserciones, MDM y administración de usuarios 42 verificaciones. |
+| Build y typecheck | PASS en API, Web y contratos. |
+| Escaneo de secretos y prueba de destino de migración | PASS: 462 archivos elegibles y 2 pruebas de destino. |
+| Integridad Git | PASS: fast-forward, SHA comprobado, `git diff --check` del rango integrado, sin archivos GPS locales en commits. |
 
-1. `apps/api/test/catalog-w1a-upgrade.integration.mjs`
-2. `apps/api/test/catalog-w1a.integration.mjs`
-
-Por tanto, el descenso numérico 31→30 no demuestra ausencia de regresiones. **I-03 falla** y la condición de avance no se cumple. El lint dirigido previo de `catalog/` y pruebas W1-A-R no cubría estas dos pruebas W1-A.
-
-## Conflictos relevantes detectados sin integrar
-
-- `git merge-tree --write-tree --name-only codex/geops-integration codex/spec-03-w1a-r` indica conflictos de contenido en `apps/api/src/app.ts` y `apps/api/src/main.ts`. El destino ya registra GPS continuity y MDM real; una elección automática de la versión origen retiraría esos servicios. La combinación correcta requiere resolución explícita y pruebas.
-- El destino contiene `0016_gps_continuity_alerts.sql`, `0017_gps_continuity_evaluated_at.sql` y `0018_mdm_inventory.sql`; el origen añade `0016_catalog_base.sql` y `0017_catalog_integrity.sql`. El cargador ordena archivos por nombre completo, pero el procedimiento de recuperación tiene un catálogo cerrado de 18 migraciones y rechaza cualquier conjunto distinto. Incorporar los dos archivos sin actualizar ese contrato rompe recuperación. La solución propuesta para revisión es asignar al catálogo versiones posteriores a 0018 y ajustar referencias y pruebas de recuperación, conservando intactas las migraciones GPS/MDM ya existentes.
-
-No se resolvió ningún conflicto. La última instrucción del usuario ordena detenerse ante conflictos importantes o regresiones nuevas; ambas condiciones se cumplen.
+Las pruebas SQL se ejecutaron solo en bases `geops_verify_*` de un contenedor `postgis/postgis:18-3.6` sin volumen, ligado a localhost. El contenedor efímero `geops_w1ar_merge_pg_1103` se detuvo y eliminó con `--rm`. No se consultaron ni migraron bases operativas.
 
 ## Gates de cierre
 
 | Gate | Estado | Evidencia |
-|---|---|---|
-| I-01 | PASS | `6ee99d7` existe, corresponde a W1-A-R; origen limpio al iniciar. |
-| I-02 | PASS | Checkouts principal e integración ocupados preservados; sin stash, reset ni sobrescritura. |
-| I-03 | FAIL | Dos errores `format` nuevos en pruebas añadidas, omitidas del lint raíz. |
-| I-04 | NOT_VERIFIED | Integración Git detenida antes de aplicar cambios por I-03 y conflictos relevantes. |
-| I-05 | NOT_VERIFIED | Sin pruebas posteriores a integración. |
-| I-06 | NOT_VERIFIED | Sin regresión API/Web/GPS posterior a integración. |
-| I-07 | NOT_VERIFIED | Sin build/typecheck posterior a integración. |
-| I-08 | NOT_VERIFIED | Sin migración sintética posterior a integración; ninguna migración operativa ejecutada. |
-| I-09 | NOT_VERIFIED | Sin escaneo/validación de seguridad posterior a integración. |
-| I-10 | PASS | Sin push ni despliegue. |
+| --- | --- | --- |
+| I-01 | PASS | `6ee99d7` verificado; correcciones R2 trazables por commits. |
+| I-02 | PASS | Checkout principal y tres cambios GPS del destino preservados. |
+| I-03 | PASS | Lint dirigido 0/0 y sin errores nuevos atribuibles a W1-A-R2. |
+| I-04 | PASS | Fast-forward local correcto hasta `98e1c1f`; sin merge commit ni trabajo ajeno. |
+| I-05 | PASS | Cuatro pruebas de catálogo e integración W1-A/W1-A-R. |
+| I-06 | PASS | Suites API/Web y regresión GPS/MDM/administración. |
+| I-07 | PASS | Build y typecheck. |
+| I-08 | PASS | Migración sintética limpia, upgrade, rollback, ledger y recuperación 0018→0020. |
+| I-09 | PASS | Permisos denegados por defecto, auditoría en pruebas y escaneo de secretos. |
+| I-10 | PASS | Sin push, despliegue ni migraciones operativas. |
 
-## Riesgos, estado de worktrees y límites al cierre del preflight
+## Riesgos residuales y límites
 
-La resolución debe conservar GPS independiente, MDM, auditoría y las restricciones de rutas/visitas de SPEC-03. El checkout `C:\Users\kmena\Documents\proyectos\Geops` conserva modificaciones y archivos sin seguimiento ajenos a esta integración. El checkout `C:\Users\kmena\Documents\proyectos\Geops-integration` conserva tres cambios locales GPS. El worktree aislado de preflight está en HEAD separado y solo contiene esta copia del informe sin seguimiento; no recibió cambios de integración. El worktree de origen también conserva su copia del informe sin seguimiento; el commit auditado no cambia. No hubo push, despliegue, importación real ni migraciones en staging, producción o bases operativas.
+La evidencia histórica indica que el catálogo W1-A no se desplegó sobre datos reales, pero no se inspeccionaron ledgers de entornos persistentes; cualquier despliegue futuro requiere comprobarlos y una autorización distinta. Los tres cambios GPS locales del checkout destino siguen sin commit y no forman parte del SHA integrado. Si la rama continúa avanzando, se repetirán los gates pertinentes antes de otro cambio operativo. No se activaron rutas ni visitas automáticas; W1-B y W2–W6 permanecen fuera de alcance.
 
 `W1_B_NOT_AUTHORIZED`
 `W2_W6_NOT_AUTHORIZED`
