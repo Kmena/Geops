@@ -128,7 +128,7 @@ try {
       ],
       compatibleReleaseConfirmed: true,
     }),
-    18,
+    20,
   );
   const opened = await readGate(gatePath);
   assert.equal(opened.phase, 'open');

@@ -102,18 +102,18 @@ jobs:
           docker exec "$container" createdb -U postgres geops_verify_20261025
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261025 npm run gps:continuity:migration:integration --workspace @geops/api
           npm run gps:continuity:integration --workspace @geops/api
-      - name: Populated schema upgrade 14 to 18
+      - name: Populated schema upgrade 14 to 20
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261021
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261021 npm run migration:0015:integration --workspace @geops/api
-      - name: Supervised 14 to 18 forward recovery fault injection
+      - name: Supervised 14 to 20 forward recovery fault injection
         run: |
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261024
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run migration:0015:integration --workspace @geops/api -- prepare-14
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261024 npm run maintenance:recovery:integration --workspace @geops/api
-      - name: Supervised recovery from schemas 15, 16, 17 and 18
+      - name: Supervised recovery from schemas 15, 16, 17 and 18 to 20
         run: |
           container='${{ job.services.postgis.id }}'
           for version in 15 16 17 18; do
@@ -149,10 +149,10 @@ jobs:
           container='${{ job.services.postgis.id }}'
           docker exec "$container" createdb -U postgres geops_verify_20261026
           DATABASE_URL=postgres://postgres@127.0.0.1:5432/geops_verify_20261026 npm run mdm:integration --workspace @geops/api
-      - name: Disposable clean Staging 0018 reinstall and interactive bootstrap
+      - name: Disposable clean Staging 0020 reinstall and interactive bootstrap
         run: |
           git -c advice.detachedHead=false switch --detach HEAD
-          bash scripts/staging/test-clean-reinstall-0018.sh
+          bash scripts/staging/test-clean-reinstall-0020.sh
       - name: Backup, isolated restore and rollback probe
         run: |
           container='${{ job.services.postgis.id }}'
