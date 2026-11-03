@@ -18,6 +18,14 @@ gradlew.bat text eol=crlf
 *.ps1 text eol=crlf
 apps/api/src/db/migrations/0019_catalog_base.sql text eol=lf
 apps/api/src/db/migrations/0020_catalog_integrity.sql text eol=lf
+apps/api/test/catalog-*.mjs text eol=lf
+apps/api/test/gps-continuity-migration.integration.mjs text eol=lf
+apps/api/test/maintenance-cli-rehearsal.integration.mjs text eol=lf
+apps/api/test/maintenance-recovery-versions.integration.mjs text eol=lf
+apps/api/test/maintenance-recovery.integration.mjs text eol=lf
+apps/api/test/mdm-inventory.integration.mjs text eol=lf
+apps/api/test/migration-0015-upgrade.integration.mjs text eol=lf
+scripts/release-0015/replica-check.mjs text eol=lf
 
 *.jar binary
 *.png binary
