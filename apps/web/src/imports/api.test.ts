@@ -2,6 +2,30 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { importsApi } from './api.js';
 
+test('reupload can explicitly create a new review of the same KMZ', async () => {
+  const prior = globalThis.fetch;
+  const calls: RequestInit[] = [];
+  globalThis.fetch = async (_url, init) => {
+    calls.push(init ?? {});
+    return new Response(JSON.stringify({ import_id: 'synthetic', state: 'READY' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  try {
+    const file = new File(['synthetic'], 'customers.kmz');
+    await importsApi.upload(file, 'csrf-fixture');
+    await importsApi.upload(file, 'csrf-fixture', true);
+    const initial = calls[0]?.headers as Record<string, string>;
+    const fresh = calls[1]?.headers as Record<string, string>;
+    assert.equal(initial['x-new-review'], undefined);
+    assert.equal(fresh['x-new-review'], 'true');
+    assert.equal(fresh['x-csrf-token'], 'csrf-fixture');
+  } finally {
+    globalThis.fetch = prior;
+  }
+});
+
 test('W4 review transport includes CSRF, versions and preview digest', async () => {
   const prior = globalThis.fetch;
   const calls: Array<{ url: string; init: RequestInit }> = [];

@@ -1,4 +1,6 @@
-export const MATCHER_RULESET = 'spec03-w3-v1';
+import { splitNameCode } from './name-code.js';
+
+export const MATCHER_RULESET = 'spec03-w3-v2';
 
 export type MatchConfig = { highMeters: number; extendedMeters: number };
 export const DEFAULT_MATCH_CONFIG: MatchConfig = { highMeters: 50, extendedMeters: 250 };
@@ -40,16 +42,17 @@ export function comparisonCode(record: StageRecord): {
   source: 'EXTENDED_DATA' | 'NAME_PREFIX' | null;
 } {
   const explicit = normalizedCode(record.normalized.code);
-  if (explicit) return { value: explicit, source: 'EXTENDED_DATA' };
-  const name = record.normalized.name;
-  const prefix =
-    typeof name === 'string' ? /^[\s]*([0-9]{1,20})[\s]*[-:]/u.exec(name)?.[1] : undefined;
-  return prefix ? { value: prefix, source: 'NAME_PREFIX' } : { value: '', source: null };
+  if (explicit)
+    return {
+      value: explicit,
+      source: record.normalized.code_source === 'NAME_PREFIX' ? 'NAME_PREFIX' : 'EXTENDED_DATA',
+    };
+  const inferred = splitNameCode(record.normalized.name, null).code;
+  return inferred ? { value: inferred, source: 'NAME_PREFIX' } : { value: '', source: null };
 }
 
 export function comparisonName(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  return normalizedName(value.replace(/^[\s]*[0-9]{1,20}[\s]*[-:][\s]*/u, ''));
+  return normalizedName(splitNameCode(value, null).name);
 }
 
 export function pointOf(record: StageRecord): Point | null {

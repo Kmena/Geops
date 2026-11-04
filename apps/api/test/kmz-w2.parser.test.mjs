@@ -91,6 +91,36 @@ test('W2 extracts nested groups, candidate stops and all basic geometries', asyn
   assert.equal(result.records.filter((row) => row.errors.length).length, 0);
 });
 
+test('W2 separates numeric name prefixes without treating them as official identity', async () => {
+  const kml = xml(
+    '<Document><Folder><name>(042) - San Rafael de Coronado</name>' +
+      '<Placemark><name>03997 - FARMACIA GIRASOL</name><Point><coordinates>-84.1,9.9</coordinates></Point></Placemark>' +
+      '<Placemark><name>0007 - Nombre con código explícito</name><ExtendedData><Data name="codigo"><value>0009</value></Data></ExtendedData><Point><coordinates>-84.2,9.9</coordinates></Point></Placemark>' +
+      '</Folder></Document>',
+  );
+  const result = await withArchive([{ name: 'doc.kml', data: kml }], parseKmz);
+  const group = result.records.find(
+    (row) => row.original.name === '(042) - San Rafael de Coronado',
+  );
+  const pharmacy = result.records.find((row) => row.original.name === '03997 - FARMACIA GIRASOL');
+  const explicit = result.records.find(
+    (row) => row.original.name === '0007 - Nombre con código explícito',
+  );
+  assert.deepEqual(
+    [group.normalized.name, group.normalized.code, group.normalized.code_source],
+    ['San Rafael de Coronado', '42', 'NAME_PREFIX'],
+  );
+  assert.deepEqual(
+    [pharmacy.normalized.name, pharmacy.normalized.code, pharmacy.normalized.code_source],
+    ['FARMACIA GIRASOL', '3997', 'NAME_PREFIX'],
+  );
+  assert.deepEqual(
+    [explicit.normalized.name, explicit.normalized.code, explicit.normalized.code_source],
+    ['Nombre con código explícito', '0009', 'EXTENDED_DATA'],
+  );
+  assert.equal(pharmacy.original.code, null);
+});
+
 test('W2 diagnoses invalid and out-of-area points without dropping records', async () => {
   const kml = xml(
     '<Placemark><name>Inválido</name><Point><coordinates>190,95</coordinates></Point></Placemark>' +

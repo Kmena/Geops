@@ -95,6 +95,8 @@ export function KmzWorkspace() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [capabilities, setCapabilities] = useState<string[] | null>(null);
+  const [capabilityError, setCapabilityError] = useState(false);
+  const [newReview, setNewReview] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [rows, setRows] = useState<ReviewRow[]>([]);
@@ -154,7 +156,7 @@ export function KmzWorkspace() {
         if (live) setCapabilities(value.capabilities);
       })
       .catch(() => {
-        if (live) setCapabilities([]);
+        if (live) setCapabilityError(true);
       });
     return () => {
       live = false;
@@ -288,7 +290,7 @@ export function KmzWorkspace() {
     setBusy(true);
     setError('');
     try {
-      const session = await importsApi.upload(file, profile.csrf_token);
+      const session = await importsApi.upload(file, profile.csrf_token, newReview);
       if (session.state === 'READY')
         await importsApi.analyze(session.import_id, profile.csrf_token);
       navigate(`/imports/${session.import_id}`);
@@ -408,7 +410,12 @@ export function KmzWorkspace() {
     }
   }
   if (capabilities === null)
-    return (
+    return capabilityError ? (
+      <div role="alert" className="notice error">
+        No se pudo comprobar el acceso a importaciones KMZ. Actualiza la página e inténtalo de
+        nuevo.
+      </div>
+    ) : (
       <p role="status" className="kmz-status">
         Comprobando permisos de importación…
       </p>
@@ -450,6 +457,14 @@ export function KmzWorkspace() {
                   accept=".kmz,application/vnd.google-earth.kmz"
                   required
                 />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newReview}
+                  onChange={(event) => setNewReview(event.target.checked)}
+                />
+                Crear una nueva revisión si este archivo ya se cargó
               </label>
               <button type="submit" disabled={busy}>
                 {busy ? 'Analizando archivo…' : 'Cargar y analizar'}

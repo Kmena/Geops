@@ -191,7 +191,7 @@ const json = (csrf: string, extra: Record<string, string> = {}) => ({
 export const importsApi = {
   capabilities: () => request<{ capabilities: string[] }>('/v1/admin/kmz-imports/capabilities'),
   sessions: () => request<{ items: Session[] }>('/v1/admin/kmz-imports'),
-  upload: async (file: File, csrf: string) =>
+  upload: async (file: File, csrf: string, newReview = false) =>
     request<Session>('/v1/admin/kmz-imports', {
       method: 'POST',
       headers: {
@@ -199,6 +199,7 @@ export const importsApi = {
         'x-csrf-token': csrf,
         'idempotency-key': crypto.randomUUID(),
         'x-file-name': file.name,
+        ...(newReview ? { 'x-new-review': 'true' } : {}),
       },
       body: file,
     }),

@@ -3,6 +3,7 @@ import { crc32 } from 'node:zlib';
 import { performance } from 'node:perf_hooks';
 import type { Readable } from 'node:stream';
 import { SaxesParser } from 'saxes';
+import { splitNameCode } from './name-code.js';
 
 const require = createRequire(import.meta.url);
 type ZipEntry = {
@@ -211,9 +212,11 @@ function makeKmlParser(fileName: string, result: ParseResult): SaxesParser<{ xml
       geometry_raw: geometry?.raw ?? null,
       source_file: fileName,
     };
+    const label = splitNameCode(frame.name, frame.code);
     const normalized = {
-      name: frame.name?.normalize('NFC').trim() ?? null,
-      code: frame.code?.trim() ?? null,
+      name: label.name,
+      code: label.code,
+      code_source: label.codeSource,
       geops_customer_id: frame.geopsCustomerId?.trim() ?? null,
       geops_establishment_id: frame.geopsEstablishmentId?.trim() ?? null,
       geops_pin_id: frame.geopsPinId?.trim() ?? null,

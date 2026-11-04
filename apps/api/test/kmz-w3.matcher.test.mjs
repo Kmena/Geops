@@ -24,17 +24,25 @@ const record = (id, name, code, longitude, latitude, sourcePath = id) => ({
   errors: [],
 });
 
-test('W3 normalization preserves leading zeros and compares accented names', () => {
+test('W3 preserves explicit codes and canonicalizes numeric name prefixes', () => {
   assert.equal(normalizedCode(' 001  '), '001');
   assert.notEqual(normalizedCode('001'), normalizedCode('1'));
   assert.equal(normalizedName('  Café   Niño '), 'cafe nino');
   assert.equal(similarName('farmacia central', 'farmacia centrl'), true);
   assert.equal(similarName('farmacia central', 'taller rojo'), false);
   assert.deepEqual(comparisonCode(record('1', '001 - Café Niño', null, -84.1, 9.9)), {
-    value: '001',
+    value: '1',
     source: 'NAME_PREFIX',
   });
   assert.equal(comparisonName('001 - Café Niño'), 'cafe nino');
+  assert.deepEqual(comparisonCode(record('1', '(042) - San Rafael', null, -84.1, 9.9)), {
+    value: '42',
+    source: 'NAME_PREFIX',
+  });
+  assert.equal(comparisonName('(042) - San Rafael'), 'san rafael');
+  const parsed = record('1', 'FARMACIA GIRASOL', '3997', -84.1, 9.9);
+  parsed.normalized.code_source = 'NAME_PREFIX';
+  assert.deepEqual(comparisonCode(parsed), { value: '3997', source: 'NAME_PREFIX' });
 });
 
 test('W3 D-02 bands include exactly 50 and 250 metres', () => {
