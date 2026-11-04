@@ -269,6 +269,53 @@
   color: #52677a;
   line-height: 1.45;
 }
+.kmz-review-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 18px;
+}
+.kmz-review-shortcuts button {
+  min-height: 44px;
+}
+.kmz-route-next {
+  padding: 12px;
+  border: 1px solid #bcd7d5;
+  border-radius: 9px;
+  background: #f1f8f7;
+  font-size: 0.83rem;
+}
+.kmz-workspace .kmz-route-next p {
+  margin: 0 0 9px;
+}
+.kmz-route-next h3 {
+  margin: 0 0 8px;
+}
+.kmz-route-progress {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.kmz-route-progress div {
+  border: 1px solid #d7e6e8;
+  border-radius: 7px;
+  padding: 8px;
+  background: #fff;
+}
+.kmz-route-progress dt {
+  font-size: 0.75rem;
+}
+.kmz-route-progress dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+.kmz-route-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+}
 .kmz-target-search {
   display: grid;
   grid-template-columns: 150px minmax(140px, 1fr) auto;
@@ -355,7 +402,13 @@
 }
 .kmz-flags li {
   font-size: 0.82rem;
-  padding: 3px 0;
+  padding: 7px 0;
+  border-bottom: 1px solid #e0e9eb;
+}
+.kmz-decision-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .kmz-edit-grid {
   display: grid;
@@ -514,4 +567,17 @@
   .kmz-session-list li {
     display: grid;
   }
+}
+.kmz-workspace .kmz-flags li span {
+  display: block;
+  margin-top: 2px;
+  color: #52677a;
+}
+.kmz-decision-choices button {
+  min-height: 44px;
+}
+.kmz-candidates li button {
+  justify-self: start;
+  margin-top: 4px;
+  min-height: 44px;
 }

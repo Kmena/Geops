@@ -18,6 +18,14 @@ import {
   type Target,
 } from './api.js';
 import { KmzMap } from './KmzMap.js';
+import {
+  candidateKind,
+  confidenceName,
+  decisionOptions,
+  finding,
+  firstFinding,
+  signalName,
+} from './review-guidance.js';
 import './imports.css';
 
 const initial: Filters = {
@@ -75,22 +83,11 @@ const typeName: Record<string, string> = {
   LINE: 'Línea',
   INVALID_OR_OTHER: 'Inválido u otro',
 };
-const recordTypeName = (row: ReviewRow) =>
-  row.route_candidate ? typeName.ROUTE_CANDIDATE : (typeName[row.record_type] ?? 'Elemento KMZ');
-const signalName: Record<string, string> = {
-  IN_FILE_CODE: 'Mismo código en el archivo',
-  IN_FILE_SIMILAR_NAME: 'Nombre parecido en el archivo',
-  SAME_PARENT_GROUP: 'Misma agrupación',
-  PROXIMITY_HIGH: 'Ubicación muy cercana',
-  PROXIMITY_EXTENDED: 'Ubicación cercana',
-  LINKED_CUSTOMER: 'Cliente asociado',
-};
-const flagName: Record<string, string> = {
-  CODE_NAME_LOCATION_CONFLICT: 'El código coincide, pero el nombre o la ubicación difieren',
-  DUPLICATE_CODE: 'Código repetido',
-  DUPLICATE_NAME: 'Nombre repetido',
-  INVALID_COORDINATES: 'Coordenadas inválidas',
-  MISSING_NAME: 'Falta el nombre',
+const recordTypeName = (row: ReviewRow) => {
+  if (row.route_candidate) return typeName.ROUTE_CANDIDATE;
+  if (row.source_kind === 'GEO_FEATURE') return 'Polígono de referencia';
+  if (row.source_kind === 'ROUTE_LINE') return 'Trazado de ruta';
+  return typeName[row.record_type] ?? 'Elemento KMZ';
 };
 
 export function KmzWorkspace() {
@@ -570,6 +567,44 @@ export function KmzWorkspace() {
             {number(summary.candidate_relations)} relaciones candidatas entre registros y catálogo;
             pueden existir varias por registro. Ninguna confirma identidad.
           </p>
+          <nav className="kmz-review-shortcuts" aria-label="Revisar por tarea">
+            <button
+              type="button"
+              onClick={() => {
+                setTab('review');
+                setFilters({ ...initial, type: 'ROUTE_CANDIDATE' });
+              }}
+            >
+              Definir rutas ({number(summary.route_candidates)})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTab('review');
+                setFilters({ ...initial, type: 'WEEKLY_STOP' });
+              }}
+            >
+              Revisar paradas
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTab('review');
+                setFilters({ ...initial, state: 'POSSIBLE_DUPLICATE' });
+              }}
+            >
+              Comparar duplicados ({number(summary.possible_duplicates)})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTab('review');
+                setFilters({ ...initial, state: 'INVALID' });
+              }}
+            >
+              Corregir inválidos ({number(summary.invalid)})
+            </button>
+          </nav>
         </>
       )}
       {tab === 'preview' ? (
@@ -706,9 +741,7 @@ export function KmzWorkspace() {
                         </td>
                         <td>
                           {[...item.conflicts, ...item.warnings]
-                            .map(
-                              (flag) => flagName[flag] ?? flag.replaceAll('_', ' ').toLowerCase(),
-                            )
+                            .map((flag) => finding(flag).title)
                             .join(', ') || '—'}
                         </td>
                       </tr>
@@ -909,8 +942,8 @@ export function KmzWorkspace() {
                               <span className={`kmz-state ${row.review_state.toLowerCase()}`}>
                                 {stateName[row.review_state] ?? row.review_state}
                               </span>
-                              {row.conflicts.length > 0 && (
-                                <small>{row.conflicts.length} conflicto(s)</small>
+                              {firstFinding(row) && (
+                                <small className="kmz-row-reason">{firstFinding(row)}</small>
                               )}
                             </td>
                             <td>{row.action ? actionName[row.action] : 'Pendiente'}</td>
@@ -1056,6 +1089,7 @@ export function KmzWorkspace() {
                 canWrite={canWrite}
                 busy={busy}
                 save={save}
+                onFocusRecord={focusRecord}
               />
             </div>
           </div>
@@ -1072,6 +1106,7 @@ function ReviewDetail({
   canWrite,
   busy,
   save,
+  onFocusRecord,
 }: {
   importId: string;
   detail: Detail | null;
@@ -1079,6 +1114,7 @@ function ReviewDetail({
   canWrite: boolean;
   busy: boolean;
   save: (change: Change) => Promise<void>;
+  onFocusRecord: (recordId: string) => void;
 }) {
   const [draft, setDraft] = useState<Change>({ action: 'PENDING' });
   const [targetSearch, setTargetSearch] = useState('');
@@ -1148,17 +1184,19 @@ function ReviewDetail({
     ...searchedEstablishments,
   ].filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index);
   const chosen = customerChoices.find((item) => item.id === draft.target_customer_id);
-  const currentCustomer = chosen ?? customerChoices[0];
-  const currentEstablishment =
-    candidateEstablishments.find((item) => item.target_id === draft.target_establishment_id) ??
-    candidateEstablishments[0];
+  const currentCustomer = chosen;
+  const currentEstablishment = candidateEstablishments.find(
+    (item) => item.target_id === draft.target_establishment_id,
+  );
   const groupLabel = (path: string | null | undefined) =>
     path
       ? (groups.find((group) => group.path === path)?.name ?? 'Raíz del archivo')
       : 'Sin agrupación';
   const source = {
     name: currentEstablishment?.target_name ?? currentCustomer?.name,
-    code: currentEstablishment?.target_code,
+    code:
+      currentEstablishment?.target_code ??
+      candidateCustomers.find((item) => item.target_id === chosen?.id)?.target_code,
     latitude: currentEstablishment?.latitude,
     longitude: currentEstablishment?.longitude,
     customer: currentCustomer?.name,
@@ -1178,6 +1216,18 @@ function ReviewDetail({
   };
   const update = (key: keyof NonNullable<Change['proposed']>, value: string | number | null) =>
     setDraft((current) => ({ ...current, proposed: { ...current.proposed, [key]: value } }));
+  const customerPoint = ['CLIENT_CANDIDATE', 'REFERENCE_POINT', 'WEEKLY_STOP'].includes(
+    detail.record_type,
+  );
+  const canChooseCustomerAction = customerPoint && detail.review_state !== 'INVALID';
+  const pointActions = decisionOptions(detail);
+  const selectedAction = pointActions.some(([action]) => action === draft.action)
+    ? draft.action
+    : 'PENDING';
+  const routeCode = detail.normalized.code?.toUpperCase();
+  const suggestedRouteCode =
+    routeCode && /^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(routeCode) ? routeCode : '';
+  const routeLink = `/routes?${new URLSearchParams({ kmz_name: detail.normalized.name ?? '', kmz_code: suggestedRouteCode, kmz_import: importId }).toString()}`;
   return (
     <section className="panel kmz-detail" aria-labelledby="kmz-detail-title">
       <div className="panel-head">
@@ -1195,7 +1245,7 @@ function ReviewDetail({
           {stateName[detail.review_state] ?? detail.review_state}
         </span>
       </div>
-      {detail.record_type !== 'GEOGRAPHIC_GROUP' && (
+      {customerPoint && (
         <p className="kmz-caution">
           Las coincidencias son indicios. Selecciona el cliente explícitamente antes de vincular o
           actualizar.
@@ -1206,12 +1256,45 @@ function ReviewDetail({
         {groupLabel(detail.parent_path)}. El código es una referencia, no una identidad comercial.
       </p>
       {detail.route_candidate && (
-        <p className="kmz-caution">
-          Ruta candidata del KMZ. Los puntos dentro de esta carpeta se revisan como clientes;
-          confirmar clientes no crea ni activa esta ruta.
+        <div className="kmz-route-next">
+          <h3>Definir esta ruta</h3>
+          <p>Esta carpeta propone una ruta; una parada semanal individual no es una ruta.</p>
+          {detail.route_progress && (
+            <dl className="kmz-route-progress">
+              <div>
+                <dt>Puntos dentro</dt>
+                <dd>{number(detail.route_progress.points)}</dd>
+              </div>
+              <div>
+                <dt>Paradas semanales</dt>
+                <dd>{number(detail.route_progress.weekly_stops)}</dd>
+              </div>
+              <div>
+                <dt>Pendientes de decidir</dt>
+                <dd>{number(detail.route_progress.pending)}</dd>
+              </div>
+              <div>
+                <dt>Con geometría inválida</dt>
+                <dd>{number(detail.route_progress.invalid)}</dd>
+              </div>
+            </dl>
+          )}
+          <p>
+            El KMZ no permite verificar por sí solo que la ruta operativa esté completa. Al crearla
+            quedará como borrador; agrega después las sedes y paradas aprobadas.
+          </p>
+          <Link to={routeLink} className="kmz-route-link">
+            Preparar creación de ruta
+          </Link>
+        </div>
+      )}
+      {detail.source_kind === 'WEEKLY_STOP' && (
+        <p className="kmz-source-note">
+          Este punto es una parada semanal dentro de una ruta del KMZ. No crea una ruta ni un
+          cliente por sí solo; puedes vincularlo con un cliente existente si la ubicación es válida.
         </p>
       )}
-      {detail.record_type !== 'GEOGRAPHIC_GROUP' && (
+      {customerPoint && (
         <div className="kmz-compare">
           <div>
             <h3>
@@ -1246,30 +1329,55 @@ function ReviewDetail({
           </div>
         </div>
       )}
-      {detail.record_type !== 'GEOGRAPHIC_GROUP' && detail.candidates.length > 0 && (
+      {detail.candidates.length > 0 && (
         <div className="kmz-candidates">
           <h3>Candidatos de coincidencia</h3>
           <ul>
             {detail.candidates.map((item) => (
               <li key={`${item.target_type}:${item.target_id}`}>
-                <strong>{item.target_name ?? item.target_type}</strong>
+                <strong>{item.target_name ?? 'Registro sin nombre'}</strong>
                 <span>
-                  {item.target_type === 'CUSTOMER' ? 'Cliente' : 'Establecimiento'} ·{' '}
+                  {candidateKind(item)} · código {field(item.target_code)} ·{' '}
                   {item.distance_m === null
                     ? 'distancia desconocida'
                     : `${Math.round(item.distance_m)} m`}{' '}
-                  ·{' '}
-                  {item.confidence === 'HIGH'
-                    ? 'Confianza alta'
-                    : item.confidence === 'MEDIUM'
-                      ? 'Confianza media'
-                      : 'Confianza baja'}
+                  · {confidenceName(item.confidence)}
                 </span>
+                {item.target_parent_path && (
+                  <small>
+                    Carpeta de origen:{' '}
+                    {item.target_parent_name ?? groupLabel(item.target_parent_path)}
+                  </small>
+                )}
                 <small>
-                  {item.signals
-                    .map((signal) => signalName[signal] ?? 'Otra señal de coincidencia')
-                    .join(', ') || 'Sin señales adicionales'}
+                  {item.signals.map(signalName).join(', ') || 'Sin señales adicionales'}
                 </small>
+                {item.target_type === 'STAGING_RECORD' && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => onFocusRecord(item.target_id)}
+                  >
+                    Abrir el otro registro
+                  </button>
+                )}
+                {canWrite && canChooseCustomerAction && item.target_type === 'CUSTOMER' && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        action: 'LINK',
+                        target_customer_id: item.target_id,
+                        target_customer_version: item.target_version,
+                        acknowledged_conflict: false,
+                      }))
+                    }
+                  >
+                    Preparar vínculo con este cliente
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -1279,15 +1387,36 @@ function ReviewDetail({
         detail.warnings.length > 0 ||
         detail.parse_errors.length > 0) && (
         <div className="kmz-flags">
-          <h3>Advertencias</h3>
+          <h3>Qué requiere atención</h3>
           <ul>
             {[...new Set([...detail.conflicts, ...detail.warnings, ...detail.parse_errors])].map(
               (item) => (
-                <li key={item}>{flagName[item] ?? item.replaceAll('_', ' ').toLowerCase()}</li>
+                <li key={item}>
+                  <strong>{finding(item).title}</strong>
+                  <span>{finding(item).next}</span>
+                </li>
               ),
             )}
           </ul>
         </div>
+      )}
+      {detail.review_state === 'POSSIBLE_DUPLICATE' && detail.candidates.length === 0 && (
+        <p className="kmz-caution">
+          No se conservó una coincidencia concreta. Busca el cliente en el catálogo antes de crear
+          uno nuevo.
+        </p>
+      )}
+      {detail.review_state === 'CONFLICT' && (
+        <p className="kmz-caution">
+          Compara las coincidencias y el hallazgo antes de decidir. Si eliges vincular o actualizar,
+          selecciona un cliente concreto y deja constancia de que resolviste el conflicto.
+        </p>
+      )}
+      {detail.review_state === 'INVALID' && (
+        <p className="kmz-caution">
+          Este elemento no puede confirmarse como cliente en esta revisión. Consulta el motivo
+          arriba; corrige el KMZ y carga una revisión nueva, o exclúyelo con un motivo.
+        </p>
       )}
       {canWrite && detail.record_type !== 'GEOGRAPHIC_GROUP' && (
         <form
@@ -1297,157 +1426,170 @@ function ReviewDetail({
             const proposed = { ...draft.proposed };
             if (!proposed.code) delete proposed.code;
             if (!proposed.address) delete proposed.address;
-            void save({ ...draft, proposed });
+            void save({ ...draft, action: selectedAction, proposed });
           }}
         >
           <h3>Corregir y decidir</h3>
-          <div className="kmz-edit-grid">
-            <label>
-              Nombre propuesto
-              <input
-                value={draft.proposed?.name ?? ''}
-                onChange={(event) => update('name', event.target.value)}
-                maxLength={160}
-              />
-            </label>
-            <label>
-              Código GEOPS del cliente (opcional)
-              <input
-                value={draft.proposed?.code ?? ''}
-                onChange={(event) => update('code', event.target.value)}
-                maxLength={40}
-              />
-            </label>
-            <label>
-              Dirección aprobada (opcional)
-              <input
-                value={draft.proposed?.address ?? ''}
-                onChange={(event) => update('address', event.target.value)}
-                maxLength={300}
-              />
-            </label>
-            <label>
-              Latitud
-              <input
-                type="number"
-                step="any"
-                min="-90"
-                max="90"
-                value={draft.proposed?.latitude ?? ''}
-                onChange={(event) => update('latitude', Number(event.target.value))}
-              />
-            </label>
-            <label>
-              Longitud
-              <input
-                type="number"
-                step="any"
-                min="-180"
-                max="180"
-                value={draft.proposed?.longitude ?? ''}
-                onChange={(event) => update('longitude', Number(event.target.value))}
-              />
-            </label>
-            <label>
-              Ruta semanal candidata
-              <input
-                value={draft.proposed?.week_label ?? ''}
-                onChange={(event) => update('week_label', event.target.value)}
-                maxLength={120}
-              />
-            </label>
-            <label>
-              Ruta o agrupación propuesta
-              <select
-                value={draft.proposed?.group_id ?? ''}
-                onChange={(event) => update('group_id', event.target.value || null)}
-              >
-                <option value="">Conservar agrupación de origen</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Acción
-              <select
-                value={draft.action}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, action: event.target.value as Action }))
+          <p>
+            Elige qué hacer con este punto. La decisión queda en precarga hasta la confirmación
+            administrativa final.
+          </p>
+          <fieldset className="kmz-decision-choices">
+            <legend>Decisión</legend>
+            {pointActions.map(([action, label]) => (
+              <button
+                key={action}
+                type="button"
+                className={selectedAction === action ? 'active' : 'secondary'}
+                aria-pressed={selectedAction === action}
+                onClick={() =>
+                  setDraft((current) => ({ ...current, action, acknowledged_conflict: false }))
                 }
               >
-                {Object.entries(actionName).map(([action, label]) => (
-                  <option key={action} value={action}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {(draft.action === 'LINK' || draft.action === 'UPDATE') && (
-            <div className="kmz-target-search">
+                {label}
+              </button>
+            ))}
+          </fieldset>
+          {!canChooseCustomerAction && (
+            <p>Puedes dejar este elemento pendiente o excluirlo con un motivo.</p>
+          )}
+          {canChooseCustomerAction && (
+            <div className="kmz-edit-grid">
               <label>
-                Buscar en catálogo
-                <select
-                  value={targetKind}
-                  onChange={(event) => setTargetKind(event.target.value as typeof targetKind)}
-                >
-                  <option value="CUSTOMER">Clientes</option>
-                  <option value="ESTABLISHMENT">Establecimientos</option>
-                </select>
-              </label>
-              <label>
-                Nombre
+                Nombre propuesto
                 <input
-                  value={targetSearch}
-                  minLength={2}
-                  maxLength={120}
-                  onChange={(event) => setTargetSearch(event.target.value)}
-                  placeholder="Escribe al menos dos letras"
+                  value={draft.proposed?.name ?? ''}
+                  onChange={(event) => update('name', event.target.value)}
+                  maxLength={160}
                 />
               </label>
-              <button
-                type="button"
-                onClick={() => void findTarget()}
-                disabled={targetSearch.trim().length < 2}
-              >
-                Buscar
-              </button>
-              {targetError && <p role="alert">{targetError}</p>}
-            </div>
-          )}
-          {(draft.action === 'LINK' || draft.action === 'UPDATE') && (
-            <>
               <label>
-                Cliente existente
+                Código GEOPS del cliente (opcional)
+                <input
+                  value={draft.proposed?.code ?? ''}
+                  onChange={(event) => update('code', event.target.value)}
+                  maxLength={40}
+                />
+              </label>
+              <label>
+                Dirección aprobada (opcional)
+                <input
+                  value={draft.proposed?.address ?? ''}
+                  onChange={(event) => update('address', event.target.value)}
+                  maxLength={300}
+                />
+              </label>
+              <label>
+                Latitud
+                <input
+                  type="number"
+                  step="any"
+                  min="-90"
+                  max="90"
+                  value={draft.proposed?.latitude ?? ''}
+                  onChange={(event) => update('latitude', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                Longitud
+                <input
+                  type="number"
+                  step="any"
+                  min="-180"
+                  max="180"
+                  value={draft.proposed?.longitude ?? ''}
+                  onChange={(event) => update('longitude', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                Ruta semanal candidata
+                <input
+                  value={draft.proposed?.week_label ?? ''}
+                  onChange={(event) => update('week_label', event.target.value)}
+                  maxLength={120}
+                />
+              </label>
+              <label>
+                Ruta o agrupación propuesta
                 <select
-                  value={draft.target_customer_id ?? ''}
-                  onChange={(event) => {
-                    const match = customerChoices.find((item) => item.id === event.target.value);
-                    setDraft((current) => ({
-                      ...current,
-                      target_customer_id: match?.id ?? null,
-                      target_customer_version: match?.version ?? null,
-                    }));
-                  }}
-                  required
+                  value={draft.proposed?.group_id ?? ''}
+                  onChange={(event) => update('group_id', event.target.value || null)}
                 >
-                  <option value="">Seleccionar cliente explícitamente</option>
-                  {customerChoices.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} · versión {item.version}
+                  <option value="">Conservar agrupación de origen</option>
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
                     </option>
                   ))}
                 </select>
               </label>
-              {chosen && (
-                <p>Seleccionado: {chosen.name}. La distancia por sí sola no valida identidad.</p>
-              )}
-            </>
+            </div>
           )}
-          {establishmentChoices.length > 0 && (
+          {canChooseCustomerAction &&
+            (selectedAction === 'LINK' || selectedAction === 'UPDATE') && (
+              <div className="kmz-target-search">
+                <label>
+                  Buscar en catálogo
+                  <select
+                    value={targetKind}
+                    onChange={(event) => setTargetKind(event.target.value as typeof targetKind)}
+                  >
+                    <option value="CUSTOMER">Clientes</option>
+                    <option value="ESTABLISHMENT">Establecimientos</option>
+                  </select>
+                </label>
+                <label>
+                  Nombre
+                  <input
+                    value={targetSearch}
+                    minLength={2}
+                    maxLength={120}
+                    onChange={(event) => setTargetSearch(event.target.value)}
+                    placeholder="Escribe al menos dos letras"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void findTarget()}
+                  disabled={targetSearch.trim().length < 2}
+                >
+                  Buscar
+                </button>
+                {targetError && <p role="alert">{targetError}</p>}
+              </div>
+            )}
+          {canChooseCustomerAction &&
+            (selectedAction === 'LINK' || selectedAction === 'UPDATE') && (
+              <>
+                <label>
+                  Cliente existente
+                  <select
+                    value={draft.target_customer_id ?? ''}
+                    onChange={(event) => {
+                      const match = customerChoices.find((item) => item.id === event.target.value);
+                      setDraft((current) => ({
+                        ...current,
+                        target_customer_id: match?.id ?? null,
+                        target_customer_version: match?.version ?? null,
+                        acknowledged_conflict: false,
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="">Seleccionar cliente explícitamente</option>
+                    {customerChoices.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} · versión {item.version}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {chosen && (
+                  <p>Seleccionado: {chosen.name}. La distancia por sí sola no valida identidad.</p>
+                )}
+              </>
+            )}
+          {canChooseCustomerAction && establishmentChoices.length > 0 && (
             <label>
               Establecimiento existente (opcional)
               <select
@@ -1470,7 +1612,7 @@ function ReviewDetail({
               </select>
             </label>
           )}
-          {draft.action === 'UPDATE' && (
+          {canChooseCustomerAction && selectedAction === 'UPDATE' && (
             <fieldset>
               <legend>Campos a actualizar</legend>
               {[
@@ -1499,7 +1641,7 @@ function ReviewDetail({
               ))}
             </fieldset>
           )}
-          {(draft.action === 'UPDATE' || draft.action === 'EXCLUDE') && (
+          {(selectedAction === 'UPDATE' || selectedAction === 'EXCLUDE') && (
             <label>
               Motivo
               <textarea
@@ -1513,9 +1655,9 @@ function ReviewDetail({
             </label>
           )}
           {(detail.review_state === 'CONFLICT' ||
-            (detail.review_state === 'POSSIBLE_DUPLICATE' && draft.action === 'CREATE')) &&
-            draft.action !== 'EXCLUDE' &&
-            draft.action !== 'PENDING' && (
+            (detail.review_state === 'POSSIBLE_DUPLICATE' && selectedAction === 'CREATE')) &&
+            selectedAction !== 'EXCLUDE' &&
+            selectedAction !== 'PENDING' && (
               <label className="kmz-check">
                 <input
                   type="checkbox"
@@ -1527,7 +1669,7 @@ function ReviewDetail({
                     }))
                   }
                 />
-                Revisé y resolví manualmente los conflictos.
+                Comparé las coincidencias mostradas y resolví manualmente el conflicto o duplicado.
               </label>
             )}
           <button type="submit" disabled={busy}>

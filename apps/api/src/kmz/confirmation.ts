@@ -186,10 +186,10 @@ export class KmzConfirmationService {
           warnings.push({ record_id: row.record_id, code: 'review_warning' });
         if (action === 'EXCLUDE') continue;
         if (
-          row.record_type === 'GEOGRAPHIC_GROUP' &&
+          !['CLIENT_CANDIDATE', 'REFERENCE_POINT', 'WEEKLY_STOP'].includes(row.record_type) &&
           ['CREATE', 'LINK', 'UPDATE'].includes(action)
         ) {
-          blocking.push({ record_id: row.record_id, code: 'group_is_not_customer' });
+          blocking.push({ record_id: row.record_id, code: 'record_is_not_customer' });
           continue;
         }
         const name = row.proposed.name ?? row.normalized.name;
@@ -480,7 +480,7 @@ export class KmzConfirmationService {
       for (const row of rows) {
         if (row.action === 'PENDING') continue;
         if (
-          row.record_type === 'GEOGRAPHIC_GROUP' &&
+          !['CLIENT_CANDIDATE', 'REFERENCE_POINT', 'WEEKLY_STOP'].includes(row.record_type) &&
           ['CREATE', 'LINK', 'UPDATE'].includes(row.action)
         )
           invalid();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   api,
   ApiClientError,
@@ -39,6 +39,10 @@ const stopInput = (stop: RouteStop) => ({
 export function RouteCatalog() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const kmzImport = searchParams.get('kmz_import');
+  const kmzName = searchParams.get('kmz_name')?.trim().slice(0, 160) ?? '';
+  const kmzCode = searchParams.get('kmz_code')?.trim().toUpperCase() ?? '';
   const { profile } = useAuth();
   const [canRead, setCanRead] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
@@ -49,7 +53,11 @@ export function RouteCatalog() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
   const [route, setRoute] = useState<CatalogRoute | null>(null);
-  const [form, setForm] = useState({ code: '', name: '', description: '' });
+  const [form, setForm] = useState({
+    code: /^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(kmzCode) ? kmzCode : '',
+    name: kmzName,
+    description: '',
+  });
   const [stops, setStops] = useState<RouteStop[]>([]);
   const [clientSearch, setClientSearch] = useState('');
   const [clientQuery, setClientQuery] = useState('');
@@ -381,6 +389,13 @@ export function RouteCatalog() {
             <section className="catalog-section">
               <h2>Crear ruta</h2>
               <p>El código es único en la empresa. Podrás agregar sedes después de crearla.</p>
+              {kmzImport && (
+                <p className="kmz-caution">
+                  Datos sugeridos desde la revisión KMZ. Comprueba el nombre y el código antes de
+                  crear el borrador. Las paradas no se agregan automáticamente.{' '}
+                  <Link to={`/imports/${encodeURIComponent(kmzImport)}`}>Volver a la revisión</Link>
+                </p>
+              )}
               <form onSubmit={(event) => void create(event)} className="catalog-fields">
                 <label>
                   Código

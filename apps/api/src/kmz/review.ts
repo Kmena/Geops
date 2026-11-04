@@ -262,7 +262,7 @@ export class KmzReviewService {
           ? "lower(coalesce(v.proposed->>'name',r.normalized->>'name','')),a.ordinal"
           : "CASE a.review_state WHEN 'CONFLICT' THEN 0 WHEN 'INVALID' THEN 1 WHEN 'POSSIBLE_DUPLICATE' THEN 2 WHEN 'EXISTING_MATCH' THEN 3 ELSE 4 END,a.ordinal";
     const found = await this.pool.query(
-      `SELECT a.record_id,a.ordinal,a.record_type,a.review_state,a.warnings,a.conflicts,a.evidence,r.source_path,r.parent_path,r.source_kind,r.week_label,r.normalized,
+      `SELECT a.record_id,a.ordinal,a.record_type,a.review_state,a.warnings,a.conflicts,a.evidence,r.source_path,r.parent_path,r.source_kind,r.week_label,r.normalized,r.errors AS parse_errors,
         ${ROUTE_CANDIDATE_SQL} AS route_candidate,v.proposed,v.action,coalesce(v.revision,0)::int AS revision
        ${filter} ORDER BY ${order} LIMIT $8 OFFSET $9`,
       [...args, limit, (page - 1) * limit],
@@ -343,18 +343,43 @@ export class KmzReviewService {
     if (!found.rows[0]) throw new ApiError(404, 'record_missing', 'Not found');
     const candidates = await this.pool.query(
       `SELECT c.target_type,c.target_id,c.target_version,c.distance_m,c.proximity_band,c.confidence,c.signals,
-         CASE WHEN c.target_type='CUSTOMER' THEN cu.name WHEN c.target_type='ESTABLISHMENT' THEN e.name WHEN c.target_type='STAGING_RECORD' THEN sr.normalized->>'name' ELSE NULL END AS target_name,
-         CASE WHEN c.target_type='ESTABLISHMENT' THEN e.source_key WHEN c.target_type='STAGING_RECORD' THEN sr.normalized->>'code' ELSE NULL END AS target_code,
+         CASE WHEN c.target_type='CUSTOMER' THEN cu.name WHEN c.target_type='ESTABLISHMENT' THEN e.name WHEN c.target_type='PIN' THEN ep.name WHEN c.target_type='STAGING_RECORD' THEN sr.normalized->>'name' ELSE NULL END AS target_name,
+         CASE WHEN c.target_type='CUSTOMER' THEN cu.internal_code WHEN c.target_type='ESTABLISHMENT' THEN e.source_key WHEN c.target_type='PIN' THEN ep.source_key WHEN c.target_type='STAGING_RECORD' THEN sr.normalized->>'code' ELSE NULL END AS target_code,
+         CASE WHEN c.target_type='STAGING_RECORD' THEN sr.parent_path ELSE NULL END AS target_parent_path,
+         CASE WHEN c.target_type='STAGING_RECORD' THEN sp.normalized->>'name' ELSE NULL END AS target_parent_name,
          CASE WHEN c.target_type='ESTABLISHMENT' THEN ST_Y(e.geog::geometry) WHEN c.target_type='PIN' THEN ST_Y(pin.geog::geometry) ELSE NULL END AS latitude,
          CASE WHEN c.target_type='ESTABLISHMENT' THEN ST_X(e.geog::geometry) WHEN c.target_type='PIN' THEN ST_X(pin.geog::geometry) ELSE NULL END AS longitude
        FROM kmz_analysis_candidate c LEFT JOIN catalog_customer cu ON c.target_type='CUSTOMER' AND cu.id=c.target_id
        LEFT JOIN catalog_establishment e ON c.target_type='ESTABLISHMENT' AND e.id=c.target_id
        LEFT JOIN catalog_pin pin ON c.target_type='PIN' AND pin.id=c.target_id
+       LEFT JOIN catalog_establishment ep ON c.target_type='PIN' AND ep.id=pin.establishment_id
        LEFT JOIN kmz_import_record sr ON c.target_type='STAGING_RECORD' AND sr.id=c.target_id
-       WHERE c.run_id=$1 AND c.record_id=$2 ORDER BY c.confidence,c.distance_m NULLS LAST LIMIT 100`,
+       LEFT JOIN kmz_import_record sp ON sp.import_id=sr.import_id AND sp.source_path=sr.parent_path
+       WHERE c.run_id=$1 AND c.record_id=$2 ORDER BY
+         CASE c.confidence WHEN 'IDENTIFIER' THEN 0 WHEN 'CORROBORATED' THEN 1 WHEN 'POSSIBLE' THEN 2 ELSE 3 END,
+         c.distance_m NULLS LAST,c.target_id LIMIT 100`,
       [run.id, recordId],
     );
-    return { ...found.rows[0], analysis_id: run.id, candidates: candidates.rows };
+    const routeProgress = found.rows[0].route_candidate
+      ? await this.pool.query(
+          `SELECT count(*)::int AS points,
+             count(*) FILTER (WHERE a.review_state='INVALID')::int AS invalid,
+             count(*) FILTER (WHERE v.action IS NULL OR v.action='PENDING')::int AS pending,
+             count(*) FILTER (WHERE child.source_kind='WEEKLY_STOP')::int AS weekly_stops
+           FROM kmz_import_record child
+           JOIN kmz_analysis_result a ON a.record_id=child.id AND a.run_id=$1
+           LEFT JOIN kmz_review_record v ON v.record_id=child.id AND v.analysis_id=$1
+           WHERE child.import_id=$2 AND left(child.source_path,length($3::text)+1)=$3::text||'/'
+             AND child.source_kind IN ('CLIENT_POINT','BRANCH_POINT','WEEKLY_STOP')`,
+          [run.id, importId, found.rows[0].source_path],
+        )
+      : null;
+    return {
+      ...found.rows[0],
+      analysis_id: run.id,
+      candidates: candidates.rows,
+      route_progress: routeProgress?.rows[0] ?? null,
+    };
   }
 
   async map(actorId: string, importId: string): Promise<Record<string, unknown>> {
@@ -520,7 +545,10 @@ export class KmzReviewService {
     )
       invalid();
     if (result.source_kind === 'WEEKLY_STOP' && action === 'CREATE') invalid();
-    if (result.record_type === 'GEOGRAPHIC_GROUP' && ['LINK', 'UPDATE'].includes(String(action)))
+    if (
+      ['LINK', 'UPDATE'].includes(String(action)) &&
+      !['CLIENT_CANDIDATE', 'REFERENCE_POINT', 'WEEKLY_STOP'].includes(String(result.record_type))
+    )
       invalid();
     if (
       result.review_state === 'POSSIBLE_DUPLICATE' &&

@@ -10,6 +10,8 @@ export type ReviewRow = {
   review_state: string;
   warnings: string[];
   conflicts: string[];
+  parse_errors: string[];
+  evidence: { candidate_count?: number };
   source_path: string;
   parent_path: string | null;
   source_kind: string;
@@ -40,6 +42,8 @@ export type Candidate = {
   signals: string[];
   target_name: string | null;
   target_code: string | null;
+  target_parent_path: string | null;
+  target_parent_name: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -47,8 +51,8 @@ export type Detail = ReviewRow & {
   analysis_id: string;
   original: Record<string, unknown>;
   geometry: Record<string, unknown> | null;
-  parse_errors: string[];
   candidates: Candidate[];
+  route_progress: { points: number; invalid: number; pending: number; weekly_stops: number } | null;
   target_customer_id: string | null;
   target_customer_version: number | null;
   target_establishment_id: string | null;
