@@ -203,6 +203,38 @@ try {
     "UPDATE admin_permission SET revoked_at=NULL WHERE admin_id=$1 AND permission='catalog.import.confirm'",
     [actor],
   );
+  const pendingRow = rowsResponse
+    .json()
+    .items.find(
+      (item) => item.record_id !== row.record_id && item.record_id !== updateRow.record_id,
+    );
+  assert.ok(pendingRow, 'synthetic KMZ includes an undecided grouping');
+  await pool.query("UPDATE kmz_analysis_result SET review_state='CONFLICT' WHERE record_id=$1", [
+    pendingRow.record_id,
+  ]);
+  const pendingConflict = await call('POST', `/${importId}/validate`, {});
+  check(pendingConflict, 200);
+  assert.equal(pendingConflict.json().operational_confirmation_available, true);
+  assert.ok(pendingConflict.json().counts.pending > 0);
+  await pool.query("UPDATE kmz_analysis_result SET review_state='INVALID' WHERE record_id=$1", [
+    row.record_id,
+  ]);
+  const approvedInvalid = await call('POST', `/${importId}/validate`, {});
+  check(approvedInvalid, 200);
+  assert.equal(approvedInvalid.json().operational_confirmation_available, false);
+  assert.ok(
+    approvedInvalid
+      .json()
+      .blocking_issues.some(
+        (issue) => issue.record_id === row.record_id && issue.code === 'invalid_record',
+      ),
+  );
+  await pool.query("UPDATE kmz_analysis_result SET review_state='NEW' WHERE record_id=$1", [
+    row.record_id,
+  ]);
+  await pool.query("UPDATE kmz_analysis_result SET review_state='INVALID' WHERE record_id=$1", [
+    pendingRow.record_id,
+  ]);
   const validated = await call('POST', `/${importId}/validate`, {});
   check(validated, 200);
   assert.equal(
@@ -211,6 +243,7 @@ try {
     JSON.stringify(validated.json().blocking_issues),
   );
   const plan = validated.json();
+  assert.ok(plan.counts.pending > 0);
   await pool.query(
     "CREATE FUNCTION spec03_reject_operation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$",
   );
@@ -245,6 +278,12 @@ try {
   );
   for (const response of confirmations) check(response, 200);
   assert.equal(confirmations[0].json().commit_id, confirmations[1].json().commit_id);
+  assert.equal(
+    confirmations[0]
+      .json()
+      .operations.some((operation) => operation.record_id === pendingRow.record_id),
+    false,
+  );
   const created = await pool.query(
     "SELECT id,code,name,address FROM client WHERE name='Cliente GEOPS aprobado'",
   );

@@ -689,6 +689,11 @@ export function KmzWorkspace() {
             Valida las decisiones y confirma únicamente las operaciones aprobadas. Las rutas del KMZ
             quedan como candidatas; no se generan visitas.
           </p>
+          <p className="kmz-source-note">
+            Los registros pendientes, incluso los que tienen conflictos o son inválidos, quedan
+            fuera de esta confirmación. Tras aplicarla, esta revisión se cierra; para procesarlos
+            después habrá que cargar una nueva revisión del KMZ.
+          </p>
           {summary && (
             <div className="kmz-preview-totals">
               <span>

@@ -168,8 +168,6 @@ export class KmzConfirmationService {
         else if (row.record_type === 'GEOGRAPHIC_GROUP') counts.groups_candidate++;
         if (action === 'PENDING') {
           counts.pending++;
-          if (['CONFLICT', 'INVALID'].includes(row.review_state))
-            blocking.push({ record_id: row.record_id, code: 'unresolved_record' });
           continue;
         }
         if (action === 'CREATE') counts.create++;
