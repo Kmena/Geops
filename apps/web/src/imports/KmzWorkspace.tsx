@@ -132,6 +132,7 @@ export function KmzWorkspace() {
   const [bulkAction, setBulkAction] = useState<'CREATE' | 'EXCLUDE' | 'ASSIGN_GROUP'>('EXCLUDE');
   const [bulkReason, setBulkReason] = useState('');
   const [bulkGroup, setBulkGroup] = useState('');
+  const [bulkSavedCount, setBulkSavedCount] = useState<number | null>(null);
   const [bulkPreview, setBulkPreview] = useState<Awaited<
     ReturnType<typeof importsApi.bulkPreview>
   > | null>(null);
@@ -387,6 +388,7 @@ export function KmzWorkspace() {
   };
   async function prepareBulk() {
     if (!id || !profile) return;
+    setBulkSavedCount(null);
     setBusy(true);
     setError('');
     try {
@@ -409,6 +411,7 @@ export function KmzWorkspace() {
         profile.csrf_token,
       );
       setNotice(`${result.count} decisiones guardadas en precarga.`);
+      setBulkSavedCount(bulkAction === 'CREATE' ? result.count : null);
       setPlan(null);
       setConfirmationChecked(false);
       setChecked([]);
@@ -1107,22 +1110,46 @@ export function KmzWorkspace() {
                     {checked.length} registros seleccionados. Los conflictos e inválidos no se
                     pueden procesar en conjunto.
                   </p>
+                  <p className="kmz-source-note">
+                    Para crear clientes: selecciona los puntos, prepara la propuesta, guarda las
+                    decisiones y confirma la importación en «Resumen previo». Elegir una acción aquí
+                    no crea clientes.
+                  </p>
                   <label>
                     Acción
                     <select
                       value={bulkAction}
                       onChange={(event) => {
                         selectionEpoch.current++;
-                        setBulkAction(event.target.value as typeof bulkAction);
-                        setChecked([]);
+                        const nextAction = event.target.value as typeof bulkAction;
+                        const retained =
+                          filters.type === 'READY_POINT'
+                            ? checked
+                            : checked.filter((recordId) => {
+                                const row = rows.find((item) => item.record_id === recordId);
+                                return row && canBulkSelect(row, nextAction);
+                              });
+                        setBulkAction(nextAction);
+                        setChecked(retained);
+                        if (retained.length < checked.length)
+                          setNotice(
+                            `${checked.length - retained.length} registros dejaron de estar seleccionados porque no admiten esta acción.`,
+                          );
                         setBulkPreview(null);
+                        setBulkSavedCount(null);
                       }}
                     >
                       <option value="EXCLUDE">Excluir</option>
-                      <option value="CREATE">Proponer creación</option>
+                      <option value="CREATE">Proponer clientes nuevos</option>
                       <option value="ASSIGN_GROUP">Asignar agrupación</option>
                     </select>
                   </label>
+                  {checked.length > 0 && bulkAction === 'CREATE' && (
+                    <p className="kmz-source-note">
+                      {number(checked.length)} puntos listos para proponer como clientes. Pulsa
+                      «Vista previa» para revisar el lote.
+                    </p>
+                  )}
                   {bulkAction === 'EXCLUDE' && (
                     <label>
                       Motivo
@@ -1165,8 +1192,13 @@ export function KmzWorkspace() {
                   {bulkPreview && (
                     <div className="kmz-bulk-confirm">
                       <p>
-                        Se guardarán {bulkPreview.count} decisiones de <strong>{bulkAction}</strong>
-                        . Revisa los registros:
+                        Se propondrán {bulkPreview.count}{' '}
+                        {bulkAction === 'CREATE'
+                          ? 'clientes nuevos'
+                          : bulkAction === 'EXCLUDE'
+                            ? 'exclusiones'
+                            : 'asignaciones de agrupación'}
+                        . Revisa los registros antes de guardar:
                       </p>
                       <ul>
                         {bulkPreview.items.map((item) => (
@@ -1174,7 +1206,7 @@ export function KmzWorkspace() {
                         ))}
                       </ul>
                       <button type="button" disabled={busy} onClick={() => void applyBulk()}>
-                        Guardar estas decisiones
+                        Guardar propuestas en precarga
                       </button>
                       <button
                         type="button"
@@ -1182,6 +1214,17 @@ export function KmzWorkspace() {
                         onClick={() => setBulkPreview(null)}
                       >
                         Cancelar
+                      </button>
+                    </div>
+                  )}
+                  {bulkSavedCount !== null && (
+                    <div className="kmz-bulk-confirm" role="status">
+                      <p>
+                        {number(bulkSavedCount)} decisiones guardadas. Los clientes todavía no se
+                        han creado.
+                      </p>
+                      <button type="button" onClick={() => setTab('preview')}>
+                        Ir a Resumen previo para validar y confirmar
                       </button>
                     </div>
                   )}
