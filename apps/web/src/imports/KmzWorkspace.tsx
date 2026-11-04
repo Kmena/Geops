@@ -1476,7 +1476,7 @@ function ReviewDetail({
             <h3>
               {currentCustomer || currentEstablishment
                 ? 'Catálogo actual (candidato)'
-                : 'Sin coincidencia en catálogo'}
+                : 'Ningún cliente de GEOPS seleccionado'}
             </h3>
             <dl>
               {Object.entries(source).map(([key, value]) => (
@@ -1508,6 +1508,10 @@ function ReviewDetail({
       {detail.candidates.length > 0 && (
         <div className="kmz-candidates">
           <h3>Candidatos de coincidencia</h3>
+          <p className="kmz-source-note">
+            «Otro registro del KMZ» pertenece a este archivo. «Cliente existente» pertenece al
+            catálogo de GEOPS. Compartir un código es un indicio que debes revisar.
+          </p>
           <ul>
             {detail.candidates.map((item) => (
               <li key={`${item.target_type}:${item.target_id}`}>
