@@ -5,6 +5,7 @@ import {
   comparisonCode,
   comparisonName,
   DEFAULT_MATCH_CONFIG,
+  hasIdentityEvidence,
   normalizedCode,
   normalizedName,
   proximityBand,
@@ -81,6 +82,40 @@ test('W3 detects repeated codes and nearby distinct names without equating ident
   );
   assert.equal(
     result.pairs.some((pair) => pair.rules.includes('IN_FILE_PROXIMITY')),
+    true,
+  );
+});
+
+test('nearby businesses with different names and codes are context, not duplicate evidence', () => {
+  const rows = [
+    record('1', 'MACROBIOTICA LA CASITA VERDE', '5056', -84.0756338, 9.9341756),
+    record('2', 'CORPORACION RUBEN HJ S.A.', '3034', -84.0752, 9.9342),
+  ];
+  const pair = buildIntraPairs(rows, 250).pairs[0];
+  assert.ok(pair);
+  assert.deepEqual(pair.rules, ['IN_FILE_PROXIMITY']);
+  assert.equal(
+    hasIdentityEvidence({ target_type: 'STAGING_RECORD', distance_m: 48, signals: pair.rules }),
+    false,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'ESTABLISHMENT',
+      distance_m: 48,
+      signals: ['ESTABLISHMENT_SPATIAL', 'PROXIMITY_HIGH'],
+    }),
+    false,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'STAGING_RECORD',
+      distance_m: 48,
+      signals: ['IN_FILE_CODE'],
+    }),
+    true,
+  );
+  assert.equal(
+    hasIdentityEvidence({ target_type: 'STAGING_RECORD', distance_m: 0, signals: pair.rules }),
     true,
   );
 });

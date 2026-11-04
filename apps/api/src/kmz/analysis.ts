@@ -9,6 +9,7 @@ import {
   comparisonCode,
   comparisonName,
   DEFAULT_MATCH_CONFIG,
+  hasIdentityEvidence,
   MATCHER_RULESET,
   normalizedCode,
   normalizedName,
@@ -603,7 +604,8 @@ export class KmzAnalysisService {
         if (record.source_kind === 'WEEKLY_STOP') warnings.add('UNLINKED_STOP');
         if (record.source_kind === 'OTHER' && !pointOf(record)) warnings.add('NO_LOCATION');
         const matches = [...(candidateMap.get(record.id)?.values() ?? [])];
-        const customers = matches.filter((match) => match.target_type === 'CUSTOMER');
+        const identityMatches = matches.filter(hasIdentityEvidence);
+        const customers = identityMatches.filter((match) => match.target_type === 'CUSTOMER');
         const strong = customers.filter(
           (match) => match.confidence === 'IDENTIFIER' || match.confidence === 'CORROBORATED',
         );
@@ -615,12 +617,12 @@ export class KmzAnalysisService {
         else if (
           customers.length === 1 &&
           strong.length === 1 &&
-          !matches.some((match) => match.target_type === 'STAGING_RECORD') &&
-          matches.filter((match) => match.target_type === 'ESTABLISHMENT').length <= 1 &&
-          matches.filter((match) => match.target_type === 'PIN').length <= 1
+          !identityMatches.some((match) => match.target_type === 'STAGING_RECORD') &&
+          identityMatches.filter((match) => match.target_type === 'ESTABLISHMENT').length <= 1 &&
+          identityMatches.filter((match) => match.target_type === 'PIN').length <= 1
         )
           state = 'EXISTING_MATCH';
-        else if (matches.length) state = 'POSSIBLE_DUPLICATE';
+        else if (identityMatches.length) state = 'POSSIBLE_DUPLICATE';
         results.push({
           record_id: record.id,
           ordinal: record.ordinal,
@@ -667,9 +669,12 @@ export class KmzAnalysisService {
       peakRss = Math.max(peakRss, process.memoryUsage().rss);
       const elapsedMs = Math.round(performance.now() - start);
       const used = process.cpuUsage(cpu);
-      const withInFileCandidate = new Set(
+      const withInFileIdentityCandidate = new Set(
         candidates
-          .filter((candidate) => candidate.target_type === 'STAGING_RECORD')
+          .filter(
+            (candidate) =>
+              candidate.target_type === 'STAGING_RECORD' && hasIdentityEvidence(candidate),
+          )
           .map((candidate) => candidate.record_id),
       );
       const summary = {
@@ -681,7 +686,7 @@ export class KmzAnalysisService {
           (r) =>
             r.warnings.includes('DUPLICATE_CODE') ||
             r.warnings.includes('COORDINATE_COLLISION') ||
-            withInFileCandidate.has(r.record_id),
+            withInFileIdentityCandidate.has(r.record_id),
         ).length,
         conflicts: stateCounts.CONFLICT ?? 0,
         invalid: stateCounts.INVALID ?? 0,

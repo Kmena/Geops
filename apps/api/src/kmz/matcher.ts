@@ -1,6 +1,6 @@
 import { splitNameCode } from './name-code.js';
 
-export const MATCHER_RULESET = 'spec03-w3-v2';
+export const MATCHER_RULESET = 'spec03-w3-v3';
 
 export type MatchConfig = { highMeters: number; extendedMeters: number };
 export const DEFAULT_MATCH_CONFIG: MatchConfig = { highMeters: 50, extendedMeters: 250 };
@@ -19,6 +19,27 @@ export type StageRecord = {
 
 export type Point = { longitude: number; latitude: number };
 export type IntraPair = { left: string; right: string; rules: string[] };
+
+export function hasIdentityEvidence(candidate: {
+  target_type: string;
+  distance_m: number | null;
+  signals: string[];
+}): boolean {
+  if (candidate.target_type === 'STAGING_RECORD' && candidate.distance_m === 0) return true;
+  return candidate.signals.some(
+    (signal) =>
+      signal.startsWith('EXPLICIT_') ||
+      [
+        'IN_FILE_CODE',
+        'IN_FILE_NAME',
+        'IN_FILE_SIMILAR_NAME',
+        'NAME_NORMALIZED_EXACT',
+        'NAME_SIMILAR',
+        'SOURCE_KEY_EXACT_NON_AUTHORITATIVE',
+        'LINKED_CUSTOMER',
+      ].includes(signal),
+  );
+}
 
 export function isRouteCandidate(record: {
   source_kind: string;

@@ -114,6 +114,9 @@ try {
   const kml =
     '<kml><Document><Folder><name>Clientes</name>' +
     '<Placemark><name>Cliente KMZ nuevo</name><ExtendedData><Data name="code"><value>R-999</value></Data></ExtendedData><Point><coordinates>-84.1,9.9</coordinates></Point></Placemark>' +
+    '<Placemark><name>Negocio distinto cercano</name><ExtendedData><Data name="code"><value>R-998</value></Data></ExtendedData><Point><coordinates>-84.1004,9.9</coordinates></Point></Placemark>' +
+    '<Placemark><name>Duplicado real</name><ExtendedData><Data name="code"><value>R-900</value></Data></ExtendedData><Point><coordinates>-85.1,10.9</coordinates></Point></Placemark>' +
+    '<Placemark><name>Duplicado real</name><ExtendedData><Data name="code"><value>R-901</value></Data></ExtendedData><Point><coordinates>-85.2,10.9</coordinates></Point></Placemark>' +
     '<Placemark><name>Cliente B32 previo</name><Point><coordinates>-84.3,9.9</coordinates></Point></Placemark>' +
     '</Folder></Document></kml>';
   const upload = await call('POST', '', zip(kml), {
@@ -130,11 +133,21 @@ try {
     .json()
     .items.find((item) => item.normalized.name === 'Cliente KMZ nuevo');
   assert.ok(row, rowsResponse.body);
+  const nearbyRow = rowsResponse
+    .json()
+    .items.find((item) => item.normalized.name === 'Negocio distinto cercano');
+  assert.ok(nearbyRow, rowsResponse.body);
+  assert.equal(nearbyRow.review_state, 'NEW');
+  const actualDuplicates = rowsResponse
+    .json()
+    .items.filter((item) => item.normalized.name === 'Duplicado real');
+  assert.equal(actualDuplicates.length, 2);
+  assert.ok(actualDuplicates.every((item) => item.review_state === 'POSSIBLE_DUPLICATE'));
   const readyPoints = await call('GET', `/${importId}/review/records?type=READY_POINT&limit=100`);
   check(readyPoints, 200);
   assert.deepEqual(
-    readyPoints.json().items.map((item) => item.record_id),
-    [row.record_id],
+    new Set(readyPoints.json().items.map((item) => item.record_id)),
+    new Set([row.record_id, nearbyRow.record_id]),
   );
   await pool.query(
     "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='catalog.import.write'",
@@ -165,7 +178,8 @@ try {
   check(review, 200);
   const decidedPoints = await call('GET', `/${importId}/review/records?type=READY_POINT`);
   check(decidedPoints, 200);
-  assert.equal(decidedPoints.json().total, 0);
+  assert.equal(decidedPoints.json().total, 1);
+  assert.equal(decidedPoints.json().items[0].record_id, nearbyRow.record_id);
   const updateRow = rowsResponse
     .json()
     .items.find((item) => item.normalized.name === 'Cliente B32 previo');
@@ -203,11 +217,7 @@ try {
     "UPDATE admin_permission SET revoked_at=NULL WHERE admin_id=$1 AND permission='catalog.import.confirm'",
     [actor],
   );
-  const pendingRow = rowsResponse
-    .json()
-    .items.find(
-      (item) => item.record_id !== row.record_id && item.record_id !== updateRow.record_id,
-    );
+  const pendingRow = rowsResponse.json().items.find((item) => item.normalized.name === 'Clientes');
   assert.ok(pendingRow, 'synthetic KMZ includes an undecided grouping');
   await pool.query("UPDATE kmz_analysis_result SET review_state='CONFLICT' WHERE record_id=$1", [
     pendingRow.record_id,
