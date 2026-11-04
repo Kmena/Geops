@@ -130,6 +130,23 @@ try {
     .json()
     .items.find((item) => item.normalized.name === 'Cliente KMZ nuevo');
   assert.ok(row, rowsResponse.body);
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='catalog.import.write'",
+    [actor],
+  );
+  check(
+    await call(
+      'PATCH',
+      `/${importId}/review/records/${row.record_id}`,
+      { action: 'CREATE', proposed: { name: 'No autorizado' } },
+      { 'if-match': '0' },
+    ),
+    403,
+  );
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=NULL WHERE admin_id=$1 AND permission='catalog.import.write'",
+    [actor],
+  );
   const review = await call(
     'PATCH',
     `/${importId}/review/records/${row.record_id}`,
@@ -168,6 +185,15 @@ try {
     ),
     200,
   );
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='catalog.import.confirm'",
+    [actor],
+  );
+  check(await call('POST', `/${importId}/validate`, {}), 403);
+  await pool.query(
+    "UPDATE admin_permission SET revoked_at=NULL WHERE admin_id=$1 AND permission='catalog.import.confirm'",
+    [actor],
+  );
   const validated = await call('POST', `/${importId}/validate`, {});
   check(validated, 200);
   assert.equal(
@@ -198,13 +224,18 @@ try {
   );
   await pool.query('DROP TRIGGER spec03_fail ON kmz_import_operation');
   await pool.query('DROP FUNCTION spec03_reject_operation()');
-  const confirm = await call(
-    'POST',
-    `/${importId}/confirm`,
-    { plan_digest: plan.plan_digest, reason: 'Aprobación administrativa sintética' },
-    { 'if-match': plan.etag, 'idempotency-key': 'spec03-b32-confirm-001' },
+  const confirmations = await Promise.all(
+    [0, 1].map(() =>
+      call(
+        'POST',
+        `/${importId}/confirm`,
+        { plan_digest: plan.plan_digest, reason: 'Aprobación administrativa sintética' },
+        { 'if-match': plan.etag, 'idempotency-key': 'spec03-b32-confirm-001' },
+      ),
+    ),
   );
-  check(confirm, 200);
+  for (const response of confirmations) check(response, 200);
+  assert.equal(confirmations[0].json().commit_id, confirmations[1].json().commit_id);
   const created = await pool.query(
     "SELECT id,code,name,address FROM client WHERE name='Cliente GEOPS aprobado'",
   );
@@ -250,8 +281,20 @@ try {
     200,
   );
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 2);
+  assert.equal(
+    (await pool.query('SELECT count(*)::int AS n FROM kmz_import_operation')).rows[0].n,
+    2,
+  );
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int AS n FROM audit_event WHERE action='kmz.confirm.applied'",
+      )
+    ).rows[0].n,
+    1,
+  );
   console.log(
-    'SPEC-03 W2/W3/W4/W5 canonical client/site, selective update, rollback, replay: PASS',
+    'SPEC-03 canonical client/site, permissions, selective update, rollback, concurrency, replay: PASS',
   );
 } finally {
   if (app) await app.close();
