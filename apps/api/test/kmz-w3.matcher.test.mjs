@@ -108,6 +108,22 @@ test('nearby businesses with different names and codes are context, not duplicat
   );
   assert.equal(
     hasIdentityEvidence({
+      target_type: 'CUSTOMER',
+      distance_m: 48,
+      signals: ['LINKED_CUSTOMER', 'PROXIMITY_HIGH'],
+    }),
+    false,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'CUSTOMER',
+      distance_m: 48,
+      signals: ['LINKED_CUSTOMER', 'NAME_NORMALIZED_EXACT', 'PROXIMITY_HIGH'],
+    }),
+    true,
+  );
+  assert.equal(
+    hasIdentityEvidence({
       target_type: 'STAGING_RECORD',
       distance_m: 48,
       signals: ['IN_FILE_CODE'],

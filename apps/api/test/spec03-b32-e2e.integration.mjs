@@ -83,6 +83,15 @@ try {
     "INSERT INTO client_site(id,tenant_id,client_id,code,name,address,center,created_by,updated_by) VALUES($1,'synthetic',$2,'SITEOLD','Punto B32 previo','Dirección anterior',ST_SetSRID(ST_MakePoint(-84.3,9.9),4326)::geography,$3,$3)",
     [existingSite, existingClient, actor],
   );
+  const nearbyClient = randomUUID();
+  await pool.query(
+    "INSERT INTO client(id,tenant_id,code,name,address,created_by,updated_by) VALUES($1,'synthetic','B32NEAR','Otro cliente cercano','Dirección cercana',$2,$2)",
+    [nearbyClient, actor],
+  );
+  await pool.query(
+    "INSERT INTO client_site(id,tenant_id,client_id,code,name,address,center,created_by,updated_by) VALUES($1,'synthetic',$2,'SITENEAR','Otro establecimiento cercano','Dirección cercana',ST_SetSRID(ST_MakePoint(-84.1006,9.9),4326)::geography,$3,$3)",
+    [randomUUID(), nearbyClient, actor],
+  );
   const kmz = new KmzService(pool);
   app = createApp({
     readinessProbe: async () => true,
@@ -137,6 +146,7 @@ try {
     .json()
     .items.find((item) => item.normalized.name === 'Negocio distinto cercano');
   assert.ok(nearbyRow, rowsResponse.body);
+  assert.equal(row.review_state, 'NEW');
   assert.equal(nearbyRow.review_state, 'NEW');
   const actualDuplicates = rowsResponse
     .json()
@@ -269,7 +279,7 @@ try {
     ),
     500,
   );
-  assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 1);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 2);
   assert.equal(
     (await pool.query('SELECT name FROM client WHERE id=$1', [existingClient])).rows[0].name,
     'Cliente B32 previo',
@@ -338,7 +348,7 @@ try {
     ),
     200,
   );
-  assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 2);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 3);
   assert.equal(
     (await pool.query('SELECT count(*)::int AS n FROM kmz_import_operation')).rows[0].n,
     2,

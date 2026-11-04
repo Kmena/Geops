@@ -36,7 +36,6 @@ export function hasIdentityEvidence(candidate: {
         'NAME_NORMALIZED_EXACT',
         'NAME_SIMILAR',
         'SOURCE_KEY_EXACT_NON_AUTHORITATIVE',
-        'LINKED_CUSTOMER',
       ].includes(signal),
   );
 }
