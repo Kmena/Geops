@@ -84,6 +84,18 @@ test('W3 detects repeated codes and nearby distinct names without equating ident
     result.pairs.some((pair) => pair.rules.includes('IN_FILE_PROXIMITY')),
     true,
   );
+  assert.equal(
+    result.pairs
+      .filter((pair) => pair.rules.includes('IN_FILE_CODE'))
+      .every((pair) =>
+        hasIdentityEvidence({
+          target_type: 'STAGING_RECORD',
+          distance_m: null,
+          signals: pair.rules,
+        }),
+      ),
+    true,
+  );
 });
 
 test('nearby businesses with different names and codes are context, not duplicate evidence', () => {
@@ -131,7 +143,63 @@ test('nearby businesses with different names and codes are context, not duplicat
     true,
   );
   assert.equal(
-    hasIdentityEvidence({ target_type: 'STAGING_RECORD', distance_m: 0, signals: pair.rules }),
+    hasIdentityEvidence({
+      target_type: 'STAGING_RECORD',
+      distance_m: 48,
+      signals: ['IN_FILE_NAME'],
+    }),
     true,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'STAGING_RECORD',
+      distance_m: 48,
+      signals: ['IN_FILE_SIMILAR_NAME'],
+    }),
+    false,
+  );
+  assert.equal(
+    hasIdentityEvidence({ target_type: 'STAGING_RECORD', distance_m: 0, signals: pair.rules }),
+    false,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'STAGING_RECORD',
+      distance_m: 0,
+      signals: ['IN_FILE_CODE', 'IN_FILE_NAME', 'IN_FILE_PROXIMITY'],
+    }),
+    true,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'ESTABLISHMENT',
+      distance_m: 48,
+      signals: ['NAME_NORMALIZED_EXACT', 'SOURCE_KEY_EXACT_NON_AUTHORITATIVE'],
+    }),
+    true,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'ESTABLISHMENT',
+      distance_m: 48,
+      signals: ['NAME_SIMILAR', 'SOURCE_KEY_EXACT_NON_AUTHORITATIVE'],
+    }),
+    true,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'ESTABLISHMENT',
+      distance_m: 48,
+      signals: ['NAME_NORMALIZED_EXACT'],
+    }),
+    true,
+  );
+  assert.equal(
+    hasIdentityEvidence({
+      target_type: 'ESTABLISHMENT',
+      distance_m: 48,
+      signals: ['NAME_SIMILAR', 'PROXIMITY_HIGH'],
+    }),
+    false,
   );
 });

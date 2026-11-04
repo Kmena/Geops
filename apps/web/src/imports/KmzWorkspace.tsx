@@ -751,7 +751,7 @@ export function KmzWorkspace() {
                       {plan.blocking_issues.map((issue) => (
                         <li key={`${issue.record_id}:${issue.code}`}>
                           <button type="button" onClick={() => focusRecord(issue.record_id)}>
-                            {issue.code.replaceAll('_', ' ')} · Revisar registro
+                            {finding(issue.code).title} · Revisar registro
                           </button>
                         </li>
                       ))}

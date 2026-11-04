@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { appendAudit } from '../audit/index.js';
 import { ApiError } from '../errors.js';
-import { isRouteCandidate } from './matcher.js';
+import { comparisonName, isRouteCandidate, normalizedCode } from './matcher.js';
 import type { KmzService } from './service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -160,6 +160,7 @@ export class KmzConfirmationService {
         routes_candidate: 0,
       };
       const seenNames = new Set<string>();
+      const seenCodes = new Set<string>();
       const updatedCustomers = new Set<string>();
       const updatedEstablishments = new Set<string>();
       for (const row of rows) {
@@ -216,15 +217,36 @@ export class KmzConfirmationService {
           if (!safeText(name, 1, 160))
             blocking.push({ record_id: row.record_id, code: 'invalid_name' });
           if (safeText(name, 1, 160)) {
-            const key = name.trim().toLocaleLowerCase('es');
-            if (seenNames.has(key) && !row.acknowledged_conflict)
-              blocking.push({ record_id: row.record_id, code: 'duplicate_name_in_plan' });
-            seenNames.add(key);
-            const existing = await db.query(
-              "SELECT 1 FROM catalog_customer WHERE id IS DISTINCT FROM $2::uuid AND archived_at IS NULL AND identity_status='VERIFIED' AND lower(name)=lower($1) LIMIT 1",
-              [name, row.target_customer_id],
+            const targetCode =
+              action === 'UPDATE' && !row.selected_fields.includes('code')
+                ? (
+                    await db.query<{ internal_code: string }>(
+                      'SELECT internal_code FROM catalog_customer WHERE id=$1',
+                      [row.target_customer_id],
+                    )
+                  ).rows[0]?.internal_code
+                : (row.proposed.code ?? row.normalized.code);
+            const code = normalizedCode(targetCode);
+            const normalizedName = comparisonName(name);
+            if (
+              (seenNames.has(normalizedName) || (code && seenCodes.has(code))) &&
+              !row.acknowledged_conflict
+            )
+              blocking.push({ record_id: row.record_id, code: 'duplicate_name_or_code_in_plan' });
+            seenNames.add(normalizedName);
+            if (code) seenCodes.add(code);
+            const existing = await db.query<{ name: string; internal_code: string }>(
+              "SELECT name,internal_code FROM catalog_customer WHERE id IS DISTINCT FROM $3::uuid AND archived_at IS NULL AND identity_status='VERIFIED' AND (lower(name)=lower($1) OR internal_code=$2)",
+              [name, code, row.target_customer_id],
             );
-            if (existing.rowCount && !row.acknowledged_conflict)
+            if (
+              existing.rows.some(
+                (customer) =>
+                  comparisonName(customer.name) === normalizedName ||
+                  (code && normalizedCode(customer.internal_code) === code),
+              ) &&
+              !row.acknowledged_conflict
+            )
               blocking.push({ record_id: row.record_id, code: 'possible_duplicate_customer' });
           }
         }

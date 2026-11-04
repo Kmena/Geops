@@ -27,6 +27,11 @@ test('duplicate evidence identifies the actual matched record type and reason', 
   assert.equal(candidateKind(candidate), 'Otro registro del KMZ');
   assert.equal(confidenceName('POSSIBLE'), 'Posible coincidencia');
   assert.equal(signalName('IN_FILE_CODE'), 'Mismo código en este KMZ');
+  assert.equal(signalName('CUSTOMER_CODE'), 'Mismo código de un cliente');
+  assert.equal(
+    finding('possible_duplicate_customer').title,
+    'Ya existe un cliente con el mismo nombre o código',
+  );
 });
 
 test('weekly stop can link or reject, while an invalid point cannot be accepted', () => {

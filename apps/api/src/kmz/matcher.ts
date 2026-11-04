@@ -1,6 +1,6 @@
 import { splitNameCode } from './name-code.js';
 
-export const MATCHER_RULESET = 'spec03-w3-v3';
+export const MATCHER_RULESET = 'spec03-w3-v4';
 
 export type MatchConfig = { highMeters: number; extendedMeters: number };
 export const DEFAULT_MATCH_CONFIG: MatchConfig = { highMeters: 50, extendedMeters: 250 };
@@ -25,19 +25,11 @@ export function hasIdentityEvidence(candidate: {
   distance_m: number | null;
   signals: string[];
 }): boolean {
-  if (candidate.target_type === 'STAGING_RECORD' && candidate.distance_m === 0) return true;
-  return candidate.signals.some(
-    (signal) =>
-      signal.startsWith('EXPLICIT_') ||
-      [
-        'IN_FILE_CODE',
-        'IN_FILE_NAME',
-        'IN_FILE_SIMILAR_NAME',
-        'NAME_NORMALIZED_EXACT',
-        'NAME_SIMILAR',
-        'SOURCE_KEY_EXACT_NON_AUTHORITATIVE',
-      ].includes(signal),
-  );
+  if (candidate.signals.some((signal) => signal.startsWith('EXPLICIT_'))) return true;
+  const signals = new Set(candidate.signals);
+  if (candidate.target_type === 'STAGING_RECORD')
+    return signals.has('IN_FILE_NAME') || signals.has('IN_FILE_CODE');
+  return signals.has('NAME_NORMALIZED_EXACT') || signals.has('SOURCE_KEY_EXACT_NON_AUTHORITATIVE');
 }
 
 export function isRouteCandidate(record: {

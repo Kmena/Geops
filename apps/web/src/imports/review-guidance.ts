@@ -47,6 +47,14 @@ export function decisionOptions(
 }
 
 const findings: Record<string, { title: string; next: string }> = {
+  duplicate_name_or_code_in_plan: {
+    title: 'Otro cliente de esta revisión tiene el mismo nombre o código',
+    next: 'Compara ambos registros y decide si corresponden al mismo cliente.',
+  },
+  possible_duplicate_customer: {
+    title: 'Ya existe un cliente con el mismo nombre o código',
+    next: 'Compara el cliente existente antes de aprobar otra creación.',
+  },
   CODE_NAME_LOCATION_CONFLICT: {
     title: 'El código coincide, pero el nombre o la ubicación difieren',
     next: 'Compara los registros indicados abajo y confirma manualmente si pertenecen al mismo cliente.',
@@ -69,7 +77,7 @@ const findings: Record<string, { title: string; next: string }> = {
   },
   DUPLICATE_CODE: {
     title: 'Código repetido dentro del KMZ',
-    next: 'Abre el otro registro indicado abajo y decide cuál conservar, corregir o excluir.',
+    next: 'El código coincide con otro registro. Comprueba si pertenece al mismo cliente antes de decidir.',
   },
   COORDINATE_COLLISION: {
     title: 'Dos puntos comparten exactamente las coordenadas',
@@ -165,6 +173,7 @@ const signals: Record<string, string> = {
   SOURCE_KEY_EXACT_NON_AUTHORITATIVE: 'Mismo código de referencia',
   LINKED_CUSTOMER: 'Cliente asociado a la sede',
   CUSTOMER_NAME: 'Nombre igual al de un cliente',
+  CUSTOMER_CODE: 'Mismo código de un cliente',
   ESTABLISHMENT_NAME: 'Nombre igual al de una sede',
   ESTABLISHMENT_SPATIAL: 'Cerca de una sede',
   ESTABLISHMENT_SOURCE_KEY: 'Mismo código de referencia de una sede',

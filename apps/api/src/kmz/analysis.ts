@@ -256,7 +256,7 @@ export class KmzAnalysisService {
       `${inputSql}
        SELECT i.id AS record_id,c.id AS target_id,c.version AS target_version,
          c.name AS target_name,NULL::double precision AS distance_m,
-         NULL::uuid AS establishment_id,NULL::text AS source_key,NULL::text AS source_namespace,
+         NULL::uuid AS establishment_id,c.internal_code AS source_key,NULL::text AS source_namespace,
          'CUSTOMER_NAME' AS signal,'CUSTOMER' AS target_type
        FROM input i JOIN LATERAL (
          SELECT * FROM catalog_customer c WHERE c.archived_at IS NULL
@@ -265,11 +265,24 @@ export class KmzAnalysisService {
        ) c ON true`,
       [importId],
     );
+    const codedCustomers = await query(
+      `${inputSql}
+       SELECT i.id AS record_id,c.id AS target_id,c.version AS target_version,
+         c.name AS target_name,NULL::double precision AS distance_m,
+         NULL::uuid AS establishment_id,c.internal_code AS source_key,NULL::text AS source_namespace,
+         'CUSTOMER_CODE' AS signal,'CUSTOMER' AS target_type
+       FROM input i JOIN LATERAL (
+         SELECT * FROM catalog_customer c WHERE c.archived_at IS NULL
+           AND c.internal_code=i.comparison_code
+         ORDER BY c.id LIMIT 21
+       ) c ON true`,
+      [importId],
+    );
     const explicitCustomers = await query(
       `${inputSql}
        SELECT i.id AS record_id,c.id AS target_id,c.version AS target_version,
          c.name AS target_name,NULL::double precision AS distance_m,
-         NULL::uuid AS establishment_id,NULL::text AS source_key,NULL::text AS source_namespace,
+         NULL::uuid AS establishment_id,c.internal_code AS source_key,NULL::text AS source_namespace,
          'EXPLICIT_GEOPS_CUSTOMER_ID' AS signal,'CUSTOMER' AS target_type
        FROM input i JOIN catalog_customer c
          ON c.id=CASE WHEN i.normalized->>'geops_customer_id' ~* $2
@@ -285,6 +298,7 @@ export class KmzAnalysisService {
       ...pins.rows,
       ...explicitPins.rows,
       ...namedCustomers.rows,
+      ...codedCustomers.rows,
       ...explicitCustomers.rows,
     ];
     const establishmentIds = [
@@ -443,7 +457,10 @@ export class KmzAnalysisService {
           prior.proximity_band = proximityBand(prior.distance_m, config);
           if (prior.signals.some((signal) => signal.startsWith('EXPLICIT_')))
             prior.confidence = 'IDENTIFIER';
-          else if (prior.signals.includes('NAME_NORMALIZED_EXACT') && prior.proximity_band)
+          else if (
+            prior.signals.includes('NAME_NORMALIZED_EXACT') &&
+            prior.signals.includes('SOURCE_KEY_EXACT_NON_AUTHORITATIVE')
+          )
             prior.confidence = 'CORROBORATED';
         } else if (bucket.size < 40) bucket.set(key, candidate);
         else markWarning(candidate.record_id, 'CANDIDATE_LIMIT');
@@ -484,15 +501,13 @@ export class KmzAnalysisService {
           proximity_band: band,
           confidence: hit.signal.startsWith('EXPLICIT_')
             ? 'IDENTIFIER'
-            : nameExact && band
+            : nameExact && codeExact
               ? 'CORROBORATED'
               : nameExact || codeExact || band
                 ? 'POSSIBLE'
                 : 'WEAK',
           signals,
         });
-        if (codeExact && !nameExact && distance !== null && distance > config.extendedMeters)
-          markConflict(hit.record_id, 'CODE_NAME_LOCATION_CONFLICT');
         if (hit.signal.startsWith('EXPLICIT_') && !nameExact)
           markConflict(hit.record_id, 'IDENTITY_NAME_CONFLICT');
         if (
@@ -559,14 +574,6 @@ export class KmzAnalysisService {
           if (a.parent_path && a.parent_path === b.parent_path)
             pair.rules.push('SAME_PARENT_GROUP');
           if (a.week_label && a.week_label === b.week_label) pair.rules.push('SAME_WEEK');
-          if (
-            pair.rules.includes('IN_FILE_CODE') &&
-            comparisonName(a.normalized.name) !== comparisonName(b.normalized.name) &&
-            (distance === null || distance > config.extendedMeters)
-          ) {
-            markConflict(a.id, 'CODE_NAME_LOCATION_CONFLICT');
-            markConflict(b.id, 'CODE_NAME_LOCATION_CONFLICT');
-          }
           if (
             (underHeredia(a) || underHeredia(b)) &&
             (pair.rules.includes('IN_FILE_CODE') || pair.rules.includes('IN_FILE_NAME'))
@@ -682,12 +689,8 @@ export class KmzAnalysisService {
         states: stateCounts,
         types: typeCounts,
         candidates: candidates.length,
-        duplicate_records: results.filter(
-          (r) =>
-            r.warnings.includes('DUPLICATE_CODE') ||
-            r.warnings.includes('COORDINATE_COLLISION') ||
-            withInFileIdentityCandidate.has(r.record_id),
-        ).length,
+        duplicate_records: results.filter((r) => withInFileIdentityCandidate.has(r.record_id))
+          .length,
         conflicts: stateCounts.CONFLICT ?? 0,
         invalid: stateCounts.INVALID ?? 0,
         elapsed_ms: elapsedMs,

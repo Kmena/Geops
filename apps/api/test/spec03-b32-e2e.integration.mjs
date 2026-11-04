@@ -124,6 +124,8 @@ try {
     '<kml><Document><Folder><name>Clientes</name>' +
     '<Placemark><name>Cliente KMZ nuevo</name><ExtendedData><Data name="code"><value>R-999</value></Data></ExtendedData><Point><coordinates>-84.1,9.9</coordinates></Point></Placemark>' +
     '<Placemark><name>Negocio distinto cercano</name><ExtendedData><Data name="code"><value>R-998</value></Data></ExtendedData><Point><coordinates>-84.1004,9.9</coordinates></Point></Placemark>' +
+    '<Placemark><name>Otro cliente cercano</name><ExtendedData><Data name="code"><value>R-997</value></Data></ExtendedData><Point><coordinates>-84.1007,9.9</coordinates></Point></Placemark>' +
+    '<Placemark><name>Otro negocio con código compartido</name><ExtendedData><Data name="code"><value>B32NEAR</value></Data></ExtendedData><Point><coordinates>-84.1008,9.9</coordinates></Point></Placemark>' +
     '<Placemark><name>Duplicado real</name><ExtendedData><Data name="code"><value>R-900</value></Data></ExtendedData><Point><coordinates>-85.1,10.9</coordinates></Point></Placemark>' +
     '<Placemark><name>Duplicado real</name><ExtendedData><Data name="code"><value>R-901</value></Data></ExtendedData><Point><coordinates>-85.2,10.9</coordinates></Point></Placemark>' +
     '<Placemark><name>Cliente B32 previo</name><Point><coordinates>-84.3,9.9</coordinates></Point></Placemark>' +
@@ -148,6 +150,14 @@ try {
   assert.ok(nearbyRow, rowsResponse.body);
   assert.equal(row.review_state, 'NEW');
   assert.equal(nearbyRow.review_state, 'NEW');
+  const sameNameDifferentCode = rowsResponse
+    .json()
+    .items.find((item) => item.normalized.name === 'Otro cliente cercano');
+  const sameCodeDifferentName = rowsResponse
+    .json()
+    .items.find((item) => item.normalized.name === 'Otro negocio con código compartido');
+  assert.equal(sameNameDifferentCode?.review_state, 'POSSIBLE_DUPLICATE');
+  assert.equal(sameCodeDifferentName?.review_state, 'POSSIBLE_DUPLICATE');
   const actualDuplicates = rowsResponse
     .json()
     .items.filter((item) => item.normalized.name === 'Duplicado real');
@@ -186,6 +196,62 @@ try {
     { 'if-match': '0' },
   );
   check(review, 200);
+  check(
+    await call(
+      'PATCH',
+      `/${importId}/review/records/${row.record_id}`,
+      { action: 'CREATE', proposed: { name: 'Otro cliente cercano' } },
+      { 'if-match': '1' },
+    ),
+    200,
+  );
+  const repeatedNamePlan = await call('POST', `/${importId}/validate`, {});
+  check(repeatedNamePlan, 200);
+  assert.ok(
+    repeatedNamePlan
+      .json()
+      .blocking_issues.some(
+        (issue) =>
+          issue.record_id === row.record_id && issue.code === 'possible_duplicate_customer',
+      ),
+  );
+  check(
+    await call(
+      'PATCH',
+      `/${importId}/review/records/${row.record_id}`,
+      { action: 'CREATE', proposed: { name: 'Cliente GEOPS aprobado' } },
+      { 'if-match': '2' },
+    ),
+    200,
+  );
+  check(
+    await call(
+      'PATCH',
+      `/${importId}/review/records/${nearbyRow.record_id}`,
+      { action: 'CREATE', proposed: { code: 'B32NEAR' } },
+      { 'if-match': '0' },
+    ),
+    200,
+  );
+  const repeatedCodePlan = await call('POST', `/${importId}/validate`, {});
+  check(repeatedCodePlan, 200);
+  assert.ok(
+    repeatedCodePlan
+      .json()
+      .blocking_issues.some(
+        (issue) =>
+          issue.record_id === nearbyRow.record_id && issue.code === 'possible_duplicate_customer',
+      ),
+  );
+  check(
+    await call(
+      'PATCH',
+      `/${importId}/review/records/${nearbyRow.record_id}`,
+      { action: 'PENDING' },
+      { 'if-match': '1' },
+    ),
+    200,
+  );
   const decidedPoints = await call('GET', `/${importId}/review/records?type=READY_POINT`);
   check(decidedPoints, 200);
   assert.equal(decidedPoints.json().total, 1);
