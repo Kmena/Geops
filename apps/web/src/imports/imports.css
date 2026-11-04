@@ -278,6 +278,25 @@
 .kmz-review-shortcuts button {
   min-height: 44px;
 }
+.kmz-review-shortcuts button[aria-pressed="true"] {
+  border-color: #1c7275;
+  background: #e6f3f1;
+  color: #0b555c;
+}
+.kmz-selection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+.kmz-selection-tools button {
+  min-height: 44px;
+}
+.kmz-selection-tools span {
+  color: #52677a;
+  font-size: 0.81rem;
+}
 .kmz-route-next {
   padding: 12px;
   border: 1px solid #bcd7d5;

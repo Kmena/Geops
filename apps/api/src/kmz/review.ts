@@ -236,6 +236,7 @@ export class KmzReviewService {
           'WEEKLY_STOP',
           'GEOGRAPHIC_GROUP',
           'ROUTE_CANDIDATE',
+          'READY_POINT',
           'POLYGON',
           'LINE',
           'INVALID_OR_OTHER',
@@ -247,7 +248,14 @@ export class KmzReviewService {
     const filter = `FROM kmz_analysis_result a JOIN kmz_import_record r ON r.id=a.record_id LEFT JOIN kmz_review_record v ON v.record_id=a.record_id AND v.analysis_id=a.run_id
       WHERE a.run_id=$1 AND ($2::text IS NULL OR a.review_state=$2) AND ($3::text IS NULL OR r.parent_path=$3) AND ($4::text IS NULL OR r.week_label=$4)
       AND ($5::text IS NULL OR (a.record_type=$5 AND ($5<>'GEOGRAPHIC_GROUP' OR NOT ${ROUTE_CANDIDATE_SQL}))
-        OR ($5='ROUTE_CANDIDATE' AND ${ROUTE_CANDIDATE_SQL}))
+        OR ($5='ROUTE_CANDIDATE' AND ${ROUTE_CANDIDATE_SQL})
+        OR ($5='READY_POINT' AND a.review_state='NEW'
+          AND a.record_type IN ('CLIENT_CANDIDATE','REFERENCE_POINT')
+          AND a.warnings='[]'::jsonb AND a.conflicts='[]'::jsonb AND r.errors='[]'::jsonb
+          AND nullif(trim(r.normalized->>'name'),'') IS NOT NULL
+          AND char_length(trim(r.normalized->>'name'))<=200
+          AND r.normalized->'point' IS NOT NULL AND r.normalized->'point'<>'null'::jsonb
+          AND (v.action IS NULL OR v.action='PENDING')))
       AND ($6::text IS NULL OR coalesce(v.proposed->>'name',r.normalized->>'name','') ILIKE '%'||$6||'%' OR coalesce(v.proposed->>'code',r.normalized->>'code','') ILIKE '%'||$6||'%')
       AND ($7::uuid IS NULL OR a.record_id=$7)`;
     const args = [run.id, state, group, week, type, search, recordId];

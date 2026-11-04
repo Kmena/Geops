@@ -130,6 +130,12 @@ try {
     .json()
     .items.find((item) => item.normalized.name === 'Cliente KMZ nuevo');
   assert.ok(row, rowsResponse.body);
+  const readyPoints = await call('GET', `/${importId}/review/records?type=READY_POINT&limit=100`);
+  check(readyPoints, 200);
+  assert.deepEqual(
+    readyPoints.json().items.map((item) => item.record_id),
+    [row.record_id],
+  );
   await pool.query(
     "UPDATE admin_permission SET revoked_at=now() WHERE admin_id=$1 AND permission='catalog.import.write'",
     [actor],
@@ -157,6 +163,9 @@ try {
     { 'if-match': '0' },
   );
   check(review, 200);
+  const decidedPoints = await call('GET', `/${importId}/review/records?type=READY_POINT`);
+  check(decidedPoints, 200);
+  assert.equal(decidedPoints.json().total, 0);
   const updateRow = rowsResponse
     .json()
     .items.find((item) => item.normalized.name === 'Cliente B32 previo');

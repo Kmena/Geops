@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth.js';
 import { ApiClientError } from '../api/client.js';
@@ -19,6 +19,7 @@ import {
 } from './api.js';
 import { KmzMap } from './KmzMap.js';
 import {
+  canBulkSelect,
   candidateKind,
   confidenceName,
   decisionOptions,
@@ -79,6 +80,7 @@ const typeName: Record<string, string> = {
   WEEKLY_STOP: 'Parada semanal',
   GEOGRAPHIC_GROUP: 'Agrupación geográfica',
   ROUTE_CANDIDATE: 'Ruta candidata',
+  READY_POINT: 'Puntos nuevos sin conflicto',
   POLYGON: 'Polígono',
   LINE: 'Línea',
   INVALID_OR_OTHER: 'Inválido u otro',
@@ -112,6 +114,7 @@ export function KmzWorkspace() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [checked, setChecked] = useState<string[]>([]);
+  const selectionEpoch = useRef(0);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -266,18 +269,72 @@ export function KmzWorkspace() {
     () => points.find((item) => item.record_id === selected),
     [points, selected],
   );
+  const pageEligible = useMemo(
+    () => rows.filter((row) => canBulkSelect(row, bulkAction)).map((row) => row.record_id),
+    [rows, bulkAction],
+  );
+  const wholePageSelected =
+    pageEligible.length > 0 && pageEligible.every((id) => checked.includes(id));
+  function showFilters(next: Filters) {
+    selectionEpoch.current++;
+    setFilters(next);
+    setSelected(null);
+    setChecked([]);
+    setBulkPreview(null);
+    setTab('review');
+  }
   function updateFilter(key: keyof Filters, value: string | number) {
+    selectionEpoch.current++;
     setFilters((previous) => ({ ...previous, [key]: value, record_id: '', page: 1 }));
+    if (key === 'type' && value === 'READY_POINT') setBulkAction('CREATE');
+    setSelected(null);
     setChecked([]);
     setBulkPreview(null);
   }
   function focusRecord(recordId: string) {
+    selectionEpoch.current++;
     setSelected(recordId);
     setSearchInput('');
     setFilters({ ...initial, record_id: recordId });
     setChecked([]);
     setBulkPreview(null);
     setTab('review');
+  }
+  function togglePageSelection() {
+    const next = wholePageSelected
+      ? checked.filter((recordId) => !pageEligible.includes(recordId))
+      : [...new Set([...checked, ...pageEligible])];
+    if (next.length > 100) {
+      setError('El máximo es 100 registros por lote. Limpia la selección o procesa este lote.');
+      return;
+    }
+    setChecked(next);
+    setBulkPreview(null);
+  }
+  async function selectAllReady() {
+    if (!id || filters.type !== 'READY_POINT' || total < 1 || total > 100 || busy) return;
+    const epoch = selectionEpoch.current;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await importsApi.records(id, { ...filters, page: 1, limit: 100 });
+      if (epoch !== selectionEpoch.current) return;
+      if (
+        result.total !== total ||
+        result.items.length !== total ||
+        result.items.some((row) => !canBulkSelect(row, bulkAction))
+      ) {
+        setError('Los resultados cambiaron. Actualiza la revisión antes de seleccionarlos.');
+        await refresh();
+        return;
+      }
+      setChecked(result.items.map((row) => row.record_id));
+      setBulkPreview(null);
+    } catch (failure) {
+      setError(friendly(failure));
+    } finally {
+      setBusy(false);
+    }
   }
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -570,9 +627,27 @@ export function KmzWorkspace() {
           <nav className="kmz-review-shortcuts" aria-label="Revisar por tarea">
             <button
               type="button"
+              aria-pressed={filters.type === 'READY_POINT'}
               onClick={() => {
-                setTab('review');
-                setFilters({ ...initial, type: 'ROUTE_CANDIDATE' });
+                setBulkAction('CREATE');
+                showFilters({ ...initial, type: 'READY_POINT' });
+              }}
+            >
+              Puntos nuevos sin conflicto
+            </button>
+            <button
+              type="button"
+              aria-pressed={filters.state === 'EXISTING_MATCH'}
+              onClick={() => {
+                showFilters({ ...initial, state: 'EXISTING_MATCH' });
+              }}
+            >
+              Coincidencias con cliente ({number(summary.existing_matches)})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                showFilters({ ...initial, type: 'ROUTE_CANDIDATE' });
               }}
             >
               Definir rutas ({number(summary.route_candidates)})
@@ -580,8 +655,7 @@ export function KmzWorkspace() {
             <button
               type="button"
               onClick={() => {
-                setTab('review');
-                setFilters({ ...initial, type: 'WEEKLY_STOP' });
+                showFilters({ ...initial, type: 'WEEKLY_STOP' });
               }}
             >
               Revisar paradas
@@ -589,8 +663,7 @@ export function KmzWorkspace() {
             <button
               type="button"
               onClick={() => {
-                setTab('review');
-                setFilters({ ...initial, state: 'POSSIBLE_DUPLICATE' });
+                showFilters({ ...initial, state: 'POSSIBLE_DUPLICATE' });
               }}
             >
               Comparar duplicados ({number(summary.possible_duplicates)})
@@ -598,8 +671,7 @@ export function KmzWorkspace() {
             <button
               type="button"
               onClick={() => {
-                setTab('review');
-                setFilters({ ...initial, state: 'INVALID' });
+                showFilters({ ...initial, state: 'INVALID' });
               }}
             >
               Corregir inválidos ({number(summary.invalid)})
@@ -842,6 +914,7 @@ export function KmzWorkspace() {
                 >
                   <option value="">Todos</option>
                   {[
+                    'READY_POINT',
                     'CLIENT_CANDIDATE',
                     'REFERENCE_POINT',
                     'WEEKLY_STOP',
@@ -880,15 +953,67 @@ export function KmzWorkspace() {
                   </p>
                 </div>
                 {filters.record_id && (
-                  <button type="button" onClick={() => setFilters(initial)}>
+                  <button type="button" onClick={() => showFilters(initial)}>
                     Mostrar todos
                   </button>
                 )}
               </div>
+              {filters.type === 'READY_POINT' && (
+                <p className="kmz-source-note">
+                  Aquí aparecen puntos nuevos con nombre y coordenadas válidos, sin coincidencias,
+                  conflictos ni advertencias, y aún sin decisión. No incluye rutas ni paradas
+                  semanales. Guardar una propuesta no crea clientes hasta la confirmación final.
+                </p>
+              )}
               {rows.length === 0 ? (
                 <p className="empty">No hay registros con estos filtros. Ajusta la búsqueda.</p>
               ) : (
                 <>
+                  {canWrite && (
+                    <div className="kmz-selection-tools">
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={loading || busy || pageEligible.length === 0}
+                        onClick={togglePageSelection}
+                      >
+                        {wholePageSelected
+                          ? 'Quitar selección de esta página'
+                          : filters.type === 'READY_POINT' && total <= rows.length
+                            ? `Seleccionar todos los resultados (${number(total)})`
+                            : `Seleccionar esta página (${pageEligible.length})`}
+                      </button>
+                      {filters.type === 'READY_POINT' && total <= 100 && total > rows.length && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={loading || busy}
+                          onClick={() => void selectAllReady()}
+                        >
+                          Seleccionar todos los resultados ({number(total)})
+                        </button>
+                      )}
+                      {checked.length > 0 && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => {
+                            setChecked([]);
+                            setBulkPreview(null);
+                          }}
+                        >
+                          Limpiar selección
+                        </button>
+                      )}
+                      <span>{number(checked.length)} seleccionados · máximo 100 por lote</span>
+                    </div>
+                  )}
+                  {filters.type === 'READY_POINT' && total > 100 && (
+                    <p className="kmz-source-note">
+                      Hay {number(total)} puntos listos. Procesa una página por vez: el servidor
+                      limita cada lote a 100 registros.
+                    </p>
+                  )}
                   <div className="kmz-table-wrap">
                     <table>
                       <thead>
@@ -912,6 +1037,7 @@ export function KmzWorkspace() {
                                 type="checkbox"
                                 aria-label={`Seleccionar ${recordLabel(row)}`}
                                 checked={checked.includes(row.record_id)}
+                                disabled={!canWrite || !canBulkSelect(row, bulkAction)}
                                 onChange={(event) => {
                                   setChecked((current) =>
                                     event.target.checked
@@ -956,7 +1082,7 @@ export function KmzWorkspace() {
                     <button
                       type="button"
                       disabled={filters.page === 1}
-                      onClick={() => setFilters((value) => ({ ...value, page: value.page - 1 }))}
+                      onClick={() => showFilters({ ...filters, page: filters.page - 1 })}
                     >
                       Anterior
                     </button>
@@ -967,7 +1093,7 @@ export function KmzWorkspace() {
                     <button
                       type="button"
                       disabled={filters.page * filters.limit >= total}
-                      onClick={() => setFilters((value) => ({ ...value, page: value.page + 1 }))}
+                      onClick={() => showFilters({ ...filters, page: filters.page + 1 })}
                     >
                       Siguiente
                     </button>
@@ -986,7 +1112,9 @@ export function KmzWorkspace() {
                     <select
                       value={bulkAction}
                       onChange={(event) => {
+                        selectionEpoch.current++;
                         setBulkAction(event.target.value as typeof bulkAction);
+                        setChecked([]);
                         setBulkPreview(null);
                       }}
                     >

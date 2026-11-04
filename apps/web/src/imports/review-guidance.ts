@@ -1,5 +1,29 @@
 import type { Action, Candidate, ReviewRow } from './api.js';
 
+export type BulkAction = 'CREATE' | 'EXCLUDE' | 'ASSIGN_GROUP';
+
+export function canBulkSelect(row: ReviewRow, action: BulkAction): boolean {
+  if (row.review_state === 'CONFLICT' || row.review_state === 'INVALID') return false;
+  if (row.action && row.action !== 'PENDING') return false;
+  if (action !== 'CREATE') return true;
+  const name = row.normalized.name?.trim() ?? '';
+  const point = row.normalized.point;
+  return (
+    row.review_state === 'NEW' &&
+    ['CLIENT_CANDIDATE', 'REFERENCE_POINT'].includes(row.record_type) &&
+    name.length > 0 &&
+    name.length <= 200 &&
+    typeof point?.latitude === 'number' &&
+    Number.isFinite(point.latitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    typeof point.longitude === 'number' &&
+    Number.isFinite(point.longitude) &&
+    point.longitude >= -180 &&
+    point.longitude <= 180
+  );
+}
+
 export function decisionOptions(
   record: Pick<ReviewRow, 'record_type' | 'source_kind' | 'review_state'>,
 ): Array<[Action, string]> {

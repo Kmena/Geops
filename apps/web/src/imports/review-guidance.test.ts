@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  canBulkSelect,
   candidateKind,
   confidenceName,
   decisionOptions,
@@ -38,4 +39,18 @@ test('weekly stop can link or reject, while an invalid point cannot be accepted'
     decisionOptions({ ...stop, review_state: 'INVALID' }).map(([action]) => action),
     ['EXCLUDE', 'PENDING'],
   );
+});
+
+test('bulk selection offers creation only for undecided new customer points', () => {
+  const point = {
+    record_type: 'CLIENT_CANDIDATE',
+    review_state: 'NEW',
+    action: null,
+    normalized: { name: 'Cliente nuevo', point: { latitude: 9.9, longitude: -84.1 } },
+  } as ReviewRow;
+  assert.equal(canBulkSelect(point, 'CREATE'), true);
+  assert.equal(canBulkSelect({ ...point, review_state: 'POSSIBLE_DUPLICATE' }, 'CREATE'), false);
+  assert.equal(canBulkSelect({ ...point, record_type: 'GEOGRAPHIC_GROUP' }, 'CREATE'), false);
+  assert.equal(canBulkSelect({ ...point, action: 'CREATE' }, 'CREATE'), false);
+  assert.equal(canBulkSelect({ ...point, review_state: 'CONFLICT' }, 'EXCLUDE'), false);
 });
