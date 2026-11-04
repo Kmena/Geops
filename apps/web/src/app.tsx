@@ -25,6 +25,7 @@ import { MdmOnly, mdmEnabled } from './MdmAvailability.js';
 import { mdmInventoryAvailability } from './MdmInventoryAvailability.js';
 import { ClientCatalog } from './ClientCatalog.js';
 import { RouteCatalog } from './RouteCatalog.js';
+import { KmzWorkspace } from './imports/KmzWorkspace.js';
 import { VisitSchedule } from './VisitSchedule.js';
 import { ComplianceDashboard } from './ComplianceDashboard.js';
 import './styles.css';
@@ -200,6 +201,12 @@ function Shell({ children }: { children: React.ReactNode }) {
               to="/routes"
             >
               Rutas reutilizables
+            </Link>
+            <Link
+              aria-current={location.pathname.startsWith('/imports') ? 'page' : undefined}
+              to="/imports"
+            >
+              Importaciones KMZ
             </Link>
             <Link
               aria-current={location.pathname === '/schedule' ? 'page' : undefined}
@@ -990,6 +997,16 @@ function AppRoutes() {
           <Protected>
             <Shell>
               <RouteCatalog />
+            </Shell>
+          </Protected>
+        }
+      />
+      <Route
+        path="/imports/:id?"
+        element={
+          <Protected>
+            <Shell>
+              <KmzWorkspace />
             </Shell>
           </Protected>
         }

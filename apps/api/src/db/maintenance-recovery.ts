@@ -39,6 +39,15 @@ const versions = [
   '0029_geops_gps_identity.sql',
   '0030_gps_continuity_geops_owner.sql',
   '0031_agent_responsibility_geocoding.sql',
+  '0032_mdm_continuous_capture.sql',
+  '0033_visit_coverage_calibration.sql',
+  '0034_gps_device_ownership.sql',
+  '0035_legacy_device_decommission.sql',
+  '0036_kmz_staging.sql',
+  '0037_kmz_analysis.sql',
+  '0038_kmz_review.sql',
+  '0039_kmz_confirmation.sql',
+  '0040_kmz_retention.sql',
 ] as const;
 type SchemaVersion =
   | 14
@@ -58,8 +67,17 @@ type SchemaVersion =
   | 28
   | 29
   | 30
-  | 31;
-export const RECOVERY_TARGET_SCHEMA = 31;
+  | 31
+  | 32
+  | 33
+  | 34
+  | 35
+  | 36
+  | 37
+  | 38
+  | 39
+  | 40;
+export const RECOVERY_TARGET_SCHEMA = 40;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -122,9 +140,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   );
   const actual = new Map(result.rows.map((row) => [row.version, row.checksum]));
   if (
-    ![14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31].includes(
-      actual.size,
-    ) ||
+    actual.size < 14 ||
+    actual.size > RECOVERY_TARGET_SCHEMA ||
     expected.slice(0, actual.size).some((item) => actual.get(item.version) !== item.checksum)
   )
     throw new Error('Migration ledger or checksum mismatch');
@@ -135,7 +152,7 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   )
     throw new Error('Unknown or out-of-order migration');
   const state = actual.size as SchemaVersion;
-  const objects: Array<[string, SchemaVersion, 'r' | 'i']> = [
+  const objects: Array<[string, SchemaVersion, 'r' | 'i' | 'v']> = [
     ['geops_operating_tenant', 15, 'r'],
     ['admin_user_invitation', 15, 'r'],
     ['admin_access_change', 15, 'r'],
@@ -193,6 +210,29 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['geocoding_cache', 31, 'r'],
     ['geocoding_provider_slot', 31, 'r'],
     ['geocoding_actor_bucket', 31, 'r'],
+    ['gps_mdm_continuous_authorization', 32, 'r'],
+    ['gps_mdm_continuous_one_active_device', 32, 'i'],
+    ['visit_evaluation_outside_interval', 33, 'r'],
+    ['gps_device_ownership', 34, 'r'],
+    ['gps_device_ownership_history', 34, 'r'],
+    ['catalog_revision', 36, 'r'],
+    ['catalog_customer', 36, 'v'],
+    ['catalog_establishment', 36, 'v'],
+    ['catalog_customer_establishment', 36, 'v'],
+    ['catalog_source', 36, 'v'],
+    ['catalog_pin', 36, 'v'],
+    ['kmz_import_session', 36, 'r'],
+    ['kmz_import_file', 36, 'r'],
+    ['kmz_import_record', 36, 'r'],
+    ['kmz_analysis_run', 37, 'r'],
+    ['kmz_analysis_result', 37, 'r'],
+    ['kmz_analysis_candidate', 37, 'r'],
+    ['kmz_review_session', 38, 'r'],
+    ['kmz_review_record', 38, 'r'],
+    ['kmz_review_event', 38, 'r'],
+    ['kmz_import_commit', 39, 'r'],
+    ['kmz_import_operation', 39, 'r'],
+    ['kmz_import_review_archive', 40, 'r'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -213,7 +253,8 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
   if (
     !permission.rows[0]?.definition.includes('gps.installation.manage') ||
     permission.rows[0].definition.includes('gps.user.manage') !== state >= 15 ||
-    permission.rows[0].definition.includes('mdm.oauth.configure') !== state >= 23
+    permission.rows[0].definition.includes('mdm.oauth.configure') !== state >= 23 ||
+    permission.rows[0].definition.includes('catalog.import.confirm') !== state >= 36
   )
     throw new Error('Permission constraint mismatch');
   const columns: Array<[string, string, SchemaVersion, boolean]> = [
@@ -256,6 +297,26 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['mdm_oauth_client_config', 'ciphertext', 23, true],
     ['mdm_oauth_client_config', 'generation', 23, true],
     ['mdm_oauth_config_rate', 'next_allowed_at', 23, true],
+    ['gps_policy_revision', 'mdm_continuous', 32, true],
+    ['visit_algorithm_revision', 'decision_refs', 33, true],
+    ['visit_algorithm_revision', 'default_required_s', 33, false],
+    ['visit_algorithm_revision', 'activated_at', 33, false],
+    ['visit_evaluation', 'outside_credited_s', 33, false],
+    ['visit_evaluation', 'unknown_s', 33, false],
+    ['visit_evaluation', 'coverage_percent', 33, false],
+    ['visit_evaluation', 'potential_inside_upper_s', 33, false],
+    ['gps_device_ownership', 'device_id', 34, true],
+    ['gps_device_ownership_history', 'device_id', 34, true],
+    ['kmz_import_session', 'created_by', 36, true],
+    ['kmz_import_record', 'import_id', 36, true],
+    ['kmz_analysis_run', 'catalog_revision', 37, true],
+    ['kmz_review_record', 'target_customer_id', 38, false],
+    ['kmz_review_record', 'target_establishment_id', 38, false],
+    ['kmz_import_commit', 'plan_digest', 39, true],
+    ['kmz_import_operation', 'source_code', 39, false],
+    ['kmz_import_session', 'processing_token', 40, false],
+    ['kmz_import_session', 'purged_at', 40, false],
+    ['kmz_import_review_archive', 'import_id', 40, true],
   ];
   for (const [table, column, introduced, notNull] of columns) {
     const found = await db.query<{ attnotnull: boolean; type: string }>(
@@ -451,6 +512,97 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     )
       throw new Error('B31 identity or responsibility guards missing');
   }
+  if (state >= 32) {
+    const result = await db.query<{
+      policy_check: string | null;
+      invitation_check: string | null;
+      authorization_keys: number;
+      active_index: string | null;
+    }>(`SELECT
+      (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+       WHERE conrelid='gps_policy_revision'::regclass
+         AND conname='gps_policy_revision_time_mode_check' AND contype='c') AS policy_check,
+      (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+       WHERE conrelid='device_invitation'::regclass
+         AND conname='device_invitation_expiry_mode_check' AND contype='c') AS invitation_check,
+      (SELECT count(*)::int FROM pg_constraint
+       WHERE conrelid='gps_mdm_continuous_authorization'::regclass
+         AND contype IN ('p','f','u')) AS authorization_keys,
+      pg_get_indexdef('gps_mdm_continuous_one_active_device'::regclass) AS active_index`);
+    const row = result.rows[0];
+    if (
+      !row?.policy_check?.includes('mdm_continuous') ||
+      !row.policy_check.includes('00:00:00') ||
+      !row.invitation_check?.includes('managed_configuration') ||
+      !row.invitation_check.includes('24:00:00') ||
+      row.authorization_keys !== 6 ||
+      !row.active_index?.includes('UNIQUE INDEX') ||
+      !row.active_index.includes('revoked_at IS NULL')
+    )
+      throw new Error('B32 continuous capture guards missing');
+  }
+  if (state >= 33) {
+    const result = await db.query<{
+      scope: string;
+      activated_at: Date | null;
+      coverage_min_fraction: string | null;
+      non_compliance_enabled: string | null;
+      immutable_guard: number;
+    }>(`SELECT r.scope,r.activated_at,
+      r.parameters->>'coverage_min_fraction' AS coverage_min_fraction,
+      r.parameters->>'non_compliance_enabled' AS non_compliance_enabled,
+      (SELECT count(*)::int FROM pg_trigger WHERE
+       tgname='visit_evaluation_outside_interval_no_change' AND NOT tgisinternal)
+       AS immutable_guard
+      FROM visit_algorithm_revision r WHERE r.algorithm_id='dwell-pair-v1' AND r.revision=3`);
+    const row = result.rows[0];
+    if (
+      result.rowCount !== 1 ||
+      row?.scope !== 'TECHNICAL_ONLY' ||
+      row.activated_at !== null ||
+      row.coverage_min_fraction !== null ||
+      row.non_compliance_enabled !== 'false' ||
+      row.immutable_guard !== 1
+    )
+      throw new Error('B32 visit coverage guards or technical-only revision differ');
+  }
+  if (state >= 35) {
+    const guards = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_trigger WHERE tgname IN (
+        'gps_no_decommissioned_ownership_grant','gps_no_decommissioned_policy_assignment',
+        'gps_no_decommissioned_group_member','gps_no_decommissioned_continuous_authorization',
+        'gps_no_decommissioned_agent_link','gps_no_decommissioned_effective_assignment',
+        'gps_no_decommissioned_installation','gps_no_decommissioned_schedule')
+        AND NOT tgisinternal`,
+    );
+    if (guards.rows[0]?.n !== 8) throw new Error('B32 decommission guards missing');
+  }
+  if (state >= 36) {
+    const catalog = await db.query<{ revision_rows: number; revision_triggers: number }>(
+      `SELECT (SELECT count(*)::int FROM catalog_revision WHERE singleton=true) AS revision_rows,
+        (SELECT count(*)::int FROM pg_trigger WHERE tgname IN
+          ('kmz_client_revision','kmz_site_revision') AND NOT tgisinternal) AS revision_triggers`,
+    );
+    if (catalog.rows[0]?.revision_rows !== 1 || catalog.rows[0].revision_triggers !== 2)
+      throw new Error('KMZ catalog revision guards missing');
+  }
+  if (state >= 38) {
+    const review = await db.query<{ client_fk: number; site_fk: number }>(
+      `SELECT
+        count(*) FILTER (WHERE pg_get_constraintdef(oid) LIKE '%REFERENCES client(%')::int AS client_fk,
+        count(*) FILTER (WHERE pg_get_constraintdef(oid) LIKE '%REFERENCES client_site(%')::int AS site_fk
+       FROM pg_constraint WHERE conrelid='kmz_review_record'::regclass AND contype='f'`,
+    );
+    if (review.rows[0]?.client_fk !== 1 || review.rows[0].site_fk !== 1)
+      throw new Error('KMZ review targets do not use canonical catalog');
+  }
+  if (state >= 40) {
+    const retention = await db.query<{ definition: string | null }>(
+      "SELECT pg_get_indexdef(to_regclass('kmz_import_session_retention')) AS definition",
+    );
+    if (!retention.rows[0]?.definition?.includes('purged_at IS NULL'))
+      throw new Error('KMZ retention index missing');
+  }
   return state;
 }
 
@@ -477,6 +629,15 @@ async function identityFingerprint(db: PoolClient, baseline: SchemaVersion): Pro
     ...(baseline >= 18 ? ['mdm_inventory_device', 'mdm_sync_run'] : []),
     ...(baseline >= 19 ? ['mdm_connection_control', 'admin_login_limit'] : []),
     ...(baseline >= 20 ? ['gps_mixed_batch_receipt'] : []),
+    ...(baseline >= 24 ? ['client', 'client_site', 'client_geofence_revision'] : []),
+    ...(baseline >= 25
+      ? ['route_template', 'route_draft_stop', 'route_revision', 'route_stop_revision']
+      : []),
+    ...(baseline >= 26 ? ['agent', 'route_assignment', 'assignment_visit'] : []),
+    ...(baseline >= 33 ? ['visit_algorithm_revision', 'visit_evaluation'] : []),
+    ...(baseline >= 28 ? ['agent_device_link'] : []),
+    ...(baseline >= 31 ? ['agent_operational_identity', 'agent_responsibility'] : []),
+    ...(baseline >= 34 ? ['gps_device_ownership', 'gps_device_ownership_history'] : []),
   ];
   const digest = createHash('sha256');
   for (const table of tables) {
@@ -619,7 +780,7 @@ export async function recoverMaintenance(
     }
     await checkIdentity(db, path, auth);
     if ((await schemaState(db, catalog)) !== RECOVERY_TARGET_SCHEMA)
-      throw new Error('Schema 31 not committed');
+      throw new Error('Schema 40 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');

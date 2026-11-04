@@ -35,6 +35,14 @@ import {
 } from './gps-administration.js';
 import { registerGpsContinuityRoutes } from './gps-continuity-routes.js';
 import type { GpsContinuityMonitor } from './gps-continuity-monitor.js';
+import { registerKmzRoutes } from './kmz/routes.js';
+import type { KmzService } from './kmz/service.js';
+import { registerKmzAnalysisRoutes } from './kmz/analysis-routes.js';
+import type { KmzAnalysisService } from './kmz/analysis.js';
+import { registerKmzReviewRoutes } from './kmz/review-routes.js';
+import type { KmzReviewService } from './kmz/review.js';
+import { registerKmzConfirmationRoutes } from './kmz/confirmation-routes.js';
+import type { KmzConfirmationService } from './kmz/confirmation.js';
 import { registerClientCatalogRoutes } from './client-catalog-routes.js';
 import type { ClientCatalogService } from './client-catalog.js';
 import { registerGeocodingRoutes } from './geocoding-routes.js';
@@ -83,6 +91,10 @@ export interface AppOptions {
   visitEvaluation?: VisitEvaluationService;
   agentDeviceLinks?: AgentDeviceLinkService;
   complianceDashboard?: ComplianceDashboardService;
+  kmz?: KmzService;
+  kmzAnalysis?: KmzAnalysisService;
+  kmzReview?: KmzReviewService;
+  kmzConfirmation?: KmzConfirmationService;
 }
 
 export function createApp(options: AppOptions): FastifyInstance {
@@ -144,6 +156,13 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerAgentDeviceLinkRoutes(app, options.adminAuth, options.agentDeviceLinks);
     if (options.complianceDashboard)
       registerComplianceDashboardRoutes(app, options.adminAuth, options.complianceDashboard);
+    if (options.kmz) registerKmzRoutes(app, options.adminAuth, options.kmz);
+    if (options.kmz && options.kmzAnalysis)
+      registerKmzAnalysisRoutes(app, options.adminAuth, options.kmz, options.kmzAnalysis);
+    if (options.kmz && options.kmzReview)
+      registerKmzReviewRoutes(app, options.adminAuth, options.kmz, options.kmzReview);
+    if (options.kmz && options.kmzConfirmation)
+      registerKmzConfirmationRoutes(app, options.adminAuth, options.kmz, options.kmzConfirmation);
     if (options.devices) {
       registerInventoryRoutes(
         app,

@@ -27,6 +27,10 @@ import { VisitScheduleService } from './visit-schedule.js';
 import { VisitEvaluationService } from './visit-evaluation.js';
 import { AgentDeviceLinkService } from './agent-device-links.js';
 import { ComplianceDashboardService } from './compliance-dashboard.js';
+import { KmzService } from './kmz/service.js';
+import { KmzAnalysisService } from './kmz/analysis.js';
+import { KmzReviewService } from './kmz/review.js';
+import { KmzConfirmationService } from './kmz/confirmation.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -89,6 +93,7 @@ async function main(): Promise<void> {
   const gpsContinuity = new GpsContinuityMonitor(pool, undefined, config.adminSessionKey);
   const visitEvaluation = new VisitEvaluationService(pool);
   const visitScheduler = new VisitEvaluationScheduler(pool, visitEvaluation);
+  const kmz = new KmzService(pool);
   const app = createApp({
     readinessProbe: async () => (await restoreGate()) && (await checkReadiness(pool)),
     restoreGate,
@@ -108,6 +113,10 @@ async function main(): Promise<void> {
     visitEvaluation,
     agentDeviceLinks: new AgentDeviceLinkService(pool),
     complianceDashboard: new ComplianceDashboardService(pool),
+    kmz,
+    kmzAnalysis: new KmzAnalysisService(pool, kmz),
+    kmzReview: new KmzReviewService(pool, kmz),
+    kmzConfirmation: new KmzConfirmationService(pool, kmz),
     devices,
     enrollment: new EnrollmentService(pool, devices, config.invitationHmacKey),
     deviceSessions: new DeviceSessionService(pool),
