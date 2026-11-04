@@ -62,7 +62,7 @@ const fieldName: Record<string, string> = {
   latitude: 'Latitud',
   longitude: 'Longitud',
   customer: 'Cliente asociado',
-  group: 'Agrupación',
+  group: 'Ruta o agrupación',
   week: 'Ruta semanal',
 };
 const typeName: Record<string, string> = {
@@ -70,10 +70,13 @@ const typeName: Record<string, string> = {
   REFERENCE_POINT: 'Punto de referencia',
   WEEKLY_STOP: 'Parada semanal',
   GEOGRAPHIC_GROUP: 'Agrupación geográfica',
+  ROUTE_CANDIDATE: 'Ruta candidata',
   POLYGON: 'Polígono',
   LINE: 'Línea',
   INVALID_OR_OTHER: 'Inválido u otro',
 };
+const recordTypeName = (row: ReviewRow) =>
+  row.route_candidate ? typeName.ROUTE_CANDIDATE : (typeName[row.record_type] ?? 'Elemento KMZ');
 const signalName: Record<string, string> = {
   IN_FILE_CODE: 'Mismo código en el archivo',
   IN_FILE_SIMILAR_NAME: 'Nombre parecido en el archivo',
@@ -548,6 +551,7 @@ export function KmzWorkspace() {
             {[
               ['Registros', summary.total],
               ['Clientes candidatos', summary.client_candidates],
+              ['Rutas candidatas', summary.route_candidates],
               ['Coincidencias', summary.existing_matches],
               ['Posibles duplicados', summary.possible_duplicates],
               ['Conflictos', summary.conflicts],
@@ -572,8 +576,8 @@ export function KmzWorkspace() {
         <section className="panel kmz-preview">
           <h2>Operaciones propuestas</h2>
           <p>
-            Valida las decisiones y confirma únicamente las operaciones aprobadas. Las rutas
-            semanales quedan como candidatas; no se generan visitas.
+            Valida las decisiones y confirma únicamente las operaciones aprobadas. Las rutas del KMZ
+            quedan como candidatas; no se generan visitas.
           </p>
           {summary && (
             <div className="kmz-preview-totals">
@@ -770,7 +774,7 @@ export function KmzWorkspace() {
                 </select>
               </label>
               <label>
-                Agrupación
+                Ruta o agrupación
                 <select
                   value={filters.group}
                   onChange={(event) => updateFilter('group', event.target.value)}
@@ -809,6 +813,7 @@ export function KmzWorkspace() {
                     'REFERENCE_POINT',
                     'WEEKLY_STOP',
                     'GEOGRAPHIC_GROUP',
+                    'ROUTE_CANDIDATE',
                     'POLYGON',
                     'LINE',
                     'INVALID_OR_OTHER',
@@ -894,8 +899,9 @@ export function KmzWorkspace() {
                                 <strong>{recordLabel(row)}</strong>
                                 <small>
                                   {row.proposed?.code ?? row.normalized.code ?? 'Sin código'} ·{' '}
-                                  {typeName[row.record_type] ??
-                                    (row.source_kind === 'DOCUMENT' ? 'Documento' : 'Elemento KMZ')}
+                                  {row.source_kind === 'DOCUMENT'
+                                    ? 'Documento'
+                                    : recordTypeName(row)}
                                 </small>
                               </button>
                             </td>
@@ -971,7 +977,7 @@ export function KmzWorkspace() {
                   )}
                   {bulkAction === 'ASSIGN_GROUP' && (
                     <label>
-                      Agrupación
+                      Ruta o agrupación
                       <select
                         value={bulkGroup}
                         onChange={(event) => {
@@ -1176,55 +1182,71 @@ function ReviewDetail({
     <section className="panel kmz-detail" aria-labelledby="kmz-detail-title">
       <div className="panel-head">
         <div>
-          <h2 id="kmz-detail-title">Comparación</h2>
+          <h2 id="kmz-detail-title">
+            {detail.route_candidate
+              ? 'Ruta candidata'
+              : detail.record_type === 'GEOGRAPHIC_GROUP'
+                ? 'Agrupación'
+                : 'Comparación'}
+          </h2>
           <p>{detail.normalized.name ?? 'Elemento sin nombre'}</p>
         </div>
         <span className={`kmz-state ${detail.review_state.toLowerCase()}`}>
           {stateName[detail.review_state] ?? detail.review_state}
         </span>
       </div>
-      <p className="kmz-caution">
-        Las coincidencias son indicios. Selecciona el cliente explícitamente antes de vincular o
-        actualizar.
-      </p>
+      {detail.record_type !== 'GEOGRAPHIC_GROUP' && (
+        <p className="kmz-caution">
+          Las coincidencias son indicios. Selecciona el cliente explícitamente antes de vincular o
+          actualizar.
+        </p>
+      )}
       <p className="kmz-source-note">
         Origen KMZ: {field(detail.normalized.name)} · código {field(detail.normalized.code)} ·{' '}
         {groupLabel(detail.parent_path)}. El código es una referencia, no una identidad comercial.
       </p>
-      <div className="kmz-compare">
-        <div>
-          <h3>
-            {currentCustomer || currentEstablishment
-              ? 'Catálogo actual (candidato)'
-              : 'Sin coincidencia en catálogo'}
-          </h3>
-          <dl>
-            {Object.entries(source).map(([key, value]) => (
-              <div key={key}>
-                <dt>{fieldName[key] ?? key}</dt>
-                <dd>{field(value)}</dd>
-              </div>
-            ))}
-          </dl>
+      {detail.route_candidate && (
+        <p className="kmz-caution">
+          Ruta candidata del KMZ. Los puntos dentro de esta carpeta se revisan como clientes;
+          confirmar clientes no crea ni activa esta ruta.
+        </p>
+      )}
+      {detail.record_type !== 'GEOGRAPHIC_GROUP' && (
+        <div className="kmz-compare">
+          <div>
+            <h3>
+              {currentCustomer || currentEstablishment
+                ? 'Catálogo actual (candidato)'
+                : 'Sin coincidencia en catálogo'}
+            </h3>
+            <dl>
+              {Object.entries(source).map(([key, value]) => (
+                <div key={key}>
+                  <dt>{fieldName[key] ?? key}</dt>
+                  <dd>{field(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div>
+            <h3>Datos propuestos</h3>
+            <dl>
+              {Object.entries(proposed).map(([key, value]) => (
+                <div
+                  key={key}
+                  className={
+                    String(value) !== String(source[key as keyof typeof source]) ? 'changed' : ''
+                  }
+                >
+                  <dt>{fieldName[key] ?? key}</dt>
+                  <dd>{field(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
-        <div>
-          <h3>Datos propuestos</h3>
-          <dl>
-            {Object.entries(proposed).map(([key, value]) => (
-              <div
-                key={key}
-                className={
-                  String(value) !== String(source[key as keyof typeof source]) ? 'changed' : ''
-                }
-              >
-                <dt>{fieldName[key] ?? key}</dt>
-                <dd>{field(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </div>
-      {detail.candidates.length > 0 && (
+      )}
+      {detail.record_type !== 'GEOGRAPHIC_GROUP' && detail.candidates.length > 0 && (
         <div className="kmz-candidates">
           <h3>Candidatos de coincidencia</h3>
           <ul>
@@ -1267,7 +1289,7 @@ function ReviewDetail({
           </ul>
         </div>
       )}
-      {canWrite && (
+      {canWrite && detail.record_type !== 'GEOGRAPHIC_GROUP' && (
         <form
           className="kmz-edit"
           onSubmit={(event) => {
@@ -1335,7 +1357,7 @@ function ReviewDetail({
               />
             </label>
             <label>
-              Agrupación propuesta
+              Ruta o agrupación propuesta
               <select
                 value={draft.proposed?.group_id ?? ''}
                 onChange={(event) => update('group_id', event.target.value || null)}

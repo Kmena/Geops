@@ -20,6 +20,16 @@ export type StageRecord = {
 export type Point = { longitude: number; latitude: number };
 export type IntraPair = { left: string; right: string; rules: string[] };
 
+export function isRouteCandidate(record: {
+  source_kind: string;
+  normalized: Record<string, unknown>;
+}): boolean {
+  return (
+    record.source_kind === 'WEEKLY_GROUP' ||
+    (record.source_kind === 'TERRITORY_GROUP' && record.normalized.code_source === 'NAME_PREFIX')
+  );
+}
+
 export function normalizedName(value: unknown): string {
   return typeof value === 'string'
     ? value

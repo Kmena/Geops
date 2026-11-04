@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { appendAudit } from '../audit/index.js';
 import { ApiError } from '../errors.js';
+import { isRouteCandidate } from './matcher.js';
 import type { KmzService } from './service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -163,8 +164,8 @@ export class KmzConfirmationService {
       const updatedEstablishments = new Set<string>();
       for (const row of rows) {
         const action = row.action;
-        if (row.source_kind === 'WEEKLY_STOP') counts.routes_candidate++;
-        if (row.record_type === 'GEOGRAPHIC_GROUP') counts.groups_candidate++;
+        if (isRouteCandidate(row)) counts.routes_candidate++;
+        else if (row.record_type === 'GEOGRAPHIC_GROUP') counts.groups_candidate++;
         if (action === 'PENDING') {
           counts.pending++;
           if (['CONFLICT', 'INVALID'].includes(row.review_state))
@@ -184,6 +185,13 @@ export class KmzConfirmationService {
         if (row.warnings.length)
           warnings.push({ record_id: row.record_id, code: 'review_warning' });
         if (action === 'EXCLUDE') continue;
+        if (
+          row.record_type === 'GEOGRAPHIC_GROUP' &&
+          ['CREATE', 'LINK', 'UPDATE'].includes(action)
+        ) {
+          blocking.push({ record_id: row.record_id, code: 'group_is_not_customer' });
+          continue;
+        }
         const name = row.proposed.name ?? row.normalized.name;
         if (row.proposed.code !== undefined && !validCode(row.proposed.code))
           blocking.push({ record_id: row.record_id, code: 'invalid_geops_code' });
@@ -471,6 +479,11 @@ export class KmzConfirmationService {
       const operations: Array<Record<string, unknown>> = [];
       for (const row of rows) {
         if (row.action === 'PENDING') continue;
+        if (
+          row.record_type === 'GEOGRAPHIC_GROUP' &&
+          ['CREATE', 'LINK', 'UPDATE'].includes(row.action)
+        )
+          invalid();
         const proposed = row.proposed ?? {};
         const name = String(proposed.name ?? row.normalized.name ?? '').trim();
         const point = location({

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { parseKmz } from '../src/kmz/parser.ts';
+import { isRouteCandidate, recordType } from '../src/kmz/matcher.ts';
 
 function archive(entries) {
   const local = [];
@@ -93,15 +94,16 @@ test('W2 extracts nested groups, candidate stops and all basic geometries', asyn
 
 test('W2 separates numeric name prefixes without treating them as official identity', async () => {
   const kml = xml(
-    '<Document><Folder><name>(042) - San Rafael de Coronado</name>' +
+    '<Document><Folder><name>0. Ruta San Jose Noreste</name><Folder><name>(042) - San Rafael de Coronado</name>' +
       '<Placemark><name>03997 - FARMACIA GIRASOL</name><Point><coordinates>-84.1,9.9</coordinates></Point></Placemark>' +
       '<Placemark><name>0007 - Nombre con código explícito</name><ExtendedData><Data name="codigo"><value>0009</value></Data></ExtendedData><Point><coordinates>-84.2,9.9</coordinates></Point></Placemark>' +
-      '</Folder></Document>',
+      '</Folder></Folder></Document>',
   );
   const result = await withArchive([{ name: 'doc.kml', data: kml }], parseKmz);
   const group = result.records.find(
     (row) => row.original.name === '(042) - San Rafael de Coronado',
   );
+  const parent = result.records.find((row) => row.original.name === '0. Ruta San Jose Noreste');
   const pharmacy = result.records.find((row) => row.original.name === '03997 - FARMACIA GIRASOL');
   const explicit = result.records.find(
     (row) => row.original.name === '0007 - Nombre con código explícito',
@@ -110,6 +112,21 @@ test('W2 separates numeric name prefixes without treating them as official ident
     [group.normalized.name, group.normalized.code, group.normalized.code_source],
     ['San Rafael de Coronado', '42', 'NAME_PREFIX'],
   );
+  assert.equal(
+    isRouteCandidate({ source_kind: group.sourceKind, normalized: group.normalized }),
+    true,
+  );
+  assert.equal(recordType(group.sourceKind, group.errors), 'GEOGRAPHIC_GROUP');
+  assert.equal(
+    isRouteCandidate({ source_kind: parent.sourceKind, normalized: parent.normalized }),
+    false,
+  );
+  assert.equal(pharmacy.parentPath, group.sourcePath);
+  assert.equal(
+    isRouteCandidate({ source_kind: pharmacy.sourceKind, normalized: pharmacy.normalized }),
+    false,
+  );
+  assert.equal(isRouteCandidate({ source_kind: 'WEEKLY_GROUP', normalized: {} }), true);
   assert.deepEqual(
     [pharmacy.normalized.name, pharmacy.normalized.code, pharmacy.normalized.code_source],
     ['FARMACIA GIRASOL', '3997', 'NAME_PREFIX'],

@@ -6,6 +6,8 @@ import { ApiError } from '../errors.js';
 import type { KmzService } from './service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ROUTE_CANDIDATE_SQL = `(r.source_kind='WEEKLY_GROUP' OR
+  (r.source_kind='TERRITORY_GROUP' AND r.normalized->>'code_source'='NAME_PREFIX'))`;
 const actions = ['CREATE', 'LINK', 'UPDATE', 'EXCLUDE', 'PENDING'] as const;
 type Action = (typeof actions)[number];
 type Change = {
@@ -146,6 +148,7 @@ export class KmzReviewService {
     const found = await this.pool.query(
       `SELECT count(*)::int AS total,
         count(*) FILTER (WHERE a.record_type='CLIENT_CANDIDATE')::int AS client_candidates,
+        count(*) FILTER (WHERE ${ROUTE_CANDIDATE_SQL})::int AS route_candidates,
         count(*) FILTER (WHERE a.review_state='EXISTING_MATCH')::int AS existing_matches,
         count(*) FILTER (WHERE a.review_state='POSSIBLE_DUPLICATE')::int AS possible_duplicates,
         count(*) FILTER (WHERE a.review_state='CONFLICT')::int AS conflicts,
@@ -157,7 +160,8 @@ export class KmzReviewService {
         count(*) FILTER (WHERE v.action='LINK' AND v.analysis_id=a.run_id)::int AS link_count,
         count(*) FILTER (WHERE v.action='UPDATE' AND v.analysis_id=a.run_id)::int AS update_count,
         count(*) FILTER (WHERE a.warnings <> '[]'::jsonb)::int AS warnings
-       FROM kmz_analysis_result a LEFT JOIN kmz_review_record v ON v.record_id=a.record_id WHERE a.run_id=$1`,
+       FROM kmz_analysis_result a JOIN kmz_import_record r ON r.id=a.record_id
+       LEFT JOIN kmz_review_record v ON v.record_id=a.record_id WHERE a.run_id=$1`,
       [run.id],
     );
     const candidates = await this.pool.query<{ count: number }>(
@@ -231,6 +235,7 @@ export class KmzReviewService {
           'REFERENCE_POINT',
           'WEEKLY_STOP',
           'GEOGRAPHIC_GROUP',
+          'ROUTE_CANDIDATE',
           'POLYGON',
           'LINE',
           'INVALID_OR_OTHER',
@@ -240,7 +245,9 @@ export class KmzReviewService {
     )
       invalid();
     const filter = `FROM kmz_analysis_result a JOIN kmz_import_record r ON r.id=a.record_id LEFT JOIN kmz_review_record v ON v.record_id=a.record_id AND v.analysis_id=a.run_id
-      WHERE a.run_id=$1 AND ($2::text IS NULL OR a.review_state=$2) AND ($3::text IS NULL OR r.parent_path=$3) AND ($4::text IS NULL OR r.week_label=$4) AND ($5::text IS NULL OR a.record_type=$5)
+      WHERE a.run_id=$1 AND ($2::text IS NULL OR a.review_state=$2) AND ($3::text IS NULL OR r.parent_path=$3) AND ($4::text IS NULL OR r.week_label=$4)
+      AND ($5::text IS NULL OR (a.record_type=$5 AND ($5<>'GEOGRAPHIC_GROUP' OR NOT ${ROUTE_CANDIDATE_SQL}))
+        OR ($5='ROUTE_CANDIDATE' AND ${ROUTE_CANDIDATE_SQL}))
       AND ($6::text IS NULL OR coalesce(v.proposed->>'name',r.normalized->>'name','') ILIKE '%'||$6||'%' OR coalesce(v.proposed->>'code',r.normalized->>'code','') ILIKE '%'||$6||'%')
       AND ($7::uuid IS NULL OR a.record_id=$7)`;
     const args = [run.id, state, group, week, type, search, recordId];
@@ -255,7 +262,8 @@ export class KmzReviewService {
           ? "lower(coalesce(v.proposed->>'name',r.normalized->>'name','')),a.ordinal"
           : "CASE a.review_state WHEN 'CONFLICT' THEN 0 WHEN 'INVALID' THEN 1 WHEN 'POSSIBLE_DUPLICATE' THEN 2 WHEN 'EXISTING_MATCH' THEN 3 ELSE 4 END,a.ordinal";
     const found = await this.pool.query(
-      `SELECT a.record_id,a.ordinal,a.record_type,a.review_state,a.warnings,a.conflicts,a.evidence,r.source_path,r.parent_path,r.source_kind,r.week_label,r.normalized,v.proposed,v.action,coalesce(v.revision,0)::int AS revision
+      `SELECT a.record_id,a.ordinal,a.record_type,a.review_state,a.warnings,a.conflicts,a.evidence,r.source_path,r.parent_path,r.source_kind,r.week_label,r.normalized,
+        ${ROUTE_CANDIDATE_SQL} AS route_candidate,v.proposed,v.action,coalesce(v.revision,0)::int AS revision
        ${filter} ORDER BY ${order} LIMIT $8 OFFSET $9`,
       [...args, limit, (page - 1) * limit],
     );
@@ -326,6 +334,7 @@ export class KmzReviewService {
     const run = await this.context(this.pool, actorId, importId);
     const found = await this.pool.query(
       `SELECT a.*,r.source_path,r.parent_path,r.source_kind,r.week_label,r.original,r.normalized,r.geometry,r.errors AS parse_errors,
+        ${ROUTE_CANDIDATE_SQL} AS route_candidate,
         v.proposed,v.action,v.target_customer_id,v.target_customer_version,v.target_establishment_id,v.target_establishment_version,v.selected_fields,v.reason,v.acknowledged_conflict,coalesce(v.revision,0)::int AS revision,v.updated_at,v.updated_by
        FROM kmz_analysis_result a JOIN kmz_import_record r ON r.id=a.record_id LEFT JOIN kmz_review_record v ON v.record_id=a.record_id AND v.analysis_id=a.run_id
        WHERE a.run_id=$1 AND a.record_id=$2`,
@@ -511,6 +520,8 @@ export class KmzReviewService {
     )
       invalid();
     if (result.source_kind === 'WEEKLY_STOP' && action === 'CREATE') invalid();
+    if (result.record_type === 'GEOGRAPHIC_GROUP' && ['LINK', 'UPDATE'].includes(String(action)))
+      invalid();
     if (
       result.review_state === 'POSSIBLE_DUPLICATE' &&
       action === 'CREATE' &&

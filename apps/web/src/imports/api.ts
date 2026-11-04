@@ -6,6 +6,7 @@ export type ReviewRow = {
   record_id: string;
   ordinal: number;
   record_type: string;
+  route_candidate: boolean;
   review_state: string;
   warnings: string[];
   conflicts: string[];
@@ -13,7 +14,11 @@ export type ReviewRow = {
   parent_path: string | null;
   source_kind: string;
   week_label: string | null;
-  normalized: { name?: string; code?: string; point?: { latitude: number; longitude: number } };
+  normalized: {
+    name?: string;
+    code?: string;
+    point?: { latitude: number; longitude: number };
+  };
   proposed: {
     name?: string;
     code?: string;
@@ -57,6 +62,7 @@ export type Summary = {
   analysis_version: number;
   total: number;
   client_candidates: number;
+  route_candidates: number;
   candidate_relations: number;
   existing_matches: number;
   possible_duplicates: number;
