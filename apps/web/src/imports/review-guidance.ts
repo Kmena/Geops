@@ -203,6 +203,60 @@ export function candidateKind(candidate: Candidate): string {
   }
 }
 
+export function groupCandidates(candidates: Candidate[]): {
+  geops: Candidate[];
+  codeOnly: Candidate[];
+  otherKmz: Candidate[];
+} {
+  const geops: Candidate[] = [];
+  const codeOnly: Candidate[] = [];
+  const otherKmz: Candidate[] = [];
+  for (const candidate of candidates) {
+    if (candidate.target_type !== 'STAGING_RECORD') geops.push(candidate);
+    else if (
+      candidate.signals.includes('IN_FILE_CODE') &&
+      !candidate.signals.includes('IN_FILE_NAME')
+    )
+      codeOnly.push(candidate);
+    else otherKmz.push(candidate);
+  }
+  return { geops, codeOnly, otherKmz };
+}
+
+export function suggestedDistinctCodes(
+  sourceCode: string | undefined,
+  candidates: Candidate[],
+): string[] {
+  if (
+    !candidates.some(
+      (candidate) =>
+        candidate.target_type === 'STAGING_RECORD' &&
+        candidate.signals.includes('IN_FILE_CODE') &&
+        !candidate.signals.includes('IN_FILE_NAME'),
+    )
+  )
+    return [];
+  const base = sourceCode?.trim().toUpperCase() ?? '';
+  if (!/^[A-Z0-9][A-Z0-9_-]{0,37}$/.test(base)) return [];
+  const occupied = new Set(
+    candidates.map((candidate) => candidate.target_code?.trim().toUpperCase()),
+  );
+  const suggestions: string[] = [];
+  for (const suffix of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    const code = `${base}-${suffix}`;
+    if (!occupied.has(code)) suggestions.push(code);
+    if (suggestions.length === 2) break;
+  }
+  return suggestions;
+}
+
+export function candidateDistance(distanceMeters: number | null): string {
+  if (distanceMeters === null) return 'distancia desconocida';
+  if (distanceMeters >= 1_000)
+    return `${(distanceMeters / 1_000).toLocaleString('es-CR', { maximumFractionDigits: 1 })} km`;
+  return `${Math.round(distanceMeters)} m`;
+}
+
 export function confidenceName(value: string): string {
   switch (value) {
     case 'IDENTIFIER':

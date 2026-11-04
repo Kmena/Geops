@@ -414,6 +414,41 @@
   border-radius: 8px;
   margin-bottom: 6px;
 }
+.kmz-match-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 14px;
+}
+.kmz-match-counts span {
+  padding: 5px 9px;
+  border: 1px solid #d7e3e7;
+  border-radius: 999px;
+  background: #f3f8f9;
+  color: #315263;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.kmz-candidate-group + .kmz-candidate-group {
+  margin-top: 17px;
+}
+.kmz-candidate-group h4 {
+  margin: 0 0 4px;
+  font-size: 0.87rem;
+}
+.kmz-workspace .kmz-candidate-group > p {
+  margin: 0 0 9px;
+  color: #52677a;
+  font-size: 0.8rem;
+}
+.kmz-candidate-group--geops li {
+  border-color: #b9d8d4;
+  background: #f6faf9;
+}
+.kmz-candidate-group--code li {
+  border-color: #e7d9bd;
+  background: #fdfaf4;
+}
 .kmz-workspace .kmz-candidates span,
 .kmz-workspace .kmz-candidates small {
   font-size: 0.77rem;
@@ -433,6 +468,28 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+.kmz-code-field {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+.kmz-workspace .kmz-code-field small,
+.kmz-workspace .kmz-code-suggestions p {
+  color: #52677a;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.kmz-workspace .kmz-code-suggestions p {
+  margin: 4px 0 7px;
+}
+.kmz-workspace .kmz-code-suggestions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kmz-code-suggestions button {
+  padding: 6px 10px;
 }
 .kmz-edit {
   display: grid;

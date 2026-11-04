@@ -20,12 +20,15 @@ import {
 import { KmzMap } from './KmzMap.js';
 import {
   canBulkSelect,
+  candidateDistance,
   candidateKind,
   confidenceName,
   decisionOptions,
   finding,
   firstFinding,
+  groupCandidates,
   signalName,
+  suggestedDistinctCodes,
 } from './review-guidance.js';
 import './imports.css';
 
@@ -1340,6 +1343,29 @@ function ReviewDetail({
       </section>
     );
   const candidateCustomers = detail.candidates.filter((item) => item.target_type === 'CUSTOMER');
+  const groupedCandidates = groupCandidates(detail.candidates);
+  const candidateSections = [
+    {
+      key: 'geops',
+      title: 'Ya existen en GEOPS',
+      description: 'Compara estos registros de la base antes de vincular o crear un cliente.',
+      items: groupedCandidates.geops,
+    },
+    {
+      key: 'code',
+      title: 'Solo código repetido en este KMZ',
+      description:
+        'El código coincide, pero el nombre no. Revisa el otro punto; puedes cambiar el código propuesto antes de crear.',
+      items: groupedCandidates.codeOnly,
+    },
+    {
+      key: 'other',
+      title: 'Otros indicios del KMZ',
+      description: 'Estos puntos se muestran para comparar nombres o ubicaciones.',
+      items: groupedCandidates.otherKmz,
+    },
+  ].filter((section) => section.items.length > 0);
+  const codeSuggestions = suggestedDistinctCodes(detail.normalized.code, detail.candidates);
   const candidateEstablishments = detail.candidates.filter(
     (item) => item.target_type === 'ESTABLISHMENT',
   );
@@ -1507,60 +1533,69 @@ function ReviewDetail({
       )}
       {detail.candidates.length > 0 && (
         <div className="kmz-candidates">
-          <h3>Candidatos de coincidencia</h3>
-          <p className="kmz-source-note">
-            «Otro registro del KMZ» pertenece a este archivo. «Cliente existente» pertenece al
-            catálogo de GEOPS. Compartir un código es un indicio que debes revisar.
-          </p>
-          <ul>
-            {detail.candidates.map((item) => (
-              <li key={`${item.target_type}:${item.target_id}`}>
-                <strong>{item.target_name ?? 'Registro sin nombre'}</strong>
-                <span>
-                  {candidateKind(item)} · código {field(item.target_code)} ·{' '}
-                  {item.distance_m === null
-                    ? 'distancia desconocida'
-                    : `${Math.round(item.distance_m)} m`}{' '}
-                  · {confidenceName(item.confidence)}
-                </span>
-                {item.target_parent_path && (
-                  <small>
-                    Carpeta de origen:{' '}
-                    {item.target_parent_name ?? groupLabel(item.target_parent_path)}
-                  </small>
-                )}
-                <small>
-                  {item.signals.map(signalName).join(', ') || 'Sin señales adicionales'}
-                </small>
-                {item.target_type === 'STAGING_RECORD' && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => onFocusRecord(item.target_id)}
-                  >
-                    Abrir el otro registro
-                  </button>
-                )}
-                {canWrite && canChooseCustomerAction && item.target_type === 'CUSTOMER' && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() =>
-                      setDraft((current) => ({
-                        ...current,
-                        action: 'LINK',
-                        target_customer_id: item.target_id,
-                        target_customer_version: item.target_version,
-                        acknowledged_conflict: false,
-                      }))
-                    }
-                  >
-                    Preparar vínculo con este cliente
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <h3>Comparar coincidencias</h3>
+          <div className="kmz-match-counts">
+            <span>En GEOPS: {groupedCandidates.geops.length}</span>
+            <span>Solo código en KMZ: {groupedCandidates.codeOnly.length}</span>
+            <span>Otros indicios del KMZ: {groupedCandidates.otherKmz.length}</span>
+          </div>
+          {candidateSections.map((section) => (
+            <section
+              key={section.key}
+              className={`kmz-candidate-group kmz-candidate-group--${section.key}`}
+            >
+              <h4>
+                {section.title} ({section.items.length})
+              </h4>
+              <p>{section.description}</p>
+              <ul>
+                {section.items.map((item) => (
+                  <li key={`${item.target_type}:${item.target_id}`}>
+                    <strong>{item.target_name ?? 'Registro sin nombre'}</strong>
+                    <span>
+                      {candidateKind(item)} · código {field(item.target_code)} ·{' '}
+                      {candidateDistance(item.distance_m)} · {confidenceName(item.confidence)}
+                    </span>
+                    {item.target_parent_path && (
+                      <small>
+                        Carpeta de origen:{' '}
+                        {item.target_parent_name ?? groupLabel(item.target_parent_path)}
+                      </small>
+                    )}
+                    <small>
+                      {item.signals.map(signalName).join(', ') || 'Sin señales adicionales'}
+                    </small>
+                    {item.target_type === 'STAGING_RECORD' && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => onFocusRecord(item.target_id)}
+                      >
+                        Abrir el otro registro
+                      </button>
+                    )}
+                    {canWrite && canChooseCustomerAction && item.target_type === 'CUSTOMER' && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            action: 'LINK',
+                            target_customer_id: item.target_id,
+                            target_customer_version: item.target_version,
+                            acknowledged_conflict: false,
+                          }))
+                        }
+                      >
+                        Preparar vínculo con este cliente
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
       )}
       {(detail.conflicts.length > 0 ||
@@ -1643,14 +1678,44 @@ function ReviewDetail({
                   maxLength={160}
                 />
               </label>
-              <label>
-                Código GEOPS del cliente (opcional)
+              <div className="kmz-code-field">
+                <label htmlFor="kmz-proposed-client-code">
+                  Código GEOPS del cliente (opcional)
+                </label>
                 <input
+                  id="kmz-proposed-client-code"
                   value={draft.proposed?.code ?? ''}
-                  onChange={(event) => update('code', event.target.value)}
+                  onChange={(event) => update('code', event.target.value.toUpperCase())}
                   maxLength={40}
+                  pattern="[A-Z0-9][A-Z0-9_-]{1,39}"
+                  aria-describedby="kmz-proposed-code-help"
                 />
-              </label>
+                {codeSuggestions.length > 0 && (
+                  <div className="kmz-code-suggestions">
+                    <p>
+                      Si son clientes distintos, usa códigos diferentes. Elige una sugerencia o
+                      escribe otro:
+                    </p>
+                    <div>
+                      {codeSuggestions.map((code) => (
+                        <button
+                          key={code}
+                          type="button"
+                          className="secondary"
+                          aria-pressed={draft.proposed?.code === code}
+                          onClick={() => update('code', code)}
+                        >
+                          Usar {code}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <small id="kmz-proposed-code-help">
+                  Si lo dejas vacío, GEOPS asigna un código interno al confirmar. Las sugerencias se
+                  comprueban al validar la revisión.
+                </small>
+              </div>
               <label>
                 Dirección aprobada (opcional)
                 <input

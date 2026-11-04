@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   canBulkSelect,
+  candidateDistance,
   candidateKind,
   confidenceName,
   decisionOptions,
   finding,
   firstFinding,
+  groupCandidates,
   signalName,
+  suggestedDistinctCodes,
 } from './review-guidance.js';
 import type { Candidate, ReviewRow } from './api.js';
 
@@ -32,6 +35,32 @@ test('duplicate evidence identifies the actual matched record type and reason', 
     finding('possible_duplicate_customer').title,
     'Ya existe un cliente con el mismo nombre o código',
   );
+});
+
+test('comparison separates GEOPS clients from code-only KMZ collisions and offers distinct codes', () => {
+  const candidate = (target_type: string, target_code: string | null, signals: string[]) =>
+    ({ target_type, target_code, signals }) as Candidate;
+  const items = [
+    candidate('CUSTOMER', 'C-15', ['CUSTOMER_NAME']),
+    candidate('STAGING_RECORD', '16', ['IN_FILE_CODE']),
+    candidate('STAGING_RECORD', '16-A', ['IN_FILE_PROXIMITY']),
+    candidate('STAGING_RECORD', '17', ['IN_FILE_PROXIMITY']),
+  ];
+  const grouped = groupCandidates(items);
+  assert.equal(grouped.geops.length, 1);
+  assert.equal(grouped.codeOnly.length, 1);
+  assert.equal(grouped.otherKmz.length, 2);
+  assert.deepEqual(suggestedDistinctCodes('16', items), ['16-B', '16-C']);
+  assert.deepEqual(
+    suggestedDistinctCodes(
+      '16',
+      items.filter((item) => item.target_code !== '16'),
+    ),
+    [],
+  );
+  assert.deepEqual(suggestedDistinctCodes('código inválido', items), []);
+  assert.equal(candidateDistance(190_432), '190,4 km');
+  assert.equal(candidateDistance(48), '48 m');
 });
 
 test('weekly stop can link or reject, while an invalid point cannot be accepted', () => {

@@ -256,6 +256,15 @@ try {
   check(decidedPoints, 200);
   assert.equal(decidedPoints.json().total, 1);
   assert.equal(decidedPoints.json().items[0].record_id, nearbyRow.record_id);
+  check(
+    await call(
+      'PATCH',
+      `/${importId}/review/records/${nearbyRow.record_id}`,
+      { action: 'CREATE', proposed: { code: '16-A' } },
+      { 'if-match': '2' },
+    ),
+    200,
+  );
   const updateRow = rowsResponse
     .json()
     .items.find((item) => item.normalized.name === 'Cliente B32 previo');
@@ -376,6 +385,11 @@ try {
   assert.equal(created.rowCount, 1);
   assert.match(created.rows[0].code, /^KMZ_[A-F0-9]{12}$/);
   assert.equal(created.rows[0].address, 'Dirección revisada');
+  const distinctCodeClient = await pool.query(
+    "SELECT code FROM client WHERE name='Negocio distinto cercano'",
+  );
+  assert.equal(distinctCodeClient.rowCount, 1);
+  assert.equal(distinctCodeClient.rows[0].code, '16-A');
   assert.equal(
     (
       await pool.query('SELECT count(*)::int AS n FROM client_site WHERE client_id=$1', [
@@ -414,10 +428,10 @@ try {
     ),
     200,
   );
-  assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 3);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM client')).rows[0].n, 4);
   assert.equal(
     (await pool.query('SELECT count(*)::int AS n FROM kmz_import_operation')).rows[0].n,
-    2,
+    3,
   );
   assert.equal(
     (
