@@ -22,7 +22,7 @@ try {
     /^geops_verify_[0-9]+$/,
   );
   const applied = await applyMigrations(pool);
-  assert.equal(applied.length, 34);
+  assert.equal(applied.length, 40);
   assert.deepEqual(applied.slice(17), [
     '0018_mdm_inventory.sql',
     '0019_mdm_security.sql',
@@ -41,6 +41,12 @@ try {
     '0032_mdm_continuous_capture.sql',
     '0033_visit_coverage_calibration.sql',
     '0034_gps_device_ownership.sql',
+    '0035_legacy_device_decommission.sql',
+    '0036_kmz_staging.sql',
+    '0037_kmz_analysis.sql',
+    '0038_kmz_review.sql',
+    '0039_kmz_confirmation.sql',
+    '0040_kmz_retention.sql',
   ]);
   assert.equal(await checkReadiness(pool), true);
   const auth = new AdminAuthService(pool, {
