@@ -1,9 +1,9 @@
 # SPEC-03 — Coincidencias por código y publicación a staging
 
-**Resultado:** `SPEC03_STAGING_DEPLOY_PASS`  
-**Código desplegado:** `6445e328081f8b630f3bc93cdffc0e3e8e8d1fb0`  
-**Rama publicada:** `codex/spec03-kmz-proximity-classification`  
-**Destino:** `geops-spec02-staging`  
+**Resultado:** `SPEC03_STAGING_DEPLOY_PASS`
+**Código desplegado:** `6445e328081f8b630f3bc93cdffc0e3e8e8d1fb0`
+**Rama publicada:** `codex/spec03-kmz-proximity-classification`
+**Destino:** `geops-spec02-staging`
 **Manifiesto:** `spec03-distinct-code-staging-release.json`
 
 ## Cambio
