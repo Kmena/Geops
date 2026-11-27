@@ -1292,6 +1292,76 @@ export class GpsEventService {
     };
   }
 
+  async readLatestPosition(
+    adminId: string,
+    requestId: string,
+    deviceId: string,
+  ): Promise<Record<string, unknown>> {
+    await this.policies.requireCapability(adminId, 'gps.location.read', requestId);
+    if (!uuid.test(deviceId)) throw new GpsValidationError();
+    const tenantIds = await this.tenantIds(adminId);
+    const visible = await this.pool.query(
+      `SELECT 1 FROM mdm_binding WHERE geops_device_id=$1 AND state='ACTIVE'
+       AND customer_id=ANY($2::text[]) UNION
+       SELECT 1 FROM geops_device_tenant WHERE device_id=$1
+         AND tenant_id=ANY($2::text[]) UNION
+       SELECT 1 FROM position_event WHERE device_id=$1 AND tenant_id=ANY($2::text[]) LIMIT 1`,
+      [deviceId, tenantIds],
+    );
+    const accessReason = 'Vista del dispositivo: última ubicación';
+    if (!visible.rowCount) {
+      await appendAudit(this.pool, {
+        actorType: 'ADMIN',
+        actorId: adminId,
+        deviceId,
+        action: 'gps.location.read',
+        outcome: 'rejected',
+        correlationId: requestId,
+        metadata: { code: 'tenant_scope', access_reason: accessReason },
+      });
+      throw new ApiError(404, 'not_found', 'Not found');
+    }
+    const rows = await this.pool.query<{
+      event_id: string;
+      session_id: string;
+      captured_at: Date;
+      received_at: Date;
+      latitude: number;
+      longitude: number;
+      accuracy_m: number;
+    }>(
+      `SELECT event_id,session_id,captured_at,received_at,
+         ST_Y(geom::geometry) AS latitude,ST_X(geom::geometry) AS longitude,accuracy_m
+       FROM position_event
+       WHERE device_id=$1 AND tenant_id=ANY($2::text[])
+       ORDER BY captured_at DESC,event_id DESC LIMIT 1`,
+      [deviceId, tenantIds],
+    );
+    const row = rows.rows[0];
+    await appendAudit(this.pool, {
+      actorType: 'ADMIN',
+      actorId: adminId,
+      deviceId,
+      action: 'gps.location.read',
+      outcome: 'success',
+      correlationId: requestId,
+      metadata: { count: row ? 1 : 0, access_reason: accessReason },
+    });
+    return {
+      position: row
+        ? {
+            event_id: row.event_id,
+            session_id: row.session_id,
+            captured_at: row.captured_at.toISOString(),
+            received_at: row.received_at.toISOString(),
+            latitude: row.latitude,
+            longitude: row.longitude,
+            accuracy_m: row.accuracy_m,
+          }
+        : null,
+    };
+  }
+
   async readPositions(
     adminId: string,
     requestId: string,

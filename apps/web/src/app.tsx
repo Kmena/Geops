@@ -28,6 +28,7 @@ import { RouteCatalog } from './RouteCatalog.js';
 import { KmzWorkspace } from './imports/KmzWorkspace.js';
 import { VisitSchedule } from './VisitSchedule.js';
 import { ComplianceDashboard } from './ComplianceDashboard.js';
+import 'leaflet/dist/leaflet.css';
 import './styles.css';
 
 function ErrorText({ error }: { error: unknown }) {

@@ -222,7 +222,15 @@ try {
     url: `/v1/admin/devices/${deviceId}/locations?from=${encodeURIComponent(iso(-60_000))}&to=${encodeURIComponent(iso(60_000))}`,
     headers: { cookie, 'x-geops-access-reason': 'Synthetic review' } });
   check(missingGrant.statusCode === 404, 'tenant grant required');
+  const missingLatestGrant = await app.inject({ method: 'GET',
+    url: `/v1/admin/devices/${deviceId}/locations/latest`, headers: { cookie } });
+  check(missingLatestGrant.statusCode === 404, 'latest location requires tenant grant');
   await pool.query("INSERT INTO gps_data_tenant_access(admin_id,tenant_id,granted_by,reason) VALUES($1,'tenant-a',$1,'Synthetic tenant grant')", [adminId]);
+  const latest = await app.inject({ method: 'GET',
+    url: `/v1/admin/devices/${deviceId}/locations/latest`, headers: { cookie } });
+  check(latest.statusCode === 200 && latest.json().position?.latitude === 14.61 &&
+    latest.json().position?.longitude === -90.52,
+    'latest location available without manual reason after capability and tenant checks');
   const readPath = `/v1/admin/devices/${deviceId}/locations?from=${encodeURIComponent(iso(-60_000))}&to=${encodeURIComponent(iso(60_000))}`;
   const locations = await app.inject({ method: 'GET', url: readPath,
     headers: { cookie, 'x-geops-access-reason': 'Synthetic review' } });
@@ -251,6 +259,10 @@ try {
   check(audit.rows[0]?.metadata_redacted?.access_reason === 'Synthetic review' &&
     !JSON.stringify(audit.rows[0].metadata_redacted).includes('latitude'),
     'sensitive read reason audited without coordinates');
+  const latestAudit = await pool.query("SELECT metadata_redacted FROM audit_event WHERE action='gps.location.read' AND actor_id=$1 AND outcome='success' AND metadata_redacted->>'access_reason'='Vista del dispositivo: última ubicación' ORDER BY occurred_at DESC LIMIT 1", [adminId]);
+  check(latestAudit.rows[0]?.metadata_redacted?.count === 1 &&
+    !JSON.stringify(latestAudit.rows[0].metadata_redacted).includes('latitude'),
+    'latest location read audited without coordinates');
   const indexes = await pool.query("SELECT count(*)::int AS n FROM pg_indexes WHERE tablename='position_event' AND indexdef ILIKE '%gist%' AND indexdef ILIKE '%geom%'");
   check(indexes.rows[0].n >= 1, 'PostGIS spatial index present');
   await pool.query('DELETE FROM gps_event_request_quota WHERE device_id=$1', [deviceId]);

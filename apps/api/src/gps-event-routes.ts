@@ -151,4 +151,11 @@ export function registerGpsEventRoutes(
       );
     },
   );
+  app.get<{ Params: { device_id: string } }>(
+    '/v1/admin/devices/:device_id/locations/latest',
+    async (request) => {
+      const admin = await requireAdmin(request, adminAuth);
+      return events.readLatestPosition(admin.id, request.id, request.params.device_id);
+    },
+  );
 }

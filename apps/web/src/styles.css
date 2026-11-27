@@ -321,17 +321,34 @@ h2 {
   height: 20px;
   flex: none;
 }
-.managed-location-query,
-.managed-location-query label {
-  display: grid;
-  gap: 8px;
+.managed-last-position {
+  margin: 12px 0 24px;
 }
-.managed-location-query input {
+.managed-last-position-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.managed-last-position-head h4 {
+  margin: 0;
+}
+.managed-last-position-map {
   width: 100%;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid #9fb7c4;
-  border-radius: 7px;
+  height: clamp(280px, 42vw, 430px);
+  background: #e8f0f4;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.managed-last-position-meta {
+  margin: 12px 0 4px;
+}
+.managed-last-position-coordinates {
+  margin: 0;
+  color: #36556a;
+  font-variant-numeric: tabular-nums;
 }
 .status-panel {
   max-width: 650px;
