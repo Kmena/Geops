@@ -15,6 +15,7 @@ import {
 } from './crypto.js';
 import { type DeviceRepository, transaction } from './repository.js';
 import { requireInstallationAccess } from './admin-scope.js';
+import { GpsPolicyService } from '../gps-policy-service.js';
 
 const INVITATION_MS = 10 * 60_000;
 const MANAGED_INVITATION_MS = 24 * 60 * 60_000;
@@ -494,6 +495,13 @@ export class EnrollmentService {
           "UPDATE geops_device SET status='ACTIVE',version=version+1,updated_at=$2 WHERE id=$1 AND status='INVITED'",
           [claim.geops_device_id, now],
         );
+        const preauthorized = await db.query(
+          `SELECT 1 FROM gps_mdm_continuous_authorization
+           WHERE device_id=$1 AND revoked_at IS NULL FOR SHARE`,
+          [claim.geops_device_id],
+        );
+        if (preauthorized.rowCount)
+          await new GpsPolicyService(this.pool).rebuildDevice(db, claim.geops_device_id, now);
         await appendAudit(db, {
           actorType: 'DEVICE',
           deviceId: claim.geops_device_id,

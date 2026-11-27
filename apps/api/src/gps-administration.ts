@@ -208,12 +208,18 @@ export class GpsAdministrationService {
       const device = await db.query<{ status: string; tenant_id: string | null }>(
         `SELECT d.status,coalesce(b.customer_id,t.tenant_id) AS tenant_id
          FROM geops_device d
-         LEFT JOIN mdm_binding b ON b.geops_device_id=d.id AND b.state='ACTIVE'
+         LEFT JOIN mdm_binding b ON b.geops_device_id=d.id AND b.provider='fake'
+           AND b.customer_id='synthetic' AND b.state IN ('PENDING','ACTIVE')
          LEFT JOIN geops_device_tenant t ON t.device_id=d.id AND b.id IS NULL
          WHERE d.id=$1 FOR UPDATE OF d`,
         [deviceId],
       );
-      if (device.rows[0]?.status !== 'ACTIVE' || !device.rows[0].tenant_id)
+      const status = device.rows[0]?.status;
+      if (
+        !device.rows[0]?.tenant_id ||
+        !['ACTIVE', 'DRAFT', 'INVITED'].includes(status ?? '') ||
+        ((status === 'DRAFT' || status === 'INVITED') && payload.ownership === 'PERSONAL_BYOD')
+      )
         throw new ApiError(404, 'not_found', 'Not found');
       await requireInstallationAccess(db, adminId, device.rows[0].tenant_id);
       const prior = await db.query<{ version: string }>(
@@ -234,8 +240,8 @@ export class GpsAdministrationService {
             FROM mdm_inventory_device m
             WHERE m.geops_device_id=$1 AND m.provider='manageengine'
               AND m.status='managed' AND m.platform='android' AND NOT m.removed
-              AND m.customer_id=$2 FOR SHARE`,
-          [deviceId, device.rows[0].tenant_id],
+              AND m.last_seen_at >= now() - interval '1 hour' FOR SHARE`,
+          [deviceId],
         );
         if (found.rows.length !== 1 || !found.rows[0])
           throw new ApiError(409, 'mdm_verification_required', 'Conflict');

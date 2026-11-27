@@ -26,6 +26,11 @@ export interface DeviceInventoryRecord extends DeviceRecord {
   last_installation_retired_at: string | null;
   policy_name: string | null;
   session_state: string | null;
+  ownership: string | null;
+  ownership_version: number;
+  tracking_authorized: boolean;
+  ownership_valid_until: Date | null;
+  managed_mdm_device_id: string | null;
 }
 
 export interface BindingRecord {
@@ -152,6 +157,13 @@ export class DeviceRepository {
         c.id AS claim_id,c.status AS claim_status,k.id AS key_id,g.installation_id,
         g.last_retired_at AS last_installation_retired_at,
         pol.name AS policy_name,ses.state AS session_state,
+        o.ownership,COALESCE(o.version,0)::int AS ownership_version,
+        (COALESCE(o.tracking_authorized,false) AND o.valid_until > now()) AS tracking_authorized,
+        o.valid_until AS ownership_valid_until,
+        (SELECT m.mdm_device_id FROM mdm_inventory_device m
+         WHERE m.geops_device_id=d.id AND m.provider='manageengine'
+           AND m.status='managed' AND m.platform='android' AND NOT m.removed
+         ORDER BY m.last_seen_at DESC LIMIT 1) AS managed_mdm_device_id,
         (SELECT max(received_at) FROM (
           SELECT max(received_at) AS received_at FROM gps_device_health_event WHERE device_id=d.id AND tenant_id='synthetic'
           UNION ALL SELECT max(received_at) FROM gps_session_event
@@ -188,6 +200,7 @@ export class DeviceRepository {
         WHERE $4::boolean AND device_id=d.id AND tenant_id='synthetic'
         ORDER BY started_at DESC LIMIT 1
       ) ses ON true
+      LEFT JOIN gps_device_ownership o ON o.device_id=d.id
       WHERE (d.status IN ('REVOKED','RETIRED','DECOMMISSIONED') OR b.state IN ('PENDING','ACTIVE'))
         AND NOT EXISTS (SELECT 1 FROM mdm_binding other WHERE other.geops_device_id=d.id
           AND other.state='ACTIVE' AND other.customer_id<>'synthetic')

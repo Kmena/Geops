@@ -42,6 +42,19 @@ export interface Device extends BasicDevice {
   last_installation_retired_at: string | null;
   policy_name: string | null;
   session_state: string | null;
+  ownership?: 'CORPORATE_MANAGED' | 'PERSONAL_BYOD' | 'UNVERIFIED' | null;
+  ownership_version?: number;
+  tracking_authorized?: boolean;
+  ownership_valid_until?: string | null;
+  managed_mdm_device_id?: string | null;
+}
+
+export interface ManagedConfiguration {
+  geops_device_id: string;
+  mdm_device_id: string;
+  invitation_id: string;
+  invitation_secret: string;
+  expires_at: string;
 }
 
 export interface DeviceInvitation {
@@ -49,12 +62,17 @@ export interface DeviceInvitation {
   geops_device_id: string;
   invitation_secret: string;
   expires_at: string;
+  managed_configuration?: ManagedConfiguration;
 }
 
-function validInvitation(value: unknown, deviceId: string): value is DeviceInvitation {
+function validInvitation(
+  value: unknown,
+  deviceId: string,
+  deliveryMode: 'supervised_qr' | 'managed_configuration',
+): value is DeviceInvitation {
   if (!value || typeof value !== 'object') return false;
   const invite = value as Record<string, unknown>;
-  return (
+  const valid =
     typeof invite.invitation_id === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invite.invitation_id) &&
     invite.geops_device_id === deviceId &&
@@ -62,7 +80,21 @@ function validInvitation(value: unknown, deviceId: string): value is DeviceInvit
     /^[A-Za-z0-9_-]{43}$/.test(invite.invitation_secret) &&
     typeof invite.expires_at === 'string' &&
     Number.isFinite(Date.parse(invite.expires_at)) &&
-    Date.parse(invite.expires_at) > Date.now()
+    Date.parse(invite.expires_at) > Date.now();
+  if (!valid) return false;
+  if (deliveryMode === 'supervised_qr') return invite.managed_configuration === undefined;
+  const config = invite.managed_configuration;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return false;
+  const managed = config as Record<string, unknown>;
+  return (
+    Object.keys(managed).sort().join(',') ===
+      'expires_at,geops_device_id,invitation_id,invitation_secret,mdm_device_id' &&
+    managed.geops_device_id === deviceId &&
+    managed.invitation_id === invite.invitation_id &&
+    managed.invitation_secret === invite.invitation_secret &&
+    managed.expires_at === invite.expires_at &&
+    typeof managed.mdm_device_id === 'string' &&
+    /^[0-9]{1,30}$/.test(managed.mdm_device_id)
   );
 }
 
@@ -693,20 +725,48 @@ export const api = {
       headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
       body: JSON.stringify({ display_label: label }),
     }),
-  issueInvitation: async (device: Device, csrf: string) => {
+  issueInvitation: async (
+    device: Device,
+    csrf: string,
+    deliveryMode: 'supervised_qr' | 'managed_configuration' = 'supervised_qr',
+  ) => {
     const response = await read<unknown>(`/v1/admin/devices/${device.id}/invitations`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
       body: JSON.stringify({
         mdm_binding_id: device.mdm_binding_id,
-        delivery_mode: 'supervised_qr',
+        delivery_mode: deliveryMode,
       }),
     });
-    if (!validInvitation(response, device.id)) {
+    if (!validInvitation(response, device.id, deliveryMode)) {
       throw new ApiClientError(502, 'invalid_invitation_response');
     }
     return response;
   },
+  authorizeCorporateTracking: (
+    deviceId: string,
+    version: number,
+    details: {
+      valid_until: string;
+      privacy_notice_at: string;
+      authorization_basis: string;
+      evidence_ref: string;
+      reason: string;
+    },
+    csrf: string,
+  ) =>
+    read<{ authorization_version: number }>(
+      `/v1/admin/gps-devices/${deviceId}/tracking-authorization`,
+      {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          'x-csrf-token': csrf,
+          'if-match': `"${version}"`,
+        },
+        body: JSON.stringify({ ownership: 'CORPORATE_MANAGED', ...details }),
+      },
+    ),
   cancelInvitation: (device: Device & { invitation_id: string }, csrf: string) =>
     read<{ status: 'CANCELLED' }>(
       `/v1/admin/devices/${device.id}/invitations/${device.invitation_id}`,

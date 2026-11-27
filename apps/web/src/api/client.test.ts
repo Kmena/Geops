@@ -63,6 +63,55 @@ test('a valid 201 invitation retains the one-time code for the caller', async ()
   }
 });
 
+test('managed invitation requires matching per-device configuration and sends the managed mode', async () => {
+  const body = {
+    invitation_id: '00000000-0000-4000-8000-000000000003',
+    geops_device_id: device.id,
+    invitation_secret: 'A'.repeat(43),
+    expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    managed_configuration: {
+      geops_device_id: device.id,
+      mdm_device_id: '244275000000169013',
+      invitation_id: '00000000-0000-4000-8000-000000000003',
+      invitation_secret: 'A'.repeat(43),
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    },
+  };
+  body.managed_configuration.expires_at = body.expires_at;
+  const prior = globalThis.fetch;
+  const requestBodies: Record<string, unknown>[] = [];
+  globalThis.fetch = async (_url, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)));
+    return Response.json(body, { status: 201 });
+  };
+  try {
+    assert.deepEqual(
+      await api.issueInvitation(device, 'synthetic-csrf', 'managed_configuration'),
+      body,
+    );
+    assert.equal(requestBodies[0]?.delivery_mode, 'managed_configuration');
+    await withFetch(
+      Response.json(
+        {
+          ...body,
+          managed_configuration: { ...body.managed_configuration, mdm_device_id: 'wrong' },
+        },
+        { status: 201 },
+      ),
+      async () => {
+        await assert.rejects(
+          api.issueInvitation(device, 'synthetic-csrf', 'managed_configuration'),
+          {
+            code: 'invalid_invitation_response',
+          },
+        );
+      },
+    );
+  } finally {
+    globalThis.fetch = prior;
+  }
+});
+
 test('invalid or mismatched invitation responses cannot be displayed as credentials', async () => {
   for (const body of [
     null,
