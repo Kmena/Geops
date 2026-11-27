@@ -151,6 +151,40 @@ test('Corte 3 remote uses authorized device, session and bounded position routes
   );
 });
 
+test('latest position client reads a single device without a manual reason', async () => {
+  const calls: Array<{ path: string; init: RequestInit }> = [];
+  const remote = new GpsRemote(async (path, init) => {
+    calls.push({ path: String(path), init: init ?? {} });
+    return new Response(
+      JSON.stringify({
+        position: {
+          event_id: id,
+          session_id: id,
+          captured_at: '2026-10-19T00:00:00Z',
+          received_at: '2026-10-19T00:00:05Z',
+          latitude: 14.61,
+          longitude: -90.52,
+          accuracy_m: 9,
+        },
+      }),
+      { status: 200 },
+    );
+  });
+  const result = await remote.latestPosition(id);
+  assert.equal(result.position?.latitude, 14.61);
+  assert.equal(calls[0]?.path, `/v1/admin/devices/${id}/locations/latest`);
+  const latestCall = calls[0];
+  assert.ok(latestCall);
+  assert.equal(
+    ((latestCall.init.headers ?? {}) as Record<string, string>)['x-geops-access-reason'],
+    undefined,
+  );
+  await assert.rejects(
+    remote.latestPosition('not-a-device'),
+    (error: unknown) => error instanceof ApiClientError && error.status === 422,
+  );
+});
+
 test('policy mutations send CSRF, unique idempotency keys and ETag without bypassing API', async () => {
   const calls: Array<{ path: string; init: RequestInit }> = [];
   const remote = new GpsRemote(async (path, init) => {

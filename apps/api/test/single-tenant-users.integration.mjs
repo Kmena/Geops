@@ -22,6 +22,7 @@ if (
 const pool = new pg.Pool({ connectionString: url, max: 12 });
 const origin = 'https://geops.example.invalid';
 const password = 'synthetic-password-12345678';
+const primaryEmail = 'admin@geops.local';
 let checks = 0;
 const check = (value, label) => {
   assert.ok(value, label);
@@ -42,14 +43,14 @@ try {
     csrfKey: Buffer.alloc(32, 72),
     allowedOrigins: [origin],
   });
-  const primaryId = await auth.bootstrap('owner@example.invalid', password);
+  const primaryId = await auth.bootstrap(primaryEmail, password);
   const recovery = new SupervisedRecoveryService(pool, Buffer.alloc(32, 73));
   for (const email of ['custodian-a@example.invalid', 'custodian-b@example.invalid'])
     await recovery.registerSyntheticCustodian(email, password);
   const ceremony = new GpsCapabilityBootstrapService(pool, async () => true);
   const input = () => ({
     requestId: randomUUID(),
-    adminEmail: 'owner@example.invalid',
+    adminEmail: primaryEmail,
     adminPassword: password,
     custodians: [
       { email: 'custodian-a@example.invalid', password },
@@ -94,7 +95,7 @@ try {
       csrf: response.json().csrf_token,
     };
   };
-  const primary = await login('owner@example.invalid', password);
+  const primary = await login(primaryEmail, password);
   const call = (session, method, path, payload, extra = {}) =>
     app.inject({
       method,
@@ -252,7 +253,48 @@ try {
       request_id: randomUUID(),
     }),
     422,
-    'self change denied',
+    'self-grant of other capabilities denied',
+  );
+  const selfMdmGrant = {
+    request_id: randomUUID(),
+    action: 'GRANT',
+    capabilities: ['mdm.oauth.configure'],
+    reason: 'Authorize MDM synchronization for primary administrator',
+  };
+  status(
+    await call(primary, 'POST', `/v1/admin/users/${primaryId}/capabilities`, selfMdmGrant),
+    204,
+    'primary may grant only MDM configuration to self',
+  );
+  status(
+    await call(primary, 'POST', `/v1/admin/users/${primaryId}/capabilities`, selfMdmGrant),
+    204,
+    'self-grant exact replay idempotent',
+  );
+  check(
+    (await call(primary, 'GET', '/v1/admin/users'))
+      .json()
+      .users.find((user) => user.id === primaryId)
+      ?.capabilities.includes('mdm.oauth.configure'),
+    'self-granted MDM capability effective',
+  );
+  status(
+    await call(primary, 'POST', `/v1/admin/users/${primaryId}/capabilities`, {
+      ...selfMdmGrant,
+      request_id: randomUUID(),
+      action: 'REVOKE',
+    }),
+    422,
+    'self-revocation remains denied',
+  );
+  status(
+    await call(primary, 'POST', `/v1/admin/users/${primaryId}/tenant-access`, {
+      request_id: randomUUID(),
+      action: 'REVOKE',
+      reason: 'Self tenant change remains denied',
+    }),
+    422,
+    'self tenant access change remains denied',
   );
   const operatorRights = await call(operator, 'GET', '/v1/admin/gps-capabilities');
   check(

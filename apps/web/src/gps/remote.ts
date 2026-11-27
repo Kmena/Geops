@@ -428,6 +428,42 @@ export class GpsRemote {
     return this.get(`/v1/admin/devices/${deviceId}/gps-sessions${suffix}`, undefined, signal);
   }
 
+  async latestPosition(
+    deviceId: string,
+    signal?: AbortSignal,
+  ): Promise<{ position: RemotePosition | null }> {
+    if (!uuid.test(deviceId)) throw new ApiClientError(422, 'invalid_device_id');
+    const result = await this.get<{ position?: unknown }>(
+      `/v1/admin/devices/${deviceId}/locations/latest`,
+      undefined,
+      signal,
+    );
+    const position = result.position;
+    if (position === null) return { position: null };
+    if (!position || typeof position !== 'object' || Array.isArray(position))
+      throw new ApiClientError(502, 'invalid_response');
+    const point = position as Record<string, unknown>;
+    if (
+      !uuid.test(String(point.event_id)) ||
+      !uuid.test(String(point.session_id)) ||
+      typeof point.captured_at !== 'string' ||
+      !Number.isFinite(Date.parse(point.captured_at)) ||
+      typeof point.received_at !== 'string' ||
+      !Number.isFinite(Date.parse(point.received_at)) ||
+      typeof point.latitude !== 'number' ||
+      !Number.isFinite(point.latitude) ||
+      Math.abs(point.latitude) > 90 ||
+      typeof point.longitude !== 'number' ||
+      !Number.isFinite(point.longitude) ||
+      Math.abs(point.longitude) > 180 ||
+      typeof point.accuracy_m !== 'number' ||
+      !Number.isFinite(point.accuracy_m) ||
+      point.accuracy_m < 0
+    )
+      throw new ApiClientError(502, 'invalid_response');
+    return { position: point as unknown as RemotePosition };
+  }
+
   positions(
     deviceId: string,
     reason: string,

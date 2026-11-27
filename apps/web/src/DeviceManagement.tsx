@@ -3,6 +3,7 @@ import { api, ApiClientError, type Device } from './api/client.js';
 import { useAuth } from './auth.js';
 import { GpsRemote, type RemoteGpsSession } from './gps/remote.js';
 import { deviceNames } from './gps/tracking-model.js';
+import { DeviceLastPosition } from './DeviceLastPosition.js';
 
 export type DeviceFilter = 'all' | 'active' | 'suspended' | 'noGps' | 'revoked' | 'retired';
 export type DeviceAction = 'stopGps' | 'suspend' | 'reactivate' | 'revoke' | 'retire';
@@ -126,10 +127,6 @@ export function DeviceManagement({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [locationReason, setLocationReason] = useState('');
-  const [lastPositionAt, setLastPositionAt] = useState<string | null>(null);
-  const [positionChecked, setPositionChecked] = useState(false);
-  const [positionLoading, setPositionLoading] = useState(false);
   const [sessions, setSessions] = useState<RemoteGpsSession[] | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const visible = filterDevices(devices, filter);
@@ -175,34 +172,6 @@ export function DeviceManagement({
       setError(requestError(failure));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function checkLastPosition(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (
-      !selected ||
-      !capabilities.includes('gps.location.read') ||
-      locationReason.trim().length < 8
-    )
-      return;
-    setPositionLoading(true);
-    setError('');
-    try {
-      const to = new Date();
-      const from = new Date(to.getTime() - 86_400_000);
-      const page = await new GpsRemote().positions(
-        selected.id,
-        locationReason.trim(),
-        from.toISOString(),
-        to.toISOString(),
-      );
-      setLastPositionAt(page.items[0]?.received_at ?? null);
-      setPositionChecked(true);
-    } catch (failure) {
-      setError(requestError(failure));
-    } finally {
-      setPositionLoading(false);
     }
   }
 
@@ -270,8 +239,6 @@ export function DeviceManagement({
                   setSelectedId(device.id);
                   setAction(null);
                   setError('');
-                  setPositionChecked(false);
-                  setLocationReason('');
                   setSessions(null);
                 }}
               >
@@ -346,42 +313,7 @@ export function DeviceManagement({
                       : 'Sin permiso de lectura'}
                   </dd>
                 </div>
-                <div>
-                  <dt>Última ubicación recibida</dt>
-                  <dd>
-                    {!capabilities.includes('gps.location.read')
-                      ? 'Sin permiso de ubicación'
-                      : positionChecked
-                        ? lastPositionAt
-                          ? date(lastPositionAt)
-                          : 'Sin lecturas en las últimas 24 horas'
-                        : 'Consulta auditada disponible'}
-                  </dd>
-                </div>
               </dl>
-              {capabilities.includes('gps.location.read') && (
-                <form
-                  className="managed-location-query"
-                  onSubmit={(event) => void checkLastPosition(event)}
-                >
-                  <label>
-                    Motivo para consultar la última recepción (24 horas)
-                    <input
-                      value={locationReason}
-                      minLength={8}
-                      maxLength={240}
-                      required
-                      onChange={(event) => setLocationReason(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={positionLoading || locationReason.trim().length < 8}
-                  >
-                    {positionLoading ? 'Consultando…' : 'Consultar última recepción'}
-                  </button>
-                </form>
-              )}
               {capabilities.includes('gps.session.read') && (
                 <div className="managed-session-history">
                   <button
@@ -408,6 +340,11 @@ export function DeviceManagement({
               )}
             </section>
           </div>
+          {capabilities.includes('gps.location.read') ? (
+            <DeviceLastPosition key={selected.id} deviceId={selected.id} />
+          ) : (
+            <p>Sin permiso para consultar la ubicación.</p>
+          )}
           {error && <p role="alert">{error}</p>}
           <details className="managed-device-technical">
             <summary>Binding e identificadores técnicos</summary>

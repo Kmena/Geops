@@ -11,6 +11,12 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message === 'clipboard_unavailable') {
     return 'No se pudo copiar el código. Puedes introducirlo manualmente en la APK.';
   }
+  if (error instanceof ApiClientError && error.code === 'mdm_device_unavailable') {
+    return 'El equipo MDM asociado no está disponible o su inventario tiene más de una hora. Sincroniza ManageEngine y comprueba la asociación.';
+  }
+  if (error instanceof ApiClientError && error.code === 'mdm_verification_required') {
+    return 'Primero vincula este registro con el Android administrado en Integración MDM y sincroniza el inventario.';
+  }
   if (error instanceof ApiClientError) {
     if (error.status === 0) return 'No hay conexión con el servidor. Comprueba la red.';
     if (error.status === 401) return 'La sesión expiró. Vuelve a iniciar sesión.';
@@ -53,6 +59,12 @@ export function EnrollmentPanel({
   const activating = useRef(false);
   const [error, setError] = useState<unknown>(null);
   const [pairingCode, setPairingCode] = useState('');
+  const [corporateUntil, setCorporateUntil] = useState('');
+  const [corporateNoticeAt, setCorporateNoticeAt] = useState('');
+  const [corporateBasis, setCorporateBasis] = useState('');
+  const [corporateEvidence, setCorporateEvidence] = useState('');
+  const [corporateReason, setCorporateReason] = useState('');
+  const [corporateConfirmed, setCorporateConfirmed] = useState(false);
   const [physicalConfirmed, setPhysicalConfirmed] = useState(false);
   const [attestationException, setAttestationException] = useState(false);
   const device = devices.find((item) => item.id === selected);
@@ -74,7 +86,12 @@ export function EnrollmentPanel({
   const invitationExpired = !!displayedExpiry && Date.parse(displayedExpiry) <= Date.now();
 
   useEffect(() => {
-    if (device?.status !== 'ACTIVE' || !device.key_id || !device.installation_id) {
+    if (
+      device?.status !== 'ACTIVE' ||
+      device.ownership === 'CORPORATE_MANAGED' ||
+      !device.key_id ||
+      !device.installation_id
+    ) {
       setActivationQr(null);
       return;
     }
@@ -110,7 +127,7 @@ export function EnrollmentPanel({
   }, [invitation]);
 
   useEffect(() => {
-    if (!currentInvitation || !device) {
+    if (!currentInvitation || !device || currentInvitation.managed_configuration) {
       setQr('');
       return;
     }
@@ -153,13 +170,14 @@ export function EnrollmentPanel({
       setBusy(false);
     }
   }
-  async function issue() {
+  async function issue(deliveryMode: 'supervised_qr' | 'managed_configuration') {
     if (!profile || !device || issuing.current || busy || openInvitation || localIssue) return;
+    if (deliveryMode === 'managed_configuration' && !device.tracking_authorized) return;
     issuing.current = true;
     setBusy(true);
     setError(null);
     try {
-      const issued = await api.issueInvitation(device, profile.csrf_token);
+      const issued = await api.issueInvitation(device, profile.csrf_token, deliveryMode);
       setIssuedRecord({
         invitation_id: issued.invitation_id,
         geops_device_id: issued.geops_device_id,
@@ -172,6 +190,46 @@ export function EnrollmentPanel({
       setError(failure);
     } finally {
       issuing.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function authorizeCorporate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      !profile ||
+      !device ||
+      busy ||
+      !corporateConfirmed ||
+      !capabilities.includes('gps.policy.assign')
+    )
+      return;
+    const until = Date.parse(corporateUntil);
+    const notice = Date.parse(corporateNoticeAt);
+    if (!Number.isFinite(until) || !Number.isFinite(notice)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.authorizeCorporateTracking(
+        device.id,
+        device.ownership_version ?? 0,
+        {
+          valid_until: new Date(until).toISOString(),
+          privacy_notice_at: new Date(notice).toISOString(),
+          authorization_basis: corporateBasis.trim(),
+          evidence_ref: corporateEvidence.trim(),
+          reason: corporateReason.trim(),
+        },
+        profile.csrf_token,
+      );
+      setCorporateBasis('');
+      setCorporateEvidence('');
+      setCorporateReason('');
+      setCorporateConfirmed(false);
+      refresh();
+    } catch (failure) {
+      setError(failure);
+    } finally {
       setBusy(false);
     }
   }
@@ -320,7 +378,12 @@ export function EnrollmentPanel({
             <strong>Tenant:</strong> {device.tenant_id} · <strong>Estado:</strong> {device.status}
           </p>
           <p>
-            <strong>ID MDM sintético:</strong> <code>{device.mdm_device_id}</code>
+            <strong>ID MDM administrado:</strong>{' '}
+            {device.managed_mdm_device_id ? (
+              <code>{device.managed_mdm_device_id}</code>
+            ) : (
+              'Sin asociación; vincúlalo en Integración MDM.'
+            )}
           </p>
           <p>
             <strong>Inscripción confirmada:</strong>{' '}
@@ -349,18 +412,119 @@ export function EnrollmentPanel({
               genera una nueva; la invitación anterior quedará inválida.
             </p>
           )}
+          {device.managed_mdm_device_id &&
+            ['DRAFT', 'INVITED'].includes(device.status) &&
+            capabilities.includes('gps.policy.assign') && (
+              <div className="enrollment-confirm">
+                <h3>Preparar seguimiento corporativo</h3>
+                {device.ownership === 'CORPORATE_MANAGED' && device.tracking_authorized ? (
+                  <p role="status">
+                    Seguimiento continuo autorizado hasta{' '}
+                    {device.ownership_valid_until
+                      ? new Date(device.ownership_valid_until).toLocaleString('es-GT')
+                      : 'la fecha registrada'}
+                    . Ya puedes generar la invitación MDM.
+                  </p>
+                ) : (
+                  <form onSubmit={(event) => void authorizeCorporate(event)}>
+                    <p>
+                      Antes de instalar la APK, registra la autorización y el aviso de privacidad de
+                      este teléfono. GEOPS verificará el vínculo MDM antes de activar GPS.
+                    </p>
+                    <label>
+                      Autorización vigente hasta
+                      <input
+                        type="datetime-local"
+                        value={corporateUntil}
+                        onChange={(event) => setCorporateUntil(event.target.value)}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Aviso de privacidad comunicado el
+                      <input
+                        type="datetime-local"
+                        value={corporateNoticeAt}
+                        onChange={(event) => setCorporateNoticeAt(event.target.value)}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Base de autorización
+                      <input
+                        value={corporateBasis}
+                        onChange={(event) => setCorporateBasis(event.target.value)}
+                        minLength={8}
+                        maxLength={240}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Referencia de evidencia
+                      <input
+                        value={corporateEvidence}
+                        onChange={(event) => setCorporateEvidence(event.target.value)}
+                        minLength={8}
+                        maxLength={240}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Motivo
+                      <input
+                        value={corporateReason}
+                        onChange={(event) => setCorporateReason(event.target.value)}
+                        minLength={8}
+                        maxLength={240}
+                        required
+                      />
+                    </label>
+                    <label className="day-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={corporateConfirmed}
+                        onChange={(event) => setCorporateConfirmed(event.target.checked)}
+                        required
+                      />
+                      Confirmo que el aviso se entregó y que la evidencia indicada autoriza el
+                      seguimiento continuo de este equipo de prueba.
+                    </label>
+                    <button type="submit" disabled={busy || !corporateConfirmed}>
+                      Autorizar seguimiento corporativo
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
           <div className="enrollment-actions">
+            {!(device.ownership === 'CORPORATE_MANAGED' && device.tracking_authorized) && (
+              <button
+                type="button"
+                disabled={
+                  busy ||
+                  openInvitation ||
+                  !!localIssue ||
+                  !['DRAFT', 'INVITED', 'PENDING_CONFIRMATION'].includes(device.status)
+                }
+                onClick={() => void issue('supervised_qr')}
+              >
+                Generar invitación QR supervisada
+              </button>
+            )}
             <button
               type="button"
               disabled={
                 busy ||
                 openInvitation ||
                 !!localIssue ||
-                !['DRAFT', 'INVITED', 'PENDING_CONFIRMATION'].includes(device.status)
+                !device.tracking_authorized ||
+                !device.managed_mdm_device_id ||
+                device.ownership !== 'CORPORATE_MANAGED' ||
+                !['DRAFT', 'INVITED'].includes(device.status)
               }
-              onClick={() => void issue()}
+              onClick={() => void issue('managed_configuration')}
             >
-              Generar invitación
+              Generar invitación corporativa MDM
             </button>
             <button
               type="button"
@@ -426,20 +590,35 @@ export function EnrollmentPanel({
             )}
           {device.status === 'ACTIVE' && device.installation_id && (
             <div className="enrollment-confirm">
-              <h3>Activar en el teléfono</h3>
-              <p>
-                Escanea este QR con la APK GEOPS en el equipo inscrito y pulsa «Iniciar
-                seguimiento». La clave del teléfono y la política se verifican antes de iniciar.
-              </p>
-              {activationQr?.deviceId === device.id && (
+              {device.ownership === 'CORPORATE_MANAGED' ? (
                 <>
-                  <p>QR válido hasta {new Date(activationQr.expiresAt).toLocaleString('es-GT')}.</p>
-                  <img
-                    src={activationQr.url}
-                    alt="QR de activación GPS para este dispositivo"
-                    width="320"
-                    height="320"
-                  />
+                  <h3>Instalación corporativa activada</h3>
+                  <p>
+                    La identidad y la política se activaron mediante MDM. Comprueba los permisos
+                    Android y la llegada de eventos GPS; estar activo no confirma que haya
+                    posiciones recibidas.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3>Activar en el teléfono</h3>
+                  <p>
+                    Escanea este QR con la APK GEOPS en el equipo inscrito y pulsa «Iniciar
+                    seguimiento». La clave del teléfono y la política se verifican antes de iniciar.
+                  </p>
+                  {activationQr?.deviceId === device.id && (
+                    <>
+                      <p>
+                        QR válido hasta {new Date(activationQr.expiresAt).toLocaleString('es-GT')}.
+                      </p>
+                      <img
+                        src={activationQr.url}
+                        alt="QR de activación GPS para este dispositivo"
+                        width="320"
+                        height="320"
+                      />
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -448,33 +627,67 @@ export function EnrollmentPanel({
       )}
       {currentInvitation && device && (
         <div className="enrollment-secret" role="status">
-          <h3>Invitación creada</h3>
+          <h3>
+            {currentInvitation.managed_configuration
+              ? 'Configuración corporativa MDM creada'
+              : 'Invitación creada'}
+          </h3>
           <p>
             Código de un solo uso, visible únicamente en esta sesión. Vence{' '}
             {new Date(currentInvitation.expires_at).toLocaleString('es-GT')}; no lo compartas por
             canales públicos.
           </p>
-          <p>
-            Escanea el QR con la APK GEOPS actualizada o introduce los datos manualmente. El escaneo
-            no reclama la invitación hasta que lo confirmes en el teléfono.
-          </p>
-          {qr && (
-            <img src={qr} alt="Código QR de inscripción GEOPS de prueba" width="320" height="320" />
+          {currentInvitation.managed_configuration ? (
+            <>
+              <p>
+                En ManageEngine, configura estos cinco valores para la APK GEOPS Corporate de este
+                Moto antes de distribuirla. Configura el lanzamiento de
+                <code> com.geops.corporate </code> tras instalarla; si el tenant no ofrece esa
+                opción, abre la app una vez en el teléfono. Concede ubicación precisa, ubicación
+                permanente y notificaciones. Mantén el código de inscripción fuera de mensajes y
+                documentos compartidos.
+              </p>
+              <dl>
+                {Object.entries(currentInvitation.managed_configuration).map(([key, value]) => (
+                  <div key={key}>
+                    <dt>{key}</dt>
+                    <dd>
+                      <code>{value}</code>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          ) : (
+            <>
+              <p>
+                Escanea el QR con la APK GEOPS actualizada o introduce los datos manualmente. El
+                escaneo no reclama la invitación hasta que lo confirmes en el teléfono.
+              </p>
+              {qr && (
+                <img
+                  src={qr}
+                  alt="Código QR de inscripción GEOPS de prueba"
+                  width="320"
+                  height="320"
+                />
+              )}
+              <dl>
+                <dt>ID de invitación</dt>
+                <dd>
+                  <code>{currentInvitation.invitation_id}</code>
+                </dd>
+                <dt>Código de inscripción</dt>
+                <dd>
+                  <code>{currentInvitation.invitation_secret}</code>
+                </dd>
+                <dt>ID de dispositivo</dt>
+                <dd>
+                  <code>{device.id}</code>
+                </dd>
+              </dl>
+            </>
           )}
-          <dl>
-            <dt>ID de invitación</dt>
-            <dd>
-              <code>{currentInvitation.invitation_id}</code>
-            </dd>
-            <dt>Código de inscripción</dt>
-            <dd>
-              <code>{currentInvitation.invitation_secret}</code>
-            </dd>
-            <dt>ID de dispositivo</dt>
-            <dd>
-              <code>{device.id}</code>
-            </dd>
-          </dl>
           <button
             type="button"
             onClick={() => {
@@ -483,7 +696,11 @@ export function EnrollmentPanel({
                 return;
               }
               void navigator.clipboard
-                .writeText(currentInvitation.invitation_secret)
+                .writeText(
+                  currentInvitation.managed_configuration
+                    ? JSON.stringify(currentInvitation.managed_configuration, null, 2)
+                    : currentInvitation.invitation_secret,
+                )
                 .then(() => {
                   setError(null);
                   setCopied(true);
@@ -491,9 +708,9 @@ export function EnrollmentPanel({
                 .catch(() => setError(new Error('clipboard_unavailable')));
             }}
           >
-            Copiar código
+            {currentInvitation.managed_configuration ? 'Copiar configuración MDM' : 'Copiar código'}
           </button>
-          {copied && <p role="status">Código copiado al portapapeles.</p>}
+          {copied && <p role="status">Datos copiados al portapapeles.</p>}
           <button
             type="button"
             onClick={() => {

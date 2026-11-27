@@ -222,7 +222,49 @@ export function AdminUsers() {
                 </p>
                 <p>Datos del tenant: {selected.tenant_access ? 'autorizados' : 'sin concesión'}</p>
                 {selected.id === profile?.id ? (
-                  <p>La cuenta principal se modifica mediante ceremonia supervisada.</p>
+                  selected.email.toLowerCase() === 'admin@geops.local' &&
+                  selected.capabilities.includes('gps.user.manage') ? (
+                    <>
+                      <p>
+                        Esta cuenta puede concederse únicamente el permiso de configuración y
+                        sincronización MDM.
+                      </p>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selection.includes('mdm.oauth.configure')}
+                          disabled={busy || selected.capabilities.includes('mdm.oauth.configure')}
+                          onChange={(event) =>
+                            setSelection(event.target.checked ? ['mdm.oauth.configure'] : [])
+                          }
+                        />
+                        mdm.oauth.configure
+                      </label>
+                      <label>
+                        Motivo de la concesión
+                        <input
+                          value={reason}
+                          onChange={(event) => setReason(event.target.value)}
+                          minLength={8}
+                          maxLength={240}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          !selection.includes('mdm.oauth.configure') ||
+                          reason.trim().length < 8 ||
+                          selected.capabilities.includes('mdm.oauth.configure')
+                        }
+                        onClick={() => void changeCapabilities('GRANT')}
+                      >
+                        Conceder permiso MDM
+                      </button>
+                    </>
+                  ) : (
+                    <p>La cuenta principal se modifica mediante ceremonia supervisada.</p>
+                  )
                 ) : (
                   <>
                     <fieldset disabled={busy || selected.state === 'REVOKED'}>

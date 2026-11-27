@@ -10,6 +10,8 @@ import { enrollmentBytes } from '../src/device-identity/crypto.ts';
 import { MdmInventoryService } from '../src/mdm/inventory.ts';
 import { resolveGpsDeviceScope } from '../src/gps-device-scope.ts';
 import { GpsDeviceConfigService } from '../src/gps-device-config.ts';
+import { GpsAdministrationService } from '../src/gps-administration.ts';
+import { GpsPolicyService } from '../src/gps-policy-service.ts';
 
 const url = process.env.DATABASE_URL;
 if (
@@ -20,7 +22,7 @@ if (
   throw new Error('Disposable synthetic DB required');
 const pool = new pg.Pool({ connectionString: url });
 try {
-  assert.equal((await applyMigrations(pool)).length, 34);
+  assert.equal((await applyMigrations(pool)).length, 40);
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
     csrfKey: Buffer.alloc(32, 12),
@@ -29,6 +31,10 @@ try {
   const admin = await auth.bootstrap('managed@test.invalid', 'synthetic-password-12345678');
   await pool.query(
     "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.installation.manage',$1,'Synthetic managed enrollment')",
+    [admin],
+  );
+  await pool.query(
+    "INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,'gps.policy.assign',$1,'Synthetic managed authorization')",
     [admin],
   );
   await pool.query(
@@ -205,6 +211,81 @@ try {
     (await pool.query('SELECT status FROM geops_device WHERE id=$1', [second.id])).rows[0].status,
     'INVITED',
   );
+
+  const authorized = await repository.createDraft('Moto corporativo autorizado', admin);
+  const authorizedMdmId = '9007199254740995125';
+  await pool.query(
+    `INSERT INTO mdm_inventory_device(provider,region,customer_id,mdm_device_id,platform,
+       status,removed,last_seen_at) VALUES('manageengine','com','12345',$1,'android','managed',false,now())`,
+    [authorizedMdmId],
+  );
+  await inventory.link(authorized.id, authorizedMdmId, admin, randomUUID());
+  const policies = new GpsPolicyService(pool);
+  const gpsAdmin = new GpsAdministrationService(pool, policies);
+  const approval = await gpsAdmin.setTrackingAuthorization(admin, randomUUID(), authorized.id, 0, {
+    ownership: 'CORPORATE_MANAGED',
+    valid_until: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+    privacy_notice_at: new Date(Date.now() - 86_400_000).toISOString(),
+    authorization_basis: 'Synthetic corporate physical test approval',
+    evidence_ref: 'SYNTHETIC-MOTO-APPROVAL-001',
+    reason: 'Prepare corporate MDM tracking before installation',
+  });
+  assert.equal(approval.tracking_authorized, true);
+  const listed = await repository.listEnrollment(undefined, 100);
+  const authorizedRow = listed.items.find((item) => item.id === authorized.id);
+  assert.equal(authorizedRow?.ownership, 'CORPORATE_MANAGED');
+  assert.equal(authorizedRow?.tracking_authorized, true);
+  assert.equal(authorizedRow?.ownership_version, 1);
+  assert.equal(authorizedRow?.managed_mdm_device_id, authorizedMdmId);
+  assert.equal(
+    (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM gps_effective_assignment WHERE device_id=$1',
+        [authorized.id],
+      )
+    ).rows[0].n,
+    0,
+    'a draft has no active capture policy',
+  );
+  const managedInvite = await enrollment.issueInvitation(
+    authorized.id,
+    authorized.mdm_binding_id,
+    'managed_configuration',
+    admin,
+  );
+  assert.equal(managedInvite.managed_configuration?.mdm_device_id, authorizedMdmId);
+  const managedNonce = randomBytes(16).toString('base64url');
+  const managedClaim = await enrollment.claim({
+    invitation_id: managedInvite.invitation_id,
+    invitation_secret: managedInvite.invitation_secret,
+    geops_device_id: authorized.id,
+    mdm_device_id: authorizedMdmId,
+    public_key_spki: spki.toString('base64url'),
+    client_nonce: managedNonce,
+  });
+  const managedProof = enrollmentBytes({
+    claimId: managedClaim.claim_id,
+    challengeId: managedClaim.challenge_id,
+    challenge: managedClaim.challenge,
+    deviceId: authorized.id,
+    mdmDeviceId: authorizedMdmId,
+    spki,
+    nonce: managedNonce,
+  });
+  const managedActivation = await enrollment.prove(
+    managedClaim.claim_id,
+    managedClaim.challenge_id,
+    sign('sha256', managedProof, key.privateKey).toString('base64url'),
+  );
+  assert.equal(managedActivation.status, 'ACTIVE');
+  const managedConfig = await config.snapshot(
+    { deviceId: authorized.id, keyId: managedActivation.key_id, sessionId: randomUUID() },
+    randomUUID(),
+    2,
+  );
+  assert.equal(managedConfig.active, true);
+  assert.equal(managedConfig.ownership, 'CORPORATE_MANAGED');
+  assert.equal(managedConfig.tracking_mode, 'CONTINUOUS');
 } finally {
   await pool.end();
 }

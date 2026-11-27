@@ -32,6 +32,7 @@ const invalid = () => new ApiError(422, 'invalid_request', 'Invalid request');
 const digest = (value: string) => createHash('sha256').update(value).digest();
 const normalizedEmail = (value: string) => value.trim().toLowerCase();
 const validReason = (value: string) => value.trim().length >= 8 && value.length <= 240;
+const PRIMARY_ADMIN_EMAIL = 'admin@geops.local';
 
 export class AdminUserAdministrationService {
   constructor(private readonly pool: Pool) {}
@@ -329,19 +330,23 @@ export class AdminUserAdministrationService {
     reason: string,
     apply: (db: PoolClient, tenantId: string) => Promise<void>,
   ): Promise<void> {
-    if (
-      !UUID.test(targetId) ||
-      !UUID.test(requestId) ||
-      !validReason(reason) ||
-      actorId === targetId
-    )
-      throw invalid();
+    if (!UUID.test(targetId) || !UUID.test(requestId) || !validReason(reason)) throw invalid();
     const hash = digest(JSON.stringify({ action, payload, reason: reason.trim() }));
     const db = await this.pool.connect();
     try {
       await db.query('BEGIN');
       await this.manager(db, actorId);
       const tenantId = await this.tenant(db);
+      if (actorId === targetId) {
+        if (action !== 'CAPABILITY_GRANT' || payload !== 'mdm.oauth.configure') throw invalid();
+        const primary = await db.query(
+          `SELECT 1 FROM admin_user u JOIN audit_event a ON a.actor_id=u.id
+           WHERE u.id=$1 AND u.email_normalized=$2
+             AND a.action='admin.bootstrap' AND a.outcome='success' LIMIT 1`,
+          [actorId, PRIMARY_ADMIN_EMAIL],
+        );
+        if (!primary.rowCount) throw invalid();
+      }
       const prior = await db.query<{
         actor_id: string;
         target_admin_id: string;
