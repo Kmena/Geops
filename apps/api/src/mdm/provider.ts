@@ -166,18 +166,29 @@ function field(value: unknown): string | undefined {
   return typeof value === 'string' && value.length <= 160 ? value : undefined;
 }
 
+function platformKind(value: unknown): 'android' | 'other' | 'unknown' {
+  if (value === 'android' || value === 2 || value === '2') return 'android';
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return 'other';
+  if (typeof value === 'string') {
+    if (/^[0-9]+$/.test(value)) return 'other';
+    if (['ios', 'windows', 'macos', 'tvos', 'chromeos', 'visionos'].includes(value)) return 'other';
+  }
+  return 'unknown';
+}
+
 function normalizeDevice(raw: unknown): MdmDevice {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
     throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
   const item = raw as Record<string, unknown>;
   const os = item.os && typeof item.os === 'object' ? (item.os as Record<string, unknown>) : {};
-  const platformValue = item.platform_type ?? os.platform_type;
-  const platform =
-    platformValue === 'android' || item.platform_type_id === 2 || item.platform_type_id === '2'
+  const platformSignals = [item.platform_type, item.platform_type_id, os.platform_type].map(
+    platformKind,
+  );
+  const platform = platformSignals.includes('other')
+    ? 'other'
+    : platformSignals.includes('android')
       ? 'android'
-      : platformValue === undefined && item.platform_type_id === undefined
-        ? 'unknown'
-        : 'other';
+      : 'unknown';
   const removed = item.is_removed === true || item.is_removed === 'true' || item.is_removed === 1;
   const rawStatus = item.managed_status;
   const status = removed

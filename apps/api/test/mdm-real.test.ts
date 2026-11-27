@@ -181,6 +181,33 @@ test('large numeric device IDs, detail attributes and vendor continuation preser
   assert.ok(paths.some((path) => path.includes('skip-token=abc%3D%3D')));
 });
 
+test('numeric Android platform in device detail remains eligible for association', async () => {
+  const client = new ManageEngineReadOnly({
+    enabled: true,
+    origin: 'https://mdm.manageengine.com/',
+    expectedOrigin: 'https://mdm.manageengine.com',
+    token: async () => 'test-access',
+    fetchImpl: async () => new Response('{"device_id":"123","managed_status":2,"platform_type":2}'),
+  });
+  const device = await client.getDevice('456', '123');
+  assert.equal(device?.status, 'managed');
+  assert.equal(device?.platform, 'android');
+});
+
+test('conflicting platform signals never classify a non-Android device as Android', async () => {
+  const client = new ManageEngineReadOnly({
+    enabled: true,
+    origin: 'https://mdm.manageengine.com/',
+    expectedOrigin: 'https://mdm.manageengine.com',
+    token: async () => 'test-access',
+    fetchImpl: async () =>
+      new Response(
+        '{"device_id":"123","managed_status":2,"platform_type":2,"os":{"platform_type":"ios"}}',
+      ),
+  });
+  assert.equal((await client.getDevice('456', '123'))?.platform, 'other');
+});
+
 test('MDM paging cannot redirect API requests to another path', async () => {
   const client = new ManageEngineReadOnly({
     enabled: true,
