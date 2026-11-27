@@ -42,6 +42,12 @@ ManageEngine sin configurar** y no inicia OAuth.
 
 ## Conexión diaria
 
+En **Usuarios y permisos**, la cuenta principal de prueba `admin@geops.local`, si está
+activa y conserva `gps.user.manage`, puede concederse únicamente
+`mdm.oauth.configure` con un motivo auditado. La excepción no permite
+autorrevocar capacidades, cambiar su acceso al tenant ni revocar la cuenta.
+Las demás cuentas siguen sin poder concederse permisos a sí mismas.
+
 **Conectar ManageEngine** inicia el flujo existente con sesión administrativa,
 CSRF, `state`, PKCE y callback de un solo uso. El backend canjea el código y
 guarda el grant cifrado. Si hay un único cliente MSP autorizado, lo selecciona;
