@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "release": "SPEC-05-W6-R2",
+  "status": "CANDIDATE_PUBLISHED_PROMOTION_BLOCKED",
+  "branch": "codex/mdm-diagnostics-wave0",
+  "applicationSourceSha": "809bb0678feaefdbbe8006a1ba05325ccb1ad0a8",
+  "publicationCommitSha": "3a5c5be43905e8875db94bbbc3fc7701c8287da1",
+  "workflow": {
+    "name": "Publish SPEC-05 W6-R2 candidate images",
+    "runId": 46164447870,
+    "url": "https://github.com/Kmena/Geops/actions/runs/46164447870",
+    "validation": "PASS",
+    "imagePublication": "PASS",
+    "publicationArtifactId": 15271132059,
+    "publicationArtifactSha256": "f10e73d55696e6d6fed21beb54e812a6127fd3c995016af070186bde058a78ac"
+  },
+  "images": {
+    "current": {
+      "api": "ghcr.io/kmena/geops-api@sha256:dbf7ec20aa4900a4bdf8487684dda7aeac0c95c99aaa1968770deeffe8f5125f",
+      "web": "ghcr.io/kmena/geops-web@sha256:9098f2162c06ebf9d9eedf4d5a5eb9037a4c62129c21322f437230ea592b90a0",
+      "reportedSourceSha": "b597c9f52f3f53da5e9d9be0fce43351f9eb4561",
+      "ociLabelsVerified": false
+    },
+    "candidate": {
+      "architecture": "linux/amd64",
+      "api": {
+        "ref": "ghcr.io/kmena/geops-api@sha256:e137e65016dc2c7b8d9130a6d81dae5d9510d422bd3b1e1e955405cefa8662b5",
+        "tag": "809bb0678feaefdbbe8006a1ba05325ccb1ad0a8-spec05-w6-r2",
+        "localImageIdAfterPull": "sha256:b11008e1173f0cae65769e51fec87c217e8b356ebe2c3b2e37be67c48256b1fb",
+        "createdUtc": "2026-11-28T16:20:55.778516431Z",
+        "verifiedLabels": {
+          "org.opencontainers.image.revision": "809bb0678feaefdbbe8006a1ba05325ccb1ad0a8",
+          "org.geops.promotion.commit": "3a5c5be43905e8875db94bbbc3fc7701c8287da1",
+          "org.geops.schema.target": "42",
+          "org.geops.api.variant": "SPEC05-W6-R2"
+        },
+        "packagedMigrationCount": 42
+      },
+      "web": {
+        "ref": "ghcr.io/kmena/geops-web@sha256:583058e25cd33cc1ca58e750c7837210580ed1a482c6321a44c62b43c846133f",
+        "tag": "809bb0678feaefdbbe8006a1ba05325ccb1ad0a8-spec05-w6-r2",
+        "localImageIdAfterPull": "sha256:61e18f26963521236c0684b5cbe6646dd580dc1431417ee131d3a67774e4cc90",
+        "createdUtc": "2026-11-28T16:21:13.740336215Z",
+        "verifiedLabels": {
+          "org.opencontainers.image.revision": "809bb0678feaefdbbe8006a1ba05325ccb1ad0a8",
+          "org.geops.promotion.commit": "3a5c5be43905e8875db94bbbc3fc7701c8287da1",
+          "org.geops.schema.target": "42",
+          "org.geops.web.variant": "SPEC05-W6-R2",
+          "org.geops.web.mdm_enabled": "true"
+        },
+        "workspaceRouteInBundle": true
+      }
+    }
+  },
+  "migrations": {
+    "currentCount": 40,
+    "currentListSha256": "40da2b60308dc0be781afb7aad45029a8b560ef76e979e8e5c178d2d85f8aeaf",
+    "targetCount": 42,
+    "targetListSha256": "1589cb3bf483e171b4e50aa0e33c06f71e504564b4a6e402eda4ecb4e5ac21a8",
+    "0041_device_diagnostics.sql": "078a74a6151b4aaca2dd937206636a7a230d0b89d22bb1520df00c7e8dcb0b22",
+    "0042_mdm_policy_workflow.sql": "d97a207432645007f97aefd2e57811bd2a418229b68d4da6745fe14c64581c1a",
+    "realLedgerRowsVerified": false
+  },
+  "staging": {
+    "project": "geops-spec02-staging",
+    "realBackup": null,
+    "realRestoreRehearsal": null,
+    "promotionReady": false,
+    "promotionAuthorized": false,
+    "deployed": false,
+    "mdmWriteEnabled": false
+  }
+}
