@@ -1,0 +1,151 @@
+name: Publish SPEC-05 W6-R2 candidate images
+
+# One reviewed branch-push release. Publishes GHCR images only; no staging or production access.
+on:
+  push:
+    branches: [codex/mdm-diagnostics-wave0]
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: 809bb0678feaefdbbe8006a1ba05325ccb1ad0a8
+
+jobs:
+  validate:
+    if: github.repository == 'Kmena/Geops' && github.event.head_commit.message == 'ci(spec05): publish approved W6-R2 images'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: promotion
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          ref: 809bb0678feaefdbbe8006a1ba05325ccb1ad0a8
+          path: target
+          persist-credentials: false
+      - name: Verify exact source and isolated promotion
+        run: |
+          test "$(git -C target rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git -C promotion rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C promotion merge-base "$SOURCE_SHA" HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C target status --porcelain)"
+          test "$(find target/apps/api/src/db/migrations -maxdepth 1 -name '*.sql' | wc -l)" = 42
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: target/package-lock.json
+      - name: Install dependencies
+        working-directory: target
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck, lint, contracts, security and unit tests
+        working-directory: target
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run contracts:check
+          npm run security:scan
+          npm test
+      - name: Build API and Web
+        working-directory: target
+        run: VITE_MDM_ENABLED=true npm run build
+      - name: Validate staging configuration
+        working-directory: target
+        run: npm run staging:check && npm run staging:caddy:check
+      - name: Install disposable integration dependencies
+        working-directory: target
+        run: |
+          docker pull postgis/postgis:18-3.6
+          npm install --no-save --no-package-lock --ignore-scripts @playwright/cli@0.1.22
+          command -v google-chrome
+      - name: PostGIS, GPS v2, MDM and migration regression
+        working-directory: target
+        shell: pwsh
+        run: ./scripts/run-spec05-wave3-integration.ps1
+      - name: Synthetic schema 0040 dump/restore and 0042 migration
+        working-directory: target
+        shell: pwsh
+        run: ./scripts/run-spec05-wave6-r1-restore.ps1
+      - name: Chrome E2E with API, Web, PostGIS and mock MDM
+        shell: pwsh
+        run: ./promotion/scripts/run-spec05-wave5-browser-e2e.ps1 -RepoRoot ./target
+      - name: Record CI source evidence
+        run: |
+          printf '{"source_sha":"%s","promotion_sha":"%s","run_url":"%s/%s/actions/runs/%s","integration":"PASS","browser_e2e":"PASS","staging_deploy":"NOT_RUN"}\n' \
+            "$SOURCE_SHA" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > spec05-w6-r2-ci.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spec05-w6-r2-ci-${{ github.sha }}
+          path: spec05-w6-r2-ci.json
+          retention-days: 90
+
+  images:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 809bb0678feaefdbbe8006a1ba05325ccb1ad0a8
+          path: target
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: api
+        uses: docker/build-push-action@v7
+        with:
+          context: target
+          file: target/infrastructure/docker/api.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/kmena/geops-api:809bb0678feaefdbbe8006a1ba05325ccb1ad0a8-spec05-w6-r2
+          build-args: GEOPS_API_VARIANT=SPEC05-W6-R2
+          labels: |
+            org.opencontainers.image.revision=809bb0678feaefdbbe8006a1ba05325ccb1ad0a8
+            org.geops.promotion.commit=${{ github.sha }}
+            org.geops.schema.target=42
+            org.geops.api.variant=SPEC05-W6-R2
+      - id: web
+        uses: docker/build-push-action@v7
+        with:
+          context: target
+          file: target/infrastructure/docker/web.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/kmena/geops-web:809bb0678feaefdbbe8006a1ba05325ccb1ad0a8-spec05-w6-r2
+          build-args: |
+            GEOPS_WEB_BASE=/
+            MDM_ENABLED=true
+            VITE_GPS_TIME_ZONE=America/Costa_Rica
+            VITE_GPS_TILE_URL=
+          labels: |
+            org.opencontainers.image.revision=809bb0678feaefdbbe8006a1ba05325ccb1ad0a8
+            org.geops.promotion.commit=${{ github.sha }}
+            org.geops.schema.target=42
+            org.geops.web.variant=SPEC05-W6-R2
+            org.geops.web.mdm_enabled=true
+      - name: Record immutable GHCR references
+        env:
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          test -n "$API_DIGEST" && test -n "$WEB_DIGEST"
+          printf '{"source_sha":"%s","promotion_sha":"%s","api":"ghcr.io/kmena/geops-api@%s","web":"ghcr.io/kmena/geops-web@%s","architecture":"linux/amd64","ci_run":"%s/%s/actions/runs/%s","staging_deploy":"NOT_RUN"}\n' \
+            "$SOURCE_SHA" "$GITHUB_SHA" "$API_DIGEST" "$WEB_DIGEST" \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > spec05-w6-r2-publication.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spec05-w6-r2-publication-${{ github.sha }}
+          path: spec05-w6-r2-publication.json
+          retention-days: 90

@@ -1,6 +1,7 @@
 # Loopback-only browser E2E with disposable PostGIS and mock ManageEngine.
+param([string]$RepoRoot)
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$root = if ($RepoRoot) { (Resolve-Path -LiteralPath $RepoRoot).Path } else { (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path }
 $container = "geops-spec05-browser-$PID"
 $browser = "spec05-wave5-$PID"
 $database = 'geops_verify_' + (Get-Date -Format 'yyyyMMddHHmmss')
@@ -43,7 +44,9 @@ try {
   & docker exec $container psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $database" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Could not create fixture database.' }
   $node = (Get-Command node).Source
-  $apiProcess = Start-Process -FilePath $node -ArgumentList @('--import','tsx','apps/api/test/mdm-workspace-browser-server.mjs') -WorkingDirectory $root -Environment @{ DATABASE_URL=$url; GEOPS_DATA_MODE='synthetic' } -WindowStyle Hidden -PassThru
+  $apiStart = @{ FilePath=$node; ArgumentList=@('--import','tsx','apps/api/test/mdm-workspace-browser-server.mjs'); WorkingDirectory=$root; Environment=@{ DATABASE_URL=$url; GEOPS_DATA_MODE='synthetic' }; PassThru=$true }
+  if ($IsWindows) { $apiStart.WindowStyle = 'Hidden' }
+  $apiProcess = Start-Process @apiStart
   Wait-Endpoint 'http://127.0.0.1:3500/health/live' $apiProcess
   Wait-Endpoint 'http://127.0.0.1:3500/health/ready' $apiProcess
   $readyResponse = Invoke-WebRequest -Uri 'http://127.0.0.1:3500/health/ready' -UseBasicParsing
@@ -59,7 +62,9 @@ try {
   $gpsRoute = Invoke-WebRequest -Uri 'http://127.0.0.1:3500/v2/device/gps/batches' -Method Post -Body '{}' -ContentType 'application/json' -UseBasicParsing -SkipHttpErrorCheck
   if ($gpsRoute.StatusCode -ne 401) { throw "GPS v2 contract probe returned $($gpsRoute.StatusCode): $($gpsRoute.Content)" }
   $vite = Join-Path $root 'node_modules/vite/bin/vite.js'
-  $webProcess = Start-Process -FilePath $node -ArgumentList @($vite,'--host','127.0.0.1','--port','3501') -WorkingDirectory (Join-Path $root 'apps/web') -Environment @{ VITE_MDM_ENABLED='true' } -WindowStyle Hidden -PassThru
+  $webStart = @{ FilePath=$node; ArgumentList=@($vite,'--host','127.0.0.1','--port','3501'); WorkingDirectory=(Join-Path $root 'apps/web'); Environment=@{ VITE_MDM_ENABLED='true' }; PassThru=$true }
+  if ($IsWindows) { $webStart.WindowStyle = 'Hidden' }
+  $webProcess = Start-Process @webStart
   Wait-Endpoint 'http://127.0.0.1:3501/' $webProcess
   New-Item -ItemType Directory -Path (Join-Path $root 'output/playwright') -Force | Out-Null
   $env:GEOPS_WAVE5_OUTPUT = (Join-Path $root 'output/playwright')
