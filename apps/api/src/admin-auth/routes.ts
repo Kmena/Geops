@@ -72,6 +72,11 @@ export function registerAdminRoutes(
     return { id: identity.id, email: identity.email, csrf_token: identity.csrfToken };
   });
 
+  app.get('/v1/admin/auth/permissions', async (request) => {
+    const identity = await requireAdmin(request, auth);
+    return { permissions: await auth.permissions(identity) };
+  });
+
   app.delete('/v1/admin/auth/sessions/current', async (request, reply) => {
     const identity = await requireAdmin(request, auth, true);
     await auth.logout(identity, request.id);

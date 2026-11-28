@@ -22,7 +22,7 @@ if (
   throw new Error('Disposable synthetic DB required');
 const pool = new pg.Pool({ connectionString: url });
 try {
-  assert.equal((await applyMigrations(pool)).length, 40);
+  assert.equal((await applyMigrations(pool)).length, 42);
   const auth = new AdminAuthService(pool, {
     sessionKey: Buffer.alloc(32, 11),
     csrfKey: Buffer.alloc(32, 12),

@@ -80,6 +80,14 @@ class PendingUploadJobService : JobService() {
                     }
                     if (!stopped.get() && !AgentRuntime.isRunning())
                         refreshDormantPolicy(context, identity, keyId, store, key)
+                    if (!stopped.get()) {
+                        try {
+                            if (DiagnosticOutbox.upload(context) { stopped.get() }) retry = true
+                        } catch (_: Exception) {
+                            // The encrypted diagnostic outbox remains intact for the next constrained job.
+                            retry = true
+                        }
+                    }
                 }
             } catch (_: Exception) {
                 // The encrypted queue is left intact. Never log exception text or request payloads.

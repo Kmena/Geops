@@ -22,6 +22,7 @@ import { EnrollmentPanel } from './EnrollmentPanel.js';
 import { DeviceManagement } from './DeviceManagement.js';
 import { ActivateAdmin, AdminUsers } from './AdminUsers.js';
 import { MdmOnly, mdmEnabled } from './MdmAvailability.js';
+import { MdmWorkspace } from './MdmWorkspace.js';
 import { mdmInventoryAvailability } from './MdmInventoryAvailability.js';
 import { ClientCatalog } from './ClientCatalog.js';
 import { RouteCatalog } from './RouteCatalog.js';
@@ -718,6 +719,7 @@ function Status() {
           </div>
         )}
       </section>
+      <MdmWorkspace />
       {state.data?.provider === 'manageengine' && authorized ? (
         <MdmAdminWorkspace refreshStatus={state.refresh} />
       ) : (

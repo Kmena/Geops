@@ -12,7 +12,7 @@ if (
 const pool = new pg.Pool({ connectionString: url, max: 2 });
 try {
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 40);
+  assert.equal(migrations.length, 42);
   assert.equal(migrations[34].version, '0035_legacy_device_decommission.sql');
   assert.deepEqual(
     migrations.slice(35).map((m) => m.version),
@@ -22,6 +22,8 @@ try {
       '0038_kmz_review.sql',
       '0039_kmz_confirmation.sql',
       '0040_kmz_retention.sql',
+      '0041_device_diagnostics.sql',
+      '0042_mdm_policy_workflow.sql',
     ],
   );
   assert.equal(
@@ -89,7 +91,7 @@ try {
     ).rows[0].n,
     0,
   );
-  console.log('B32 0035 -> SPEC-03 0040, rollback, retry, checksums, GPS/MDM compatibility: PASS');
+  console.log('B32 0035 -> SPEC-05 0042, rollback, retry, checksums, GPS/MDM compatibility: PASS');
 } finally {
   await pool.end();
 }

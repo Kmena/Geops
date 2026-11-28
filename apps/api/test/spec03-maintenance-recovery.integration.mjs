@@ -26,13 +26,13 @@ const pool = new pg.Pool({ connectionString: url, max: 1 });
 const root = await mkdtemp(join(tmpdir(), 'geops-spec03-recovery-'));
 const gate = join(root, 'security-gate.json');
 try {
-  assert.equal(RECOVERY_TARGET_SCHEMA, 40);
+  assert.equal(RECOVERY_TARGET_SCHEMA, 42);
   assert.equal(
     (await pool.query("SELECT to_regclass('geops_schema_migrations') AS name")).rows[0].name,
     null,
   );
   const migrations = await loadMigrations();
-  assert.equal(migrations.length, 40);
+  assert.equal(migrations.length, 42);
   await pool.query('BEGIN');
   await pool.query(
     'CREATE TABLE geops_schema_migrations(version text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())',
@@ -126,7 +126,7 @@ try {
   assert.equal(await checkReadiness(pool), true);
   assert.equal(
     (await pool.query('SELECT count(*)::int AS n FROM geops_schema_migrations')).rows[0].n,
-    40,
+    42,
   );
   assert.deepEqual(
     (await pool.query('SELECT id,name,code,address FROM client WHERE id=$1', [clientId])).rows,
@@ -139,7 +139,7 @@ try {
   assert.equal(
     (
       await pool.query(
-        "SELECT count(*)::int AS n FROM audit_event WHERE correlation_id=$1 AND action='maintenance.recovery.validated' AND metadata_redacted->>'schema'='40'",
+        "SELECT count(*)::int AS n FROM audit_event WHERE correlation_id=$1 AND action='maintenance.recovery.validated' AND metadata_redacted->>'schema'='42'",
         [approved.requestId],
       )
     ).rows[0].n,
@@ -160,10 +160,10 @@ try {
   await assert.rejects(recoverMaintenance(pool, gate, request()));
   assert.equal((await readGate(gate)).phase, 'maintenance');
   await pool.query(`CREATE VIEW catalog_source AS ${sourceView}`);
-  assert.equal(await recoverMaintenance(pool, gate, request()), 40);
+  assert.equal(await recoverMaintenance(pool, gate, request()), 42);
   assert.equal((await readGate(gate)).phase, 'open');
   console.log(
-    `SPEC-03 recovery ${String(initialVersion).padStart(4, '0')}→0040, checksum, rollback, unknown ledger, structural guard: PASS`,
+    `SPEC-05 recovery ${String(initialVersion).padStart(4, '0')}→0042, checksum, rollback, unknown ledger, structural guard: PASS`,
   );
 } finally {
   await pool.end();

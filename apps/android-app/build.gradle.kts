@@ -13,8 +13,8 @@ android {
     defaultConfig {
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0-spec04-test"
+        versionCode = 4
+        versionName = "1.0.3-spec05-wave4"
     }
     flavorDimensions += "ownership"
     productFlavors {

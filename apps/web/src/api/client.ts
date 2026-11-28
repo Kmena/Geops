@@ -137,6 +137,86 @@ export interface MdmStatus {
   sanitized_error_code: string | null;
 }
 
+export interface MdmWorkspaceSummary {
+  as_of: string;
+  source: string;
+  compliance: null;
+  compliance_reason: string;
+  registered: number;
+  linked: number;
+  unlinked: number;
+  no_data: number;
+  stale: number;
+  offline: number;
+  permission: number;
+  battery: number;
+  capture: number;
+  transmission: number;
+  configuration: number;
+  pending: number;
+  no_findings: number;
+}
+
+export interface MdmWorkspaceDevice {
+  device_id: string;
+  tenant_id: string;
+  display_label: string;
+  status: string;
+  agent_name: string | null;
+  ownership: string;
+  installation_id: string | null;
+  mdm_device_id: string | null;
+  mdm_link_state: string;
+  manufacturer: string | null;
+  model: string | null;
+  android_release: string | null;
+  app_version: string | null;
+  observed_at: string | null;
+  received_at: string | null;
+  last_contact_at: string | null;
+  permissions: Record<string, string> | null;
+  execution: Record<string, string | boolean | null> | null;
+  gps: Record<string, string | number | boolean | null> | null;
+  findings: { code: string; classification: string; source: string }[];
+  flags: Record<string, boolean>;
+  pending_corrections: number;
+}
+
+export interface MdmWorkspacePage {
+  as_of: string;
+  page: number;
+  limit: number;
+  total: number;
+  items: MdmWorkspaceDevice[];
+}
+
+export interface MdmConfiguration {
+  device_id: string;
+  tenant_id: string;
+  agent_id: string | null;
+  mdm_device_id: string | null;
+  link_state: string;
+  read_state: string;
+  inventory_last_seen_at: string | null;
+  desired: Record<string, unknown>;
+  assigned: { state: string; items: Record<string, unknown>[] };
+  applied_reported: Record<string, unknown>[];
+  effective_android: Record<string, string> | null;
+  app: Record<string, unknown> | null;
+  vendor_fetched_at: string | null;
+  findings: { code: string; classification?: string; source?: string }[];
+  correction_actions: { kind: string; classification: string; enabled: boolean; reason: string }[];
+}
+
+export interface MdmTimeline {
+  device_id: string;
+  from: string;
+  to: string;
+  truncated: boolean;
+  unavailable: string[];
+  items: { at: string; type: string; label: string; source: string; evidence_ref: string }[];
+}
+
 export interface CatalogClient {
   id: string;
   tenant_id: string;
@@ -842,6 +922,84 @@ export const api = {
       `/v1/admin/mdm/devices${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   mdmStatus: () => read<MdmStatus>('/v1/admin/mdm/status'),
+  adminPermissions: () => read<{ permissions: string[] }>('/v1/admin/auth/permissions'),
+  mdmWorkspaceSummary: () => read<MdmWorkspaceSummary>('/v1/admin/mdm/workspace/summary'),
+  mdmWorkspaceDevices: (query: Record<string, string> = {}) =>
+    read<MdmWorkspacePage>(
+      `/v1/admin/mdm/workspace/devices?${new URLSearchParams(query).toString()}`,
+    ),
+  mdmWorkspaceReport: (query: Record<string, string> = {}) =>
+    read<{
+      generated_at: string;
+      source: string;
+      scope: Record<string, number>;
+      items: MdmWorkspaceDevice[];
+    }>(`/v1/admin/mdm/workspace/report?${new URLSearchParams(query).toString()}`),
+  mdmWorkspaceTimeline: (id: string, query: Record<string, string> = {}) =>
+    read<MdmTimeline>(
+      `/v1/admin/mdm/workspace/devices/${encodeURIComponent(id)}/timeline?${new URLSearchParams(query).toString()}`,
+    ),
+  mdmDeviceDiagnosis: (id: string) =>
+    read<{
+      snapshot_id: string | null;
+      device_id: string;
+      tenant_id: string;
+      observed_at?: string;
+      received_at?: string;
+      last_communication_at?: string | null;
+      payload?: Record<string, unknown>;
+      findings: { code: string; classification: string; source: string }[];
+    }>(`/v1/admin/mdm/devices/${encodeURIComponent(id)}/diagnostics`),
+  mdmDeviceHistory: (id: string) =>
+    read<{ items: Record<string, unknown>[] }>(
+      `/v1/admin/mdm/devices/${encodeURIComponent(id)}/diagnostics/history?limit=25`,
+    ),
+  mdmConfiguration: (id: string) =>
+    read<MdmConfiguration>(`/v1/admin/mdm/devices/${encodeURIComponent(id)}/configuration`),
+  mdmCapabilities: () =>
+    read<{
+      provider: string;
+      tenant_evidence: string;
+      write_enabled: boolean;
+      capabilities: { key: string; state: string; scope: string | null }[];
+    }>('/v1/admin/mdm/capabilities'),
+  mdmRemediationHistory: (id: string) =>
+    read<{ items: Record<string, unknown>[] }>(
+      `/v1/admin/mdm/devices/${encodeURIComponent(id)}/remediations`,
+    ),
+  mdmRemediationPreview: (id: string, profileId: string, csrf: string) =>
+    read<{
+      device_id: string;
+      profile_id: string;
+      eligible: boolean;
+      classification: string;
+      reason: string;
+      impact_device_count: number | null;
+      preview_digest: string | null;
+      write_enabled: boolean;
+    }>('/v1/admin/mdm/remediations/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body: JSON.stringify({ device_id: id, profile_id: profileId }),
+    }),
+  mdmRemediationRequest: (
+    input: {
+      device_id: string;
+      profile_id: string;
+      preview_digest: string;
+      idempotency_key: string;
+      reason: string;
+    },
+    csrf: string,
+  ) =>
+    read<{ request_id: string; state: string; duplicate: boolean }>(
+      '/v1/admin/mdm/remediations/requests',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+        body: JSON.stringify(input),
+      },
+    ),
   mdmOAuthConfig: () =>
     read<{
       configured: boolean;

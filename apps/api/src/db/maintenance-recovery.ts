@@ -48,6 +48,8 @@ const versions = [
   '0038_kmz_review.sql',
   '0039_kmz_confirmation.sql',
   '0040_kmz_retention.sql',
+  '0041_device_diagnostics.sql',
+  '0042_mdm_policy_workflow.sql',
 ] as const;
 type SchemaVersion =
   | 14
@@ -76,8 +78,10 @@ type SchemaVersion =
   | 37
   | 38
   | 39
-  | 40;
-export const RECOVERY_TARGET_SCHEMA = 40;
+  | 40
+  | 41
+  | 42;
+export const RECOVERY_TARGET_SCHEMA = 42;
 
 async function recoveryCatalog(): Promise<Migration[]> {
   const catalog = await loadMigrations();
@@ -233,6 +237,14 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['kmz_import_commit', 39, 'r'],
     ['kmz_import_operation', 39, 'r'],
     ['kmz_import_review_archive', 40, 'r'],
+    ['device_diagnostic_snapshot', 41, 'r'],
+    ['device_diagnostic_latest', 41, 'i'],
+    ['device_diagnostic_received', 41, 'i'],
+    ['mdm_remediation_request', 42, 'r'],
+    ['mdm_remediation_device_history', 42, 'i'],
+    ['mdm_remediation_pending', 42, 'i'],
+    ['mdm_remediation_event', 42, 'r'],
+    ['mdm_remediation_event_request', 42, 'i'],
   ];
   for (const [name, introduced, kind] of objects) {
     const found = await db.query<{ relkind: string }>(
@@ -254,7 +266,9 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     !permission.rows[0]?.definition.includes('gps.installation.manage') ||
     permission.rows[0].definition.includes('gps.user.manage') !== state >= 15 ||
     permission.rows[0].definition.includes('mdm.oauth.configure') !== state >= 23 ||
-    permission.rows[0].definition.includes('catalog.import.confirm') !== state >= 36
+    permission.rows[0].definition.includes('catalog.import.confirm') !== state >= 36 ||
+    permission.rows[0].definition.includes('mdm.diagnostics.view') !== state >= 41 ||
+    permission.rows[0].definition.includes('mdm.policies.view') !== state >= 42
   )
     throw new Error('Permission constraint mismatch');
   const columns: Array<[string, string, SchemaVersion, boolean]> = [
@@ -317,6 +331,15 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     ['kmz_import_session', 'processing_token', 40, false],
     ['kmz_import_session', 'purged_at', 40, false],
     ['kmz_import_review_archive', 'import_id', 40, true],
+    ['device_diagnostic_snapshot', 'device_id', 41, true],
+    ['device_diagnostic_snapshot', 'installation_id', 41, true],
+    ['device_diagnostic_snapshot', 'tenant_id', 41, true],
+    ['device_diagnostic_snapshot', 'payload_digest', 41, true],
+    ['mdm_remediation_request', 'tenant_id', 42, true],
+    ['mdm_remediation_request', 'device_id', 42, true],
+    ['mdm_remediation_request', 'preview_digest', 42, true],
+    ['mdm_remediation_request', 'idempotency_key', 42, true],
+    ['mdm_remediation_event', 'request_id', 42, true],
   ];
   for (const [table, column, introduced, notNull] of columns) {
     const found = await db.query<{ attnotnull: boolean; type: string }>(
@@ -603,6 +626,28 @@ async function schemaState(db: PoolClient, expected: Migration[]): Promise<Schem
     if (!retention.rows[0]?.definition?.includes('purged_at IS NULL'))
       throw new Error('KMZ retention index missing');
   }
+  if (state >= 41) {
+    const diagnostic = await db.query<{ immutable: number; unique_sequence: number }>(
+      `SELECT
+       (SELECT count(*)::int FROM pg_trigger WHERE tgrelid='device_diagnostic_snapshot'::regclass
+         AND tgname='device_diagnostic_no_change' AND NOT tgisinternal) AS immutable,
+       (SELECT count(*)::int FROM pg_constraint WHERE conrelid='device_diagnostic_snapshot'::regclass
+         AND contype='u' AND pg_get_constraintdef(oid) LIKE '%installation_id, boot_id, sequence%') AS unique_sequence`,
+    );
+    if (diagnostic.rows[0]?.immutable !== 1 || diagnostic.rows[0].unique_sequence !== 1)
+      throw new Error('Diagnostic immutability or idempotency guard missing');
+  }
+  if (state >= 42) {
+    const workflow = await db.query<{ immutable: number; unique_request: number }>(
+      `SELECT
+       (SELECT count(*)::int FROM pg_trigger WHERE tgrelid='mdm_remediation_event'::regclass
+         AND tgname='mdm_remediation_event_no_change' AND NOT tgisinternal) AS immutable,
+       (SELECT count(*)::int FROM pg_constraint WHERE conrelid='mdm_remediation_request'::regclass
+         AND contype='u' AND pg_get_constraintdef(oid) LIKE '%requested_by, idempotency_key%') AS unique_request`,
+    );
+    if (workflow.rows[0]?.immutable !== 1 || workflow.rows[0].unique_request !== 1)
+      throw new Error('MDM remediation guards missing');
+  }
   return state;
 }
 
@@ -638,6 +683,8 @@ async function identityFingerprint(db: PoolClient, baseline: SchemaVersion): Pro
     ...(baseline >= 28 ? ['agent_device_link'] : []),
     ...(baseline >= 31 ? ['agent_operational_identity', 'agent_responsibility'] : []),
     ...(baseline >= 34 ? ['gps_device_ownership', 'gps_device_ownership_history'] : []),
+    ...(baseline >= 41 ? ['device_diagnostic_snapshot'] : []),
+    ...(baseline >= 42 ? ['mdm_remediation_request', 'mdm_remediation_event'] : []),
   ];
   const digest = createHash('sha256');
   for (const table of tables) {
@@ -780,7 +827,7 @@ export async function recoverMaintenance(
     }
     await checkIdentity(db, path, auth);
     if ((await schemaState(db, catalog)) !== RECOVERY_TARGET_SCHEMA)
-      throw new Error('Schema 40 not committed');
+      throw new Error('Schema 42 not committed');
     if (identities !== (await identityFingerprint(db, before)))
       throw new Error('Identity or permission inventory changed during recovery');
     await db.query('BEGIN');

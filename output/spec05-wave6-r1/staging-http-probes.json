@@ -1,0 +1,51 @@
+[
+  {
+    "path": "/health",
+    "status": 200,
+    "content_type": "text/plain",
+    "body_kind": "TEXT",
+    "error_code": null
+  },
+  {
+    "path": "/health/ready",
+    "status": 200,
+    "content_type": "text/html",
+    "body_kind": "HTML_SPA",
+    "error_code": null
+  },
+  {
+    "path": "/v1/admin/auth/me",
+    "status": 401,
+    "content_type": "application/json; charset=utf-8",
+    "body_kind": "JSON",
+    "error_code": "unauthorized"
+  },
+  {
+    "path": "/v1/admin/gps-policies",
+    "status": 401,
+    "content_type": "application/json; charset=utf-8",
+    "body_kind": "JSON",
+    "error_code": "unauthorized"
+  },
+  {
+    "path": "/v1/device/diagnostics/self",
+    "status": 404,
+    "content_type": "application/json; charset=utf-8",
+    "body_kind": "JSON",
+    "error_code": "not_found"
+  },
+  {
+    "path": "/v1/admin/mdm/workspace/summary",
+    "status": 404,
+    "content_type": "application/json; charset=utf-8",
+    "body_kind": "JSON",
+    "error_code": "not_found"
+  },
+  {
+    "path": "/v1/admin/mdm/capabilities",
+    "status": 404,
+    "content_type": "application/json; charset=utf-8",
+    "body_kind": "JSON",
+    "error_code": "not_found"
+  }
+]

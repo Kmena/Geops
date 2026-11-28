@@ -53,6 +53,7 @@ class EnrollmentActivity : ComponentActivity() {
     private lateinit var installationField: EditText
     private lateinit var status: TextView
     private lateinit var diagnostics: TextView
+    private lateinit var diagnosticScreenButton: Button
     private val diagnosticHandler = Handler(Looper.getMainLooper())
     private var diagnosticInFlight = false
     private val diagnosticRefresh = object : Runnable {
@@ -195,6 +196,11 @@ class EnrollmentActivity : ComponentActivity() {
             hasDevice -> "Inscripción solicitada. Espera la confirmación en GEOPS Web y escanea el QR de activación."
             else -> "Sin inscripción local. No se captura ubicación."
         })
+        diagnosticScreenButton = button("Configuración y diagnóstico") {
+            DiagnosticScreenLauncher.open(this)
+        }
+        diagnosticScreenButton.visibility =
+            if (AppVariant.corporate && hasActivation) View.VISIBLE else View.GONE
         val startButton = button("Iniciar seguimiento") {
             startTracking()
         }
@@ -287,6 +293,12 @@ class EnrollmentActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         visible = true
+        val identity = getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        diagnosticScreenButton.visibility =
+            if (AppVariant.corporate &&
+                !identity.getString("key_id", null).isNullOrBlank() &&
+                !identity.getString("installation_id", null).isNullOrBlank())
+                View.VISIBLE else View.GONE
         stopButton.visibility = if (AppVariant.corporate) View.GONE else View.VISIBLE
         diagnosticHandler.post(diagnosticRefresh)
         val filter = IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED)
@@ -383,6 +395,7 @@ class EnrollmentActivity : ComponentActivity() {
                     keyField.setText(activation.keyId)
                     installationField.setText(activation.installationId)
                     status.text = "Inscripción MDM activada. Verificando permisos y política GPS…"
+                    diagnosticScreenButton.visibility = View.VISIBLE
                     stopButton.visibility = View.GONE
                     if (visible) maybeStartManagedTracking()
                 }

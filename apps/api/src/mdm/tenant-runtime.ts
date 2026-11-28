@@ -187,6 +187,14 @@ export class MdmTenantRuntime {
     const { tenant, provider, control } = await this.required();
     return control.withConnected(() => provider.listDevices(tenant.customer_id, cursor, limit));
   }
+  async devicePolicies(mdmId: string) {
+    const { tenant, provider, control } = await this.required();
+    return control.withConnected(() => provider.readDevicePolicies(tenant.customer_id, mdmId));
+  }
+  async profileDetail(profileId: string) {
+    const { tenant, provider, control } = await this.required();
+    return control.withConnected(() => provider.readProfileDetail(tenant.customer_id, profileId));
+  }
   async inventory(limit: number, after?: string) {
     const { inventory, control } = await this.required();
     return control.withConnected(() => inventory.list(limit, after));

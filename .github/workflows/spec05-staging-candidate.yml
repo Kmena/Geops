@@ -1,0 +1,51 @@
+name: Validate SPEC-05 staging candidate
+
+# Manual validation of an exact isolated-branch commit. No registry publication or deployment.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact reviewed commit on codex/mdm-diagnostics-wave0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/codex/mdm-diagnostics-wave0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin reviewed source
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          test "$CANDIDATE_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run security:scan && npm run staging:check && npm run contracts:check
+      - run: npm run typecheck && npm run lint && npm test
+      - run: VITE_MDM_ENABLED=true npm run build
+      - name: Build local API image
+        run: |
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --build-arg GEOPS_API_VARIANT=SPEC05-W6-R1 \
+            -f infrastructure/docker/api.Dockerfile -t "geops-spec05-api:$GITHUB_SHA" .
+          docker image inspect "geops-spec05-api:$GITHUB_SHA" --format '{{.Id}}'
+      - name: Build local Web image
+        run: |
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --build-arg GEOPS_WEB_BASE=/ --build-arg MDM_ENABLED=true \
+            --build-arg VITE_GPS_TIME_ZONE=America/Costa_Rica \
+            -f infrastructure/docker/web.Dockerfile -t "geops-spec05-web:$GITHUB_SHA" .
+          docker image inspect "geops-spec05-web:$GITHUB_SHA" --format '{{.Id}}'

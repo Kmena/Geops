@@ -1,4 +1,13 @@
 import { ApiError } from '../errors.js';
+import {
+  mdmReadState,
+  normalizeApps,
+  normalizeLastContact,
+  normalizeProfileDetail,
+  normalizeProfiles,
+  type MdmDevicePolicyRead,
+  type MdmProfileDetail,
+} from './policy-read.js';
 
 export interface MdmDevice {
   mdm_device_id: string;
@@ -147,7 +156,8 @@ export async function boundedJson(response: Response): Promise<unknown> {
       reviver: (key: string, value: unknown, context: { source: string }) => unknown,
     ) => unknown;
     return parseLossless(body, (key, value, context) =>
-      (key === 'device_id' || key === 'customer_id') && typeof value === 'number'
+      ['device_id', 'customer_id', 'profile_id', 'app_id', 'app_version_code'].includes(key) &&
+      typeof value === 'number'
         ? context.source
         : value,
     );
@@ -403,8 +413,70 @@ export class ManageEngineReadOnly implements MdmProvider {
     if (typeof raw !== 'object' || raw === null)
       throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
     const device = normalizeDevice(raw);
+    if (device.mdm_device_id !== mdmId)
+      throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
     this.lastConnected = true;
     return device;
+  }
+
+  /** Vendor facts are reported as assigned or reported-applied, never Android-effective. */
+  async readDevicePolicies(customerId: string, mdmId: string): Promise<MdmDevicePolicyRead | null> {
+    if (!/^[0-9]{1,30}$/.test(mdmId)) throw new ApiError(400, 'invalid_mdm_id', 'Invalid request');
+    const device = await this.getDevice(customerId, mdmId);
+    if (!device) return null;
+    const base = `/api/v1/mdm/devices/${mdmId}`;
+    const [profiles, apps, summary] = await Promise.allSettled([
+      this.read(`${base}/profiles`, customerId),
+      this.read(`${base}/apps`, customerId),
+      this.read(`${base}/summary`, customerId),
+    ]);
+    return {
+      mdm_device_id: mdmId,
+      fetched_at: new Date().toISOString(),
+      device: {
+        status: device.status,
+        model: device.model ?? null,
+        android_version: device.os_version ?? null,
+        last_contact_at:
+          summary.status === 'fulfilled' ? normalizeLastContact(summary.value) : null,
+      },
+      profiles:
+        profiles.status === 'fulfilled'
+          ? (() => {
+              try {
+                return { state: 'AVAILABLE' as const, items: normalizeProfiles(profiles.value) };
+              } catch {
+                return { state: 'UNAVAILABLE' as const, items: [] };
+              }
+            })()
+          : { state: mdmReadState(profiles.reason), items: [] },
+      apps:
+        apps.status === 'fulfilled'
+          ? (() => {
+              try {
+                return { state: 'AVAILABLE' as const, items: normalizeApps(apps.value) };
+              } catch {
+                return { state: 'UNAVAILABLE' as const, items: [] };
+              }
+            })()
+          : { state: mdmReadState(apps.reason), items: [] },
+    };
+  }
+
+  async readProfileDetail(customerId: string, profileId: string): Promise<MdmProfileDetail | null> {
+    if (!/^[0-9]{1,30}$/.test(profileId))
+      throw new ApiError(400, 'invalid_profile_id', 'Invalid request');
+    try {
+      const detail = normalizeProfileDetail(
+        await this.read(`/api/v1/mdm/profiles/${profileId}`, customerId),
+      );
+      if (detail.profile_id !== profileId)
+        throw new ApiError(503, 'mdm_invalid_shape', 'MDM unavailable');
+      return detail;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'mdm_not_found') return null;
+      throw error;
+    }
   }
 
   async integrationStatus(): Promise<MdmStatus> {

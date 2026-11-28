@@ -1,0 +1,44 @@
+{
+  "disk": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/root        29G   19G  9.7G  66% /",
+  "gate": "open",
+  "lastDeployment": {
+    "api": "ghcr.io/kmena/geops-api@sha256:dbf7ec20aa4900a4bdf8487684dda7aeac0c95c99aaa1968770deeffe8f5125f",
+    "backup": null,
+    "commit": "b597c9f52f3f53da5e9d9be0fce43351f9eb4561",
+    "migrationLedgerSha256": "40da2b60308dc0be781afb7aad45029a8b560ef76e979e8e5c178d2d85f8aeaf",
+    "migrations": 40,
+    "promotionCommit": "b597c9f52f3f53da5e9d9be0fce43351f9eb4561",
+    "result": "success",
+    "sourceApi": "ghcr.io/kmena/geops-api@sha256:1b7092940a267bad605020a74ee24efbda52e6cf478b811c28fe0bc0b609aa06",
+    "sourceMigrations": 40,
+    "sourceWeb": "ghcr.io/kmena/geops-web@sha256:1657cbc977b57d5a0af3e8839ba500ed92fa828dcde40bcf62828858bf06c42c",
+    "timestamp": "2026-11-27T13:57:04.057803-06:00",
+    "web": "ghcr.io/kmena/geops-web@sha256:9098f2162c06ebf9d9eedf4d5a5eb9037a4c62129c21322f437230ea592b90a0"
+  },
+  "migrations": {
+    "count": 40,
+    "sha256": "40da2b60308dc0be781afb7aad45029a8b560ef76e979e8e5c178d2d85f8aeaf"
+  },
+  "project": "geops-spec02-staging",
+  "recentErrors": [],
+  "services": {
+    "api": {
+      "health": "healthy",
+      "id": "sha256:dbf7ec20aa4900a4bdf8487684dda7aeac0c95c99aaa1968770deeffe8f5125f",
+      "ref": "ghcr.io/kmena/geops-api@sha256:dbf7ec20aa4900a4bdf8487684dda7aeac0c95c99aaa1968770deeffe8f5125f",
+      "status": "running"
+    },
+    "db": {
+      "health": "healthy",
+      "id": "sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677",
+      "ref": "postgis/postgis:18-3.6",
+      "status": "running"
+    },
+    "web": {
+      "health": "healthy",
+      "id": "sha256:9098f2162c06ebf9d9eedf4d5a5eb9037a4c62129c21322f437230ea592b90a0",
+      "ref": "ghcr.io/kmena/geops-web@sha256:9098f2162c06ebf9d9eedf4d5a5eb9037a4c62129c21322f437230ea592b90a0",
+      "status": "running"
+    }
+  }
+}

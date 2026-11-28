@@ -62,6 +62,48 @@ private fun PolicyEngine.load(snapshot: Snapshot) { refresh(object : Authenticat
 private fun test(name: String, block: () -> Unit) { block(); println("PASS $name") }
 
 fun main() {
+    test("GPS UI summary distinguishes stopped, offline, stale, pending and ACK") {
+        val now = 1_000_000L
+        fun result(service: String?, internet: String? = "VALIDATED", capture: Long? = null,
+                   ack: Long? = null, pending: Int? = 0) = LocalDiagnosticRules.gpsSummary(
+            service, internet, 60, capture, ack, pending, now)
+        check(result(null) == GpsSummaryState.UNKNOWN)
+        check(result("RUNNING_OBSERVED", capture = null) == GpsSummaryState.CAPTURE_STALE)
+        check(result("STOPPED_OBSERVED") == GpsSummaryState.STOPPED_OBSERVED)
+        check(result("RUNNING_OBSERVED", internet = "OFFLINE") == GpsSummaryState.OFFLINE)
+        check(result("RUNNING_OBSERVED", capture = now - 10_000, pending = 2) ==
+            GpsSummaryState.CAPTURE_PENDING_UPLOAD)
+        check(result("RUNNING_OBSERVED", capture = now - 10_000,
+            ack = now - 5_000, pending = 0) == GpsSummaryState.CAPTURE_ACK_OBSERVED)
+        check(result("RUNNING_OBSERVED", capture = now + 10_000, pending = 1) ==
+            GpsSummaryState.UNKNOWN)
+    }
+    test("local permissions distinguish declaration, applicability and effective grant") {
+        check(LocalDiagnosticRules.permission(false, true, null) ==
+            LocalDiagnosticState.NOT_DECLARED)
+        check(LocalDiagnosticRules.permission(true, false, null) ==
+            LocalDiagnosticState.NOT_APPLICABLE)
+        check(LocalDiagnosticRules.permission(true, true, false) ==
+            LocalDiagnosticState.DENIED)
+        check(LocalDiagnosticRules.permission(true, true, true) ==
+            LocalDiagnosticState.GRANTED)
+        check(LocalDiagnosticRules.permission(true, true, null) ==
+            LocalDiagnosticState.UNKNOWN)
+        check(LocalDiagnosticRules.permission(true, true, false, restricted = true) ==
+            LocalDiagnosticState.RESTRICTED)
+    }
+    test("offline or missing telemetry never proves the GPS service stopped") {
+        check(LocalDiagnosticRules.service(false, null) == "UNKNOWN")
+        check(LocalDiagnosticRules.service(false, DiagnosticKind.FGS_PROMOTED) == "UNKNOWN")
+        check(LocalDiagnosticRules.service(false, DiagnosticKind.FGS_DESTROYED) ==
+            "STOPPED_OBSERVED")
+        check(LocalDiagnosticRules.service(true, DiagnosticKind.FGS_DESTROYED) ==
+            "RUNNING_OBSERVED")
+        check(LocalDiagnosticRules.transmission(3, 1000, null) ==
+            "CAPTURED_PENDING_TRANSMISSION")
+        check(LocalDiagnosticRules.transmission(0, 1000, 1200) ==
+            "ACK_OBSERVED")
+    }
     test("MDM continuous authorization rolls over midnight without unregistering GPS") {
         val midnight = ms("2026-10-28T00:00:00Z")
         val clock = FakeClock(wall = midnight - 30_000L)

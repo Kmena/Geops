@@ -2,6 +2,8 @@
 
 Two Android product flavors share `android-agent`: `corporate` (`com.geops.corporate`) and `personal` (`com.geops.personal`). Both compile against GEOPS Staging and require an authenticated GPS v2 policy matching the APK. Corporate requires ManageEngine Managed Configurations and individual server authorization; Personal uses visible QR enrollment and work-window tracking. See [the delivery matrix and physical test plan](../../docs/operations/spec04-dual-apk-readiness.md).
 
+SPEC-05 Wave 1 adds a local “Configuración y diagnóstico” screen to the activated Corporate flavor, including sanitized text export. Wave 2 adds a bounded encrypted diagnostic outbox and PoP upload independently of the screen. Wave 4 expands the same screen with administrative login, RBAC-gated Wave 3 ManageEngine reads, preview/request/history and explicit write-disabled messaging. Its session is held only in memory and never controls GPS. See [Wave 4 closeout](../../specs/spec-05-configuration-diagnostics/WAVE4-CLOSEOUT.md) and [controlled update gate](../../specs/spec-05-configuration-diagnostics/WAVE1-R1-LAB-PROTOCOL.md). The Wave 4 lab candidate uses versionCode 4 and versionName 1.0.3-spec05-wave4. Keep the same signer when updating an existing Corporate test installation; package and signature of the installed APK must be checked first.
+
 ## Authorized debug builds
 
 Use the standard Android debug signer only for authorized physical tests. Keep the local debug signing home outside Git and separate from the discontinued `com.geops.mobile` app:

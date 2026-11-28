@@ -12,6 +12,8 @@ import { DeviceSessionService } from '../src/device-identity/session.ts';
 import { GpsDeviceConfigService } from '../src/gps-device-config.ts';
 import { GpsEventService } from '../src/gps-event-service.ts';
 import { GpsPolicyService } from '../src/gps-policy-service.ts';
+import { DeviceDiagnosticsService } from '../src/device-diagnostics-service.ts';
+import { MdmPolicyService } from '../src/mdm/policy-service.ts';
 
 const url = process.env.DATABASE_URL;
 if (!url || !/^geops_verify_[0-9]+(?:_restore)?$/.test(new URL(url).pathname.slice(1)) ||
@@ -28,9 +30,11 @@ const config = new GpsDeviceConfigService(pool);
 const eventClock = { at: Date.now() };
 const events = new GpsEventService(pool, policies, Buffer.alloc(32, 33),
   () => new Date(eventClock.at));
+const diagnostics = new DeviceDiagnosticsService(pool);
 const app = createApp({ readinessProbe: async () => true, logLevel: 'silent', adminAuth: auth,
   deviceSessions: sessions, gpsPolicies: policies, gpsDeviceConfig: config,
-  gpsEvents: events, secureCookie: false });
+  gpsEvents: events, deviceDiagnostics: diagnostics,
+  mdmPolicies: new MdmPolicyService(pool, diagnostics), secureCookie: false });
 let checks = 0;
 function check(condition, label) { assert.ok(condition, label); checks++; }
 const sha = (value) => createHash('sha256').update(value).digest();
@@ -49,9 +53,13 @@ function javaNameUuid(value) {
 try {
   const adminId = await auth.bootstrap('events@example.invalid', 'synthetic-password-12345678');
   for (const permission of ['gps.policy.read', 'gps.policy.write', 'gps.policy.assign',
-    'gps.policy.activate', 'gps.session.read', 'gps.location.read'])
+    'gps.policy.activate', 'gps.session.read', 'gps.location.read',
+    'mdm.diagnostics.view', 'mdm.policies.view'])
     await pool.query('INSERT INTO admin_permission(admin_id,permission,granted_by,reason) VALUES($1,$2,$1,$3)',
       [adminId, permission, 'Synthetic GPS event integration']);
+  for (const table of ['gps_data_tenant_access', 'gps_health_tenant_access'])
+    await pool.query(`INSERT INTO ${table}(admin_id,tenant_id,granted_by,reason) VALUES($1,'tenant-a',$1,$2)`,
+      [adminId, 'Synthetic integrated Wave 6 lab']);
   const login = await app.inject({ method: 'POST', url: '/v1/admin/auth/sessions',
     headers: { origin: 'https://geops.example.invalid' },
     payload: { email: 'events@example.invalid', password: 'synthetic-password-12345678' } });
@@ -71,6 +79,12 @@ try {
     [randomUUID(), deviceId, keyId, sha(token), iso(-60_000), iso(600_000)]);
   await pool.query('INSERT INTO gps_device_installation(installation_id,device_id,activated_at,activation_binding_id,activation_tenant_id) VALUES($1,$2,$3,$4,$5)',
     [installationId, deviceId, iso(-60_000), bindingId, 'tenant-a']);
+  await pool.query(`INSERT INTO gps_device_ownership(device_id,ownership,mdm_state,
+    verification_source,evidence_ref,verified_at,valid_until,tracking_authorized,
+    authorization_basis,privacy_notice_at,updated_by,change_reason)
+    VALUES($1,'PERSONAL_BYOD','NOT_APPLICABLE','ADMIN_EVIDENCE',$2,now(),$3,true,
+      'Synthetic GPS event authorization',$4,$5,'Synthetic GPS event authorization')`,
+    [deviceId, 'SYNTHETIC-GPS-MIXED-CONSENT', iso(3 * DAY), iso(-DAY), adminId]);
   const policy = { name: 'Synthetic event policy', days_iso: [1, 2, 3, 4, 5, 6, 7],
     start_local: clock(-60), end_local: clock(60), time_zone: 'UTC',
     capture_interval_s: 60, sync_interval_s: 300, health_interval_s: 300,
@@ -143,6 +157,34 @@ try {
     [clientId])).rows[0].n === 1, 'one canonical session');
   check((await pool.query('SELECT count(*)::int AS n FROM position_event WHERE event_id=$1',
     [point.event_id])).rows[0].n === 1, 'first point linked and persisted');
+  // The same technical installation also sends SPEC-05 diagnostics; the admin
+  // workspace must project the ingested snapshot and its timeline entry.
+  const observed = new Date().toISOString();
+  const diagnostic = { schema_version: 1, installation_id: installationId,
+    boot_id: bootId, sequence: 1, observed_at: observed,
+    app_version: '1.0.3-spec05-wave4', manufacturer: 'Motorola', model: 'lab model',
+    android_release: '15', android_api: 35,
+    permissions: { fine: 'GRANTED', coarse: 'GRANTED', background: 'GRANTED',
+      notifications: 'GRANTED' },
+    execution: { location_enabled: true, gps_provider_enabled: true,
+      battery_exempt: true, power_save: false, background_restricted: false,
+      data_saver: 'DISABLED', internet: 'VALIDATED' },
+    gps: { service: 'RUNNING_OBSERVED', last_callback_at: observed,
+      last_capture_at: point.captured_at, last_ack_at: observed, pending_positions: 0,
+      upload_auth_blocked: false, capture_interval_s: 60, sync_interval_s: 300,
+      policy_revision: 1, tracking_mode: 'CONTINUOUS' }, errors: [] };
+  const diagnosticAck = await device('POST', '/v1/device/diagnostics/snapshots', diagnostic);
+  check(diagnosticAck.statusCode === 201, 'same technical identity ingests diagnostic');
+  const readDiagnostic = await admin('GET', `/v1/admin/mdm/devices/${deviceId}/diagnostics`);
+  check(readDiagnostic.statusCode === 200 &&
+    readDiagnostic.json().payload?.installation_id === installationId,
+    'admin reads diagnostic from same installation');
+  const workspace = await admin('GET', `/v1/admin/mdm/workspace/devices?ids=${deviceId}`);
+  check(workspace.statusCode === 200 && workspace.json().items?.length === 1,
+    'Wave 5 workspace projects ingested diagnostic');
+  const timeline = await admin('GET', `/v1/admin/mdm/workspace/devices/${deviceId}/timeline`);
+  check(timeline.statusCode === 200 && timeline.json().items?.some((item) => item.type === 'DIAGNOSTIC'),
+    'admin timeline records diagnostic');
   const lostAckRetry = await device('POST', path, first);
   check(lostAckRetry.statusCode === 200 &&
     lostAckRetry.json().persisted_at === accepted.json().persisted_at,

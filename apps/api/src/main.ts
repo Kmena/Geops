@@ -11,11 +11,13 @@ import { DeviceSessionService } from './device-identity/session.js';
 import { DeviceLifecycleService } from './device-identity/lifecycle.js';
 import { MdmWebOAuth } from './mdm/web-oauth.js';
 import { MdmTenantRuntime } from './mdm/tenant-runtime.js';
+import { MdmPolicyService } from './mdm/policy-service.js';
 import { MdmOAuthClientStore } from './mdm/oauth-client-store.js';
 import { GpsPolicyService } from './gps-policy-service.js';
 import { GpsHealthService } from './gps-health-service.js';
 import { GpsDeviceConfigService } from './gps-device-config.js';
 import { GpsEventService } from './gps-event-service.js';
+import { DeviceDiagnosticsService } from './device-diagnostics-service.js';
 import { GpsAdministrationService } from './gps-administration.js';
 import { GpsScheduler } from './gps-scheduler.js';
 import { VisitEvaluationScheduler } from './visit-evaluation-scheduler.js';
@@ -89,6 +91,7 @@ async function main(): Promise<void> {
   const gpsPolicies = new GpsPolicyService(pool);
   const gpsHealth = new GpsHealthService(pool, gpsPolicies);
   const gpsEvents = new GpsEventService(pool, gpsPolicies, config.gpsQuarantineKey);
+  const deviceDiagnostics = new DeviceDiagnosticsService(pool);
   const gpsScheduler = new GpsScheduler(pool, gpsPolicies, gpsEvents, gpsHealth);
   const gpsContinuity = new GpsContinuityMonitor(pool, undefined, config.adminSessionKey);
   const visitEvaluation = new VisitEvaluationService(pool);
@@ -104,6 +107,8 @@ async function main(): Promise<void> {
     gpsHealth,
     gpsDeviceConfig: new GpsDeviceConfigService(pool),
     gpsEvents,
+    deviceDiagnostics,
+    mdmPolicies: new MdmPolicyService(pool, deviceDiagnostics, mdmTenant),
     gpsAdministration: new GpsAdministrationService(pool, gpsPolicies),
     gpsContinuity,
     clientCatalog: new ClientCatalogService(pool),

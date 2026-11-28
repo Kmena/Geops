@@ -22,12 +22,16 @@ import type { MdmConnectionControl } from './mdm/connection-control.js';
 import type { MdmWebOAuth } from './mdm/web-oauth.js';
 import type { MdmOAuthClientStore } from './mdm/oauth-client-store.js';
 import type { MdmTenantRuntime } from './mdm/tenant-runtime.js';
+import { registerMdmPolicyRoutes } from './mdm/policy-routes.js';
+import type { MdmPolicyService } from './mdm/policy-service.js';
 import type { GpsPolicyService } from './gps-policy-service.js';
 import { registerGpsPolicyRoutes } from './gps-policy-routes.js';
 import type { GpsHealthService } from './gps-health-service.js';
 import { registerGpsHealthRoutes } from './gps-health-routes.js';
 import { registerGpsDeviceConfigRoute, type GpsDeviceConfigService } from './gps-device-config.js';
 import { registerGpsEventRoutes } from './gps-event-routes.js';
+import { registerDeviceDiagnosticsRoutes } from './device-diagnostics-routes.js';
+import type { DeviceDiagnosticsService } from './device-diagnostics-service.js';
 import type { GpsEventService } from './gps-event-service.js';
 import {
   registerGpsAdministrationRoutes,
@@ -73,6 +77,7 @@ export interface AppOptions {
   mdmWebOAuth?: MdmWebOAuth | (() => Promise<MdmWebOAuth | undefined>);
   mdmOAuthClientStore?: MdmOAuthClientStore;
   mdmTenant?: MdmTenantRuntime;
+  mdmPolicies?: MdmPolicyService;
   enrollment?: EnrollmentService;
   deviceSessions?: DeviceSessionService;
   deviceLifecycle?: DeviceLifecycleService;
@@ -82,6 +87,7 @@ export interface AppOptions {
   gpsHealth?: GpsHealthService;
   gpsDeviceConfig?: GpsDeviceConfigService;
   gpsEvents?: GpsEventService;
+  deviceDiagnostics?: DeviceDiagnosticsService;
   gpsAdministration?: GpsAdministrationService;
   gpsContinuity?: GpsContinuityMonitor;
   clientCatalog?: ClientCatalogService;
@@ -139,6 +145,14 @@ export function createApp(options: AppOptions): FastifyInstance {
       registerGpsDeviceConfigRoute(app, options.deviceSessions, options.gpsDeviceConfig);
     if (options.gpsEvents && options.deviceSessions)
       registerGpsEventRoutes(app, options.adminAuth, options.deviceSessions, options.gpsEvents);
+    if (options.deviceDiagnostics && options.deviceSessions)
+      registerDeviceDiagnosticsRoutes(
+        app,
+        options.adminAuth,
+        options.deviceSessions,
+        options.deviceDiagnostics,
+      );
+    if (options.mdmPolicies) registerMdmPolicyRoutes(app, options.adminAuth, options.mdmPolicies);
     if (options.gpsAdministration)
       registerGpsAdministrationRoutes(app, options.adminAuth, options.gpsAdministration);
     if (options.gpsContinuity)

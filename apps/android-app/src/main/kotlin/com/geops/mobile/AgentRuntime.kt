@@ -33,6 +33,7 @@ import com.geops.agent.TrackingController
 import com.geops.agent.TrackingIntent
 import com.geops.agent.AgentStore
 import com.geops.agent.summarizeDiagnostics
+import com.geops.agent.LocalDiagnosticRules
 import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
@@ -47,6 +48,28 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+
+internal data class LocalRuntimeEvidence(
+    val serviceState: String,
+    val lastServiceEvent: String?,
+    val lastServiceStart: String?,
+    val lastServiceInterruption: String?,
+    val recentErrors: List<String>,
+    val lastCaptureError: String?,
+    val lastTransmissionError: String?,
+    val lastCaptureAtMs: Long?,
+    val lastSyncAttemptAtMs: Long?,
+    val lastCallbackAtMs: Long?,
+    val lastAckAtMs: Long?,
+    val pendingLocations: Int,
+    val transmissionState: String,
+    val captureIntervalS: Int?,
+    val syncIntervalS: Int?,
+    val trackingMode: String?,
+    val policyRevision: Int?,
+    val uploadAuthBlocked: Boolean,
+    val lastWake: String?
+)
 
 /** Foreground tracking run, bounded by the locally authorized assignment. */
 object AgentRuntime {
@@ -539,6 +562,72 @@ object AgentRuntime {
             "Último rechazo: ${summary.lastRejectReason ?: "ninguno"}\n" +
             "Último estado del servicio: ${summary.lastServiceEvent ?: "desconocido"}\n" +
             "Último resultado de sincronización: ${summary.lastSyncReason ?: "desconocido"}"
+    }
+
+    /** Read-only, sanitized evidence for the diagnostic screen and exported report. */
+    internal fun localEvidence(context: Context): LocalRuntimeEvidence? {
+        return runCatching {
+        val preferences = context.getSharedPreferences("geops_agent_identity", Context.MODE_PRIVATE)
+        val identity = Identity(
+            preferences.getString("device_id", null) ?: return null,
+            preferences.getString("installation_id", null) ?: return null
+        )
+        val key = AndroidKeys.existingStateKey(STATE_ALIAS)
+        val state = EncryptedFileAgentStore(
+            AgentStateFiles.resolve(context.filesDir.toPath(), identity, key), key
+        ).read()
+        val events = EncryptedDiagnosticJournal(
+            DiagnosticFiles.scoped(context.noBackupFilesDir.toPath(), identity), key
+        ).recent()
+        val summary = summarizeDiagnostics(events, state.pending)
+        val lastService = events.lastOrNull {
+            it.kind.name.startsWith("FGS_") || it.kind.name.startsWith("LISTENER_")
+        }
+        val lastStart = events.lastOrNull { it.kind == DiagnosticKind.FGS_PROMOTED }
+        val lastInterruption = events.lastOrNull {
+            it.kind == DiagnosticKind.FGS_DESTROYED ||
+                it.kind == DiagnosticKind.FGS_PROMOTION_FAILED ||
+                it.kind == DiagnosticKind.LISTENER_UNREGISTERED
+        }
+        val freshService = lastService?.takeIf {
+            System.currentTimeMillis() - it.atMs in 0..900_000L
+        }
+        val policy = state.snapshot?.policy
+        val capture = state.lastLocationCapturedMs.takeIf { it >= 0 }
+        val syncAttempt = events.lastOrNull { it.kind == DiagnosticKind.SYNC_ATTEMPT }?.atMs
+        val ack = state.lastLocationAckedMs.takeIf { it >= 0 }
+        val recentErrors = events.filter {
+            it.reason != DiagnosticReason.NONE &&
+                (it.kind == DiagnosticKind.FGS_PROMOTION_FAILED ||
+                    it.kind == DiagnosticKind.WINDOW_WAKE_BLOCKED ||
+                    it.kind == DiagnosticKind.CAPTURE_REJECTED ||
+                    it.kind.name.startsWith("SYNC_"))
+        }.takeLast(5).map {
+            "${it.kind.name}: ${it.reason.name} @ ${Instant.ofEpochMilli(it.atMs)}"
+        }
+        val captureError = events.lastOrNull {
+            it.kind == DiagnosticKind.CAPTURE_REJECTED && it.reason != DiagnosticReason.NONE
+        }
+        val transmissionError = events.lastOrNull {
+            it.kind.name.startsWith("SYNC_") && it.reason != DiagnosticReason.NONE
+        }
+        val wake = events.lastOrNull { it.kind.name.startsWith("WINDOW_WAKE_") }
+        LocalRuntimeEvidence(
+            LocalDiagnosticRules.service(isGpsActive(), freshService?.kind),
+            lastService?.let { "${it.kind.name} @ ${Instant.ofEpochMilli(it.atMs)}" },
+            lastStart?.let { "${it.kind.name} @ ${Instant.ofEpochMilli(it.atMs)}" },
+            lastInterruption?.let { "${it.kind.name} @ ${Instant.ofEpochMilli(it.atMs)}" },
+            recentErrors,
+            captureError?.let { "${it.reason.name} @ ${Instant.ofEpochMilli(it.atMs)}" },
+            transmissionError?.let { "${it.reason.name} @ ${Instant.ofEpochMilli(it.atMs)}" },
+            capture, syncAttempt, summary.lastCallbackAtMs, ack, summary.pendingLocations,
+            LocalDiagnosticRules.transmission(summary.pendingLocations, capture, ack),
+            policy?.captureIntervalS, policy?.syncIntervalS,
+            policy?.let { if (it.mdmContinuous) "CONTINUOUS" else "WORK_WINDOW" },
+            policy?.revision, state.uploadAuthBlocked,
+            wake?.let { "${it.kind.name}: ${it.reason.name} @ ${Instant.ofEpochMilli(it.atMs)}" }
+        )
+        }.getOrNull()
     }
 
     internal fun currentBootId(context: Context): String = bootId(context)

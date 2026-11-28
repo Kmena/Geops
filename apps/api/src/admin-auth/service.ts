@@ -268,6 +268,28 @@ export class AdminAuthService {
     }
   }
 
+  /** A fresh password login is required before a sensitive MDM request. */
+  async assertRecentLogin(identity: AdminIdentity, maxAgeMs = 5 * 60_000): Promise<void> {
+    const result = await this.pool.query<{ issued_at: Date }>(
+      'SELECT issued_at FROM admin_session WHERE id=$1 AND admin_id=$2 AND revoked_at IS NULL',
+      [identity.sessionId, identity.id],
+    );
+    const issued = result.rows[0]?.issued_at;
+    const age = issued ? this.now().getTime() - issued.getTime() : Infinity;
+    if (age < 0 || age > maxAgeMs)
+      throw new ApiError(403, 'recent_login_required', 'Recent login required');
+  }
+
+  async permissions(identity: AdminIdentity): Promise<string[]> {
+    const result = await this.pool.query<{ permission: string }>(
+      `SELECT p.permission FROM admin_permission p JOIN admin_user u ON u.id=p.admin_id
+       WHERE p.admin_id=$1 AND u.state='ACTIVE' AND p.revoked_at IS NULL
+       ORDER BY p.permission`,
+      [identity.id],
+    );
+    return result.rows.map((row) => row.permission);
+  }
+
   async logout(identity: AdminIdentity, correlationId: string): Promise<void> {
     await this.pool.query(
       'UPDATE admin_session SET revoked_at=$2 WHERE id=$1 AND revoked_at IS NULL',

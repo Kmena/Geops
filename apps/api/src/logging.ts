@@ -2,6 +2,17 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 const started = new WeakMap<FastifyRequest, bigint>();
 const metrics = new Map<string, number>();
+const diagnosticCounters = new Map<string, number>();
+
+export function incrementDiagnosticMetric(
+  name: 'received' | 'rejected' | 'duplicate' | 'processing_error',
+): void {
+  diagnosticCounters.set(name, (diagnosticCounters.get(name) ?? 0) + 1);
+}
+
+export function diagnosticMetrics(): Readonly<Record<string, number>> {
+  return Object.fromEntries(diagnosticCounters);
+}
 
 export function failureMetrics(): Readonly<Record<string, number>> {
   return Object.fromEntries(metrics);
