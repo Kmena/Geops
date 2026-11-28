@@ -1,6 +1,6 @@
 # W6-R2 — Plan de promoción staging 0040 → 0042
 
-**Promoción no autorizada ni ejecutada.** La preparación conserva el origen de aplicación `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8`; los commits posteriores cambian solo CI/runner y documentos. El manifiesto estructurado está en [JSON](WAVE6-R2-GHCR-RELEASE-MANIFEST.json). Proyecto `geops-spec02-staging`; API/Web/DB reportados healthy, gate `open`, ledger 0040. Antes de solicitar aprobación hacen falta inventario privilegiado, backup/restore real y ensayo del operador con migración.
+**Promoción no autorizada ni ejecutada.** La preparación conserva el origen de aplicación `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8`; los commits posteriores cambian solo CI/runner, documentos y el [script de ensayo de operador](../../scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py). El manifiesto estructurado está en [JSON](WAVE6-R2-GHCR-RELEASE-MANIFEST.json). Proyecto `geops-spec02-staging`; API/Web/DB reportados healthy, gate `open`, ledger 0040. El operador confirmó acceso sudo con contraseña e inventario resumido. Antes de solicitar aprobación faltan los resultados verificables del script y un ensayo real del controlador dirigido exclusivamente a la copia aislada.
 
 ## Gates previos obligatorios
 
@@ -29,6 +29,6 @@ Las pruebas autenticadas requieren cuentas de laboratorio y fixture autorizadas 
 
 ## Solicitud separada de autorización, preparada pero no presentada
 
-**Destino futuro:** promoción staging del proyecto `geops-spec02-staging`, esquema 0040→0042. **Fuente:** `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8`. **CI:** [run 46164447870](https://github.com/Kmena/Geops/actions/runs/46164447870) PASS. **API/Web candidatas:** digests inmutables del [manifiesto](WAVE6-R2-GHCR-RELEASE-MANIFEST.json); imágenes actuales y hash de ledger 0040 también allí. **Backup real:** PENDIENTE. **Restore/migración aislados:** PENDIENTE. **Ledger fila por fila y labels activos:** PENDIENTE. **Comando de operador probado 0040→0042, ventana y tiempos:** PENDIENTE. **Recuperación:** gate cerrado, avance supervisado o restauración del dump validado con decisión explícita sobre escrituras posteriores.
+**Destino futuro:** promoción staging del proyecto `geops-spec02-staging`, esquema 0040→0042. **Fuente:** `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8`. **CI:** [run 46164447870](https://github.com/Kmena/Geops/actions/runs/46164447870) PASS. **API/Web candidatas:** digests inmutables del [manifiesto](WAVE6-R2-GHCR-RELEASE-MANIFEST.json); imágenes actuales y hash de ledger 0040 también allí. **Backup real:** PENDIENTE. **Restore/migración aislados:** PENDIENTE. **Ledger fila por fila y labels activos:** PENDIENTE DE VERIFICACIÓN POR SCRIPT. **Comando de operador probado 0040→0042, ventana y tiempos:** PENDIENTE. **Recuperación:** gate cerrado, avance supervisado o restauración del dump validado con decisión explícita sobre escrituras posteriores.
 
 Presentar esta solicitud al usuario **solo** cuando esos campos tengan evidencia y `STAGING_PROMOTION_READY=PASS`. La presente documentación no autoriza `deploy`.

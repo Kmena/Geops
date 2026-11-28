@@ -6,9 +6,9 @@ La aprobación parcial de W6-R1 se registra literalmente: `WAVE6_LAB_ENVIRONMENT
 
 | Estado solicitado | Resultado | Evidencia/límite |
 | --- | --- | --- |
-| STAGING_PRIVILEGED_INVENTORY | PARTIAL | Controlador/HTTPS W6-R1; Docker/DB privilegiados pendientes. |
-| STAGING_OCI_LABELS_VERIFIED | BLOCKED | Candidatas verificadas; labels de imágenes **activas** no legibles con `abi`. |
-| STAGING_REAL_MIGRATION_LEDGER_VERIFIED | BLOCKED | Hash de 40 coincide; faltan filas/checksums/`applied_at` reales. |
+| STAGING_PRIVILEGED_INVENTORY | PARTIAL | Operador confirmó sudo con contraseña e inventario real resumido; comprobación automatizada pendiente. |
+| STAGING_OCI_LABELS_VERIFIED | BLOCKED | Operador confirmó labels activos; verificación de digests y valores exactos por script pendiente. |
+| STAGING_REAL_MIGRATION_LEDGER_VERIFIED | BLOCKED | Operador confirmó 40 filas; comparación fila a fila de checksum/`applied_at` pendiente. |
 | MIGRATION_0041_VALIDATION | PARTIAL | Código, SHA, imagen empaquetada, integración y restore sintético PASS; restore real pendiente. |
 | MIGRATION_0042_VALIDATION | PARTIAL | Código, SHA, imagen empaquetada, integración y restore sintético PASS; restore real pendiente. |
 | REMOTE_CI_PASS | PASS | Run 46164447870, validate PASS. |
@@ -30,13 +30,13 @@ La aprobación parcial de W6-R1 se registra literalmente: `WAVE6_LAB_ENVIRONMENT
 
 [Inventario privilegiado](WAVE6-R2-PRIVILEGED-INVENTORY.md), [migraciones](WAVE6-R2-MIGRATION-VALIDATION.md), [CI](WAVE6-R2-CI-EVIDENCE.md), [manifiesto JSON](WAVE6-R2-GHCR-RELEASE-MANIFEST.json), [backup](WAVE6-R2-STAGING-BACKUP.md), [restore](WAVE6-R2-RESTORE-REHEARSAL.md), [plan de promoción y smoke](WAVE6-R2-PROMOTION-PLAN.md), [comandos de operador](WAVE6-R2-OPERATOR-COMMANDS.md) y [SDD actualizado](SDD.md).
 
-El [bloque único de inventario](WAVE6-R2-OPERATOR-COMMANDS.md) es el siguiente paso para un operador privilegiado. Luego se requiere backup real, restore aislado y ensayo del mecanismo de migración, sin conectar a ManageEngine ni notificar dispositivos. Solo al cerrar esos gates se podrá presentar una solicitud concreta de promoción 0040→0042. La publicación GHCR no autoriza promoción. Se detiene W6-R2 aquí: `main`, staging operativo, producción, políticas, APK, enrolamiento y motor GPS permanecen sin cambios; Wave 7 no se inicia.
+El [script único de operador](../../scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py) consolida inventario, comparación de ledger, backup real, restore aislado, migraciones y checks de imágenes. SHA-256 del script: `4bf1387b0c5e9e889b351ae73b4e4d04a98eb7a3d604f2caca13ffe3325ee113`. La publicación GHCR no autoriza promoción. `main`, staging operativo, producción, políticas, APK, enrolamiento y motor GPS permanecen sin cambios; Wave 7 no se inicia.
 
 Una lectura final de `sudo -n /usr/local/sbin/geops-staging-simple status` tras la publicación confirmó que staging conserva los mismos digests API/Web, 40 migraciones con el mismo hash, gate `open` y tres servicios healthy. El push documental posterior produjo jobs `validate` e `images` **skipped** por el gate de mensaje del workflow; no volvió a publicar imágenes.
 
 ## Auditoría de cierre de gates solicitada
 
-Se preservó sin cambios el bloque A de [comandos de operador](WAVE6-R2-OPERATOR-COMMANDS.md) para que lo ejecute una cuenta autorizada. La conexión SSH disponible es `abi`; `sudo -n -l` confirmó que no puede usar Docker/DB sin una contraseña que Codex no posee. El wrapper `geops-staging-simple` es root-only. La copia legible de `backup.sh` y `compose.staging.yaml` en staging coincide byte a byte con el checkout; esto **verifica el procedimiento de código**, no la ejecución de un backup. El runbook histórico identifica `geops-backup` mediante Compose y está incorporado en los comandos existentes.
+El operador informó que `abi` puede usar sudo completo mediante contraseña. El inventario resumido confirma proyecto, servicios saludables, commit activo, 40 migraciones, PostgreSQL 18.6/PostGIS 3.6, base de 189 MB, 6.4 GiB RAM, 9.7 GB disco, 2 dispositivos, 2 instalaciones GPS, 1327 posiciones, 1 integración MDM y labels OCI activos. Identificó controlador, wrapper, Compose, servicio/perfil/volumen/script de backup. El [inventario](WAVE6-R2-PRIVILEGED-INVENTORY.md) conserva las rutas y datos. El script los comprobará con acceso privilegiado; no se atribuye PASS antes de ejecutarlo.
 
 | Gate | Estado | Resultado faltante |
 | --- | --- | --- |
@@ -50,4 +50,4 @@ Se preservó sin cambios el bloque A de [comandos de operador](WAVE6-R2-OPERATOR
 | STAGING_PROMOTION_AUTHORIZED | NOT_RUN | La solicitud de autorización se presentará después de `READY=PASS`. |
 | STAGING_DEPLOYED | NOT_RUN | Ninguna promoción operativa ejecutada. |
 
-**Única intervención requerida:** una cuenta de operador Docker/DB ya autorizada ejecuta el bloque A sin cambios y los comandos protegidos de backup/verificación en [WAVE6-R2-OPERATOR-COMMANDS.md](WAVE6-R2-OPERATOR-COMMANDS.md); conserva dump/secretos en infraestructura protegida, ensaya restore y migración solo en entorno aislado, e informa resultados sanitizados y la interfaz real del controlador. [Backup](WAVE6-R2-STAGING-BACKUP.md) y [restore](WAVE6-R2-RESTORE-REHEARSAL.md) definen los criterios. Sin esa evidencia no se puede elevar ninguno de estos gates a PASS.
+**Única intervención requerida:** el operador `abi` revisa y ejecuta el [script único](WAVE6-R2-OPERATOR-COMMANDS.md) con sudo y la ruta privada del env-file Compose. El script deja el dump y el reporte en almacenamiento protegido, y elimina solo los recursos temporales con etiqueta de su ejecución. El resultado esperado eleva los cinco gates técnicos de inventario/OCI, ledger, backup, restore y migración si todas las verificaciones pasan. `STAGING_OPERATOR_REHEARSAL_PASS` y `STAGING_PROMOTION_READY` permanecen BLOCKED cuando la interfaz protegida del controlador no permita ensayo aislado comprobable; una lectura estática no prueba compatibilidad operativa 0040→0042. `STAGING_PROMOTION_AUTHORIZED` y `STAGING_DEPLOYED` permanecen NOT_RUN. La solicitud de autorización futura se presentará separadamente tras `READY=PASS`.

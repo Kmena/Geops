@@ -2,7 +2,7 @@
 
 ## A. Único bloque de inventario privilegiado, solo lectura
 
-Ejecutar en `geops-staging` **por un operador con sudo Docker ya autorizado**. Revisar y sanitizar la salida antes de compartirla. No ejecutar con la cuenta `abi` si sudo pide contraseña, no modificar grupos/sudoers y no imprimir `.Config.Env` completa ni secretos. Este bloque complementa los datos ya obtenidos por el controlador.
+Bloque histórico de inventario, conservado para trazabilidad. El operador confirmó que `abi` tiene sudo completo con contraseña; las comprobaciones aún pendientes quedan consolidadas en el script de la sección B. No modificar grupos/sudoers ni imprimir `.Config.Env` completa o secretos.
 
 ```bash
 set -eu
@@ -39,31 +39,28 @@ sudo docker exec "$web" nginx -T 2>&1 | grep -E 'location (/v1/|/v2/|/v3/|= /hea
 
 Si `psql` pide contraseña, detener la parte DB y usar el canal protegido habitual; jamás incluirla en el comando o reporte. El proxy externo Caddy requiere inspección separada por el operador: entregar solo resumen de rutas, sin certificados, claves ni cabeceras sensibles. Verificar `version,checksum` contra los 40 archivos del SHA fuente antes de aprobar migraciones.
 
-## B. Respaldo y restauración
+## B. Intervención única: script de operador
 
-El comando protegido existente de respaldo es el servicio Compose `geops-backup`, cuyo `backup.sh` hace `pg_dump -Fc` y `.sha256`. El **comando host exacto** para invocarlo depende del archivo Compose efectivo, su directorio de proyecto y las variables protegidas del host, aún no legibles con `abi`; el operador debe confirmarlos antes de ejecutar. No ejecutar un `docker compose run` con ruta/env inventados. Tras generarlo, verificar dentro del almacenamiento protegido tamaño, `sha256sum -c` y `pg_restore --list`, y registrar los metadatos de [backup](WAVE6-R2-STAGING-BACKUP.md). Restaurar solo a DB/volumen descartables conforme al [ensayo](WAVE6-R2-RESTORE-REHEARSAL.md).
-
-El runbook histórico de staging usa la siguiente invocación. El operador debe fijar `STAGE_ENV` a la **ruta privada existente**, confirmar que el Compose efectivo corresponde al proyecto inventariado y ejecutar en su sesión autorizada; la ruta y el contenido del archivo no se comparten. El bloque A anterior permanece sin cambios.
+Revisar el [script completo](../../scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py) y su SHA-256 publicado en el cierre. `abi` ejecuta sudo con contraseña mediante su cuenta autorizada. La única variable necesaria es la **ruta absoluta del archivo Compose privado existente**; el operador la fija localmente y no comparte su valor. No se requieren rondas manuales de inspección.
 
 ```bash
-cd /opt/geops-staging
-: "${STAGE_ENV:?Definir la ruta privada existente de variables Compose}"
-sudo docker compose --env-file "$STAGE_ENV" -f infrastructure/compose/compose.staging.yaml config --quiet
-sudo docker compose --env-file "$STAGE_ENV" -f infrastructure/compose/compose.staging.yaml --profile maintenance run --rm geops-backup
-sudo docker run --rm --network none -v geops_spec02_stage_backups:/geops-backups:ro --entrypoint sh postgis/postgis:18-3.6 -ec '
-  dump=$(find /geops-backups -maxdepth 1 -type f -name "geops-stage-*.dump" | sort | tail -n 1)
-  test -n "$dump"
-  (cd /geops-backups && sha256sum -c "$(basename "$dump").sha256")
-  pg_restore --list "$dump" >/dev/null
-  stat -c "%n|%s bytes|%y" "$dump"
-  sha256sum "$dump"
-'
+# En la estación autorizada, copiar el archivo aprobado al servidor; no copiar datos de staging de vuelta.
+scp scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py abi@geops-staging:/home/abi/spec05_w6r2_operator_rehearsal.py
+ssh -t abi@geops-staging
+export STAGE_ENV='/ruta/absoluta/privada/existente/de/variables-compose'
+sudo install -o root -g root -m 0700 /home/abi/spec05_w6r2_operator_rehearsal.py /usr/local/sbin/spec05-w6r2-operator-rehearsal
+sudo sha256sum /usr/local/sbin/spec05-w6r2-operator-rehearsal
+sudo python3 /usr/local/sbin/spec05-w6r2-operator-rehearsal --self-test
+sudo python3 /usr/local/sbin/spec05-w6r2-operator-rehearsal \
+  --compose-env-file "$STAGE_ENV" --authorize-isolated-gate-open
 ```
 
-Resultado esperado: `config --quiet` sin errores; `geops-backup` emite solo el timestamp del nuevo dump; `sha256sum -c` devuelve `OK`, `pg_restore --list` sale 0, y se registran ruta protegida, bytes, fecha y SHA-256. El `docker run` de verificación no tiene red y monta backups solo lectura. Confirmar que el dump verificado es el **nuevo** por timestamp; no compartir el archivo ni la ruta privada completa si revela infraestructura sensible.
+Comprobar que `sha256sum` coincide **exactamente** con el valor en [cierre](WAVE6-R2-CLOSEOUT.md) antes de ejecutar. El flag autoriza abrir solo el gate de la copia restaurada, después de invalidar credenciales y verificar el destino `geops_verify_*_restore`; no autoriza promoción. El script comprueba proyecto, digests y estado antes de usar Docker, exige ≥7 GiB libres en Docker y ≥3 GiB de RAM disponible, y detiene el ensayo si cambian las precondiciones. La copia, API y Web candidatas usan `--network none` sin puertos publicados; la API lleva `MDM_ENABLED=false` y claves efímeras. El script nunca invoca `deploy`, `rollback`, Compose `down` ni `prune`. Solo elimina contenedores/volumen/directorio temporal identificados con el ID único de su ejecución; conserva dump y reporte privado.
+
+Resultado esperado: reporte JSON sanitizado en `/var/lib/geops-spec05-w6r2-evidence/` con permisos 0600, ruta y SHA-256 impresos. Los cinco gates de inventario/ledger, OCI, backup, restore y migración pueden pasar a `PASS` tras el ensayo real. `STAGING_OPERATOR_REHEARSAL_PASS` y `STAGING_PROMOTION_READY` permanecen `BLOCKED` si el controlador protegido no demuestra una interfaz que apunte exclusivamente a la copia; la verificación estática de su código no se atribuye a ensayo operativo. `STAGING_PROMOTION_AUTHORIZED` y `STAGING_DEPLOYED` permanecen `NOT_RUN`.
 
 ## C. Promoción futura, no ejecutar en W6-R2
 
-La interfaz histórica del operador es `scripts/deploy/simple/geops.ps1 deploy staging -Manifest <manifiesto>` y usa `/usr/local/sbin/geops-staging-simple`. El wrapper remoto es root-only y la copia actual de `geops.ps1` no está en este checkout; por ello no se puede fijar todavía un comando ejecutable con ruta/argumentos de manifiesto y migración para 0040→0042. El operador debe entregar `--help`/runbook del controlador protegido y demostrarlo contra el restore real. `sudo -n /usr/local/sbin/geops-staging-simple check` y `status` son los únicos comandos protegidos verificados y seguros en este punto. No invocar `deploy` ni `rollback` hasta autorización independiente y prueba del flujo de migración.
+La interfaz histórica del operador es `scripts/deploy/simple/geops.ps1 deploy staging -Manifest <manifiesto>` y usa `/usr/local/sbin/geops-staging-simple`. El script lee el controlador protegido con sudo, comprueba su sintaxis/capacidades y observa `status` antes/después; no invoca despliegue operativo. Si el controlador no expone un modo verificable para ensayar sobre la copia aislada, se conserva el bloqueo específico de ensayo del operador. No invocar `deploy` ni `rollback` sobre staging hasta autorización independiente.
 
-Para obtener la interfaz real **sin ejecutarla**, el operador puede inspeccionar `sudo sed -n '1,120p' /usr/local/sbin/geops-staging-simple` y el runbook/controlador al que apunte. Debe entregar solo sintaxis, precondiciones, gates, secuencia de backup/migración, comprobaciones y recuperación sanitizadas. El ensayo debe apuntar a la copia restaurada aislada, nunca a `geops_dev` operativo. Hasta verificar esos argumentos y resultado, `STAGING_OPERATOR_REHEARSAL_PASS = BLOCKED`; no inventar un comando de `deploy`.
+La futura autorización de promoción se solicitará por separado, con el reporte de este ensayo. El ensayo del controlador debe apuntar a la copia restaurada aislada, nunca a `geops_dev` operativo.
