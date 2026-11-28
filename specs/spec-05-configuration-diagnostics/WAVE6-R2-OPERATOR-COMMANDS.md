@@ -41,21 +41,20 @@ Si `psql` pide contraseña, detener la parte DB y usar el canal protegido habitu
 
 ## B. Intervención única: script de operador
 
-Revisar el [script completo](../../scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py) y su SHA-256 publicado en el cierre. `abi` ejecuta sudo con contraseña mediante su cuenta autorizada. La única variable necesaria es la **ruta absoluta del archivo Compose privado existente**; el operador la fija localmente y no comparte su valor. No se requieren rondas manuales de inspección.
+Revisar el [script completo](../../scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py) y su SHA-256 publicado en el cierre. `abi` ejecuta sudo con contraseña mediante su cuenta autorizada. El controlador instalado no usa env-file: `environment(api, web)` construye la configuración desde los secretos protegidos existentes y `compose(...)` incorpora los tres archivos Compose efectivos. El script verifica las declaraciones de nivel superior antes de importar el módulo y llamar solo a `environment`, `compose` y `backup`. No crea archivos de credenciales ni requiere buscar `.env`.
 
 ```bash
-# En la estación autorizada, copiar el archivo aprobado al servidor; no copiar datos de staging de vuelta.
+# En la estación autorizada, reemplazar solo la copia del script entregada antes.
 scp scripts/deploy/simple/spec05_w6r2_operator_rehearsal.py abi@geops-staging:/home/abi/spec05_w6r2_operator_rehearsal.py
 ssh -t abi@geops-staging
-export STAGE_ENV='/ruta/absoluta/privada/existente/de/variables-compose'
 sudo install -o root -g root -m 0700 /home/abi/spec05_w6r2_operator_rehearsal.py /usr/local/sbin/spec05-w6r2-operator-rehearsal
 sudo sha256sum /usr/local/sbin/spec05-w6r2-operator-rehearsal
 sudo python3 /usr/local/sbin/spec05-w6r2-operator-rehearsal --self-test
 sudo python3 /usr/local/sbin/spec05-w6r2-operator-rehearsal \
-  --compose-env-file "$STAGE_ENV" --authorize-isolated-gate-open
+  --authorize-isolated-gate-open
 ```
 
-Comprobar que `sha256sum` coincide **exactamente** con el valor en [cierre](WAVE6-R2-CLOSEOUT.md) antes de ejecutar. El flag autoriza abrir solo el gate de la copia restaurada, después de invalidar credenciales y verificar el destino `geops_verify_*_restore`; no autoriza promoción. El script comprueba proyecto, digests y estado antes de usar Docker, exige ≥7 GiB libres en Docker y ≥3 GiB de RAM disponible, y detiene el ensayo si cambian las precondiciones. La copia, API y Web candidatas usan `--network none` sin puertos publicados; la API lleva `MDM_ENABLED=false` y claves efímeras. El script nunca invoca `deploy`, `rollback`, Compose `down` ni `prune`. Solo elimina contenedores/volumen/directorio temporal identificados con el ID único de su ejecución; conserva dump y reporte privado.
+Comprobar que `sha256sum` coincide **exactamente** con el valor en [cierre](WAVE6-R2-CLOSEOUT.md) antes de ejecutar. El flag autoriza abrir solo el gate de la copia restaurada, después de invalidar credenciales y verificar el destino `geops_verify_*_restore`; no autoriza promoción. El script usa el `compose` y `backup` del controlador para invocar el servicio protegido, sin modificar el controlador ni escribir en su estado de auditoría. Comprueba proyecto, digests y estado antes de usar Docker, exige ≥7 GiB libres en Docker y ≥3 GiB de RAM disponible, y detiene el ensayo si cambian las precondiciones. La copia, API y Web candidatas usan `--network none` sin puertos publicados; la API lleva `MDM_ENABLED=false` y claves efímeras. El script nunca invoca `deploy`, `rollback`, Compose `down` ni `prune`. Solo elimina contenedores/volumen/directorio temporal identificados con el ID único de su ejecución; conserva dump y reporte privado.
 
 Resultado esperado: reporte JSON sanitizado en `/var/lib/geops-spec05-w6r2-evidence/` con permisos 0600, ruta y SHA-256 impresos. Los cinco gates de inventario/ledger, OCI, backup, restore y migración pueden pasar a `PASS` tras el ensayo real. `STAGING_OPERATOR_REHEARSAL_PASS` y `STAGING_PROMOTION_READY` permanecen `BLOCKED` si el controlador protegido no demuestra una interfaz que apunte exclusivamente a la copia; la verificación estática de su código no se atribuye a ensayo operativo. `STAGING_PROMOTION_AUTHORIZED` y `STAGING_DEPLOYED` permanecen `NOT_RUN`.
 

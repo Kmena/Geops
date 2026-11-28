@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -305,19 +306,86 @@ def backup_mount() -> Path:
     return mount
 
 
-def compose_preflight(env_file: Path) -> dict:
+def load_protected_controller() -> object:
+    if not CONTROLLER.is_file():
+        raise GateError("CONTROLLER_SOURCE_UNREADABLE")
+    tree = ast.parse(CONTROLLER.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            continue
+        if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.decorator_list:
+                raise GateError("CONTROLLER_IMPORT_SIDE_EFFECT_RISK")
+            continue
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(not isinstance(target, ast.Name) for target in targets):
+                raise GateError("CONTROLLER_IMPORT_SIDE_EFFECT_RISK")
+            value = node.value
+            if value is None:
+                continue
+            for call in (item for item in ast.walk(value) if isinstance(item, ast.Call)):
+                if ast.unparse(call.func) not in {"Path", "re.compile"}:
+                    raise GateError("CONTROLLER_IMPORT_SIDE_EFFECT_RISK")
+            continue
+        if (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name)
+            and node.test.left.id == "__name__"
+            and len(node.test.ops) == 1
+            and isinstance(node.test.ops[0], ast.Eq)
+            and len(node.test.comparators) == 1
+            and isinstance(node.test.comparators[0], ast.Constant)
+            and node.test.comparators[0].value == "__main__"
+            and not node.orelse
+        ):
+            continue
+        raise GateError("CONTROLLER_IMPORT_SIDE_EFFECT_RISK")
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    if not {"environment", "compose", "backup"} <= functions.keys():
+        raise GateError("CONTROLLER_INTERFACE_CHANGED")
+    compose_source = ast.get_source_segment(CONTROLLER.read_text(), functions["compose"]) or ""
+    backup_source = ast.get_source_segment(CONTROLLER.read_text(), functions["backup"]) or ""
+    if not all(
+        name in compose_source for name in (
+            "compose.staging.yaml", "compose.staging.mdm-web-oauth.override.yaml",
+            "compose.staging.digest.override.yaml", "env=environment(api, web)",
+        )
+    ) or not all(
+        token in backup_source for token in ("--rm", "--no-deps", "geops-backup", "maintenance=True")
+    ):
+        raise GateError("CONTROLLER_COMPOSE_OR_BACKUP_CHANGED")
+    spec = importlib.util.spec_from_file_location("geops_spec05_protected_controller", CONTROLLER)
+    if spec is None or spec.loader is None:
+        raise GateError("CONTROLLER_IMPORT_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.READ_ONLY = True  # Avoid writes to the operational controller's audit/state.
+    if module.PROJECT != PROJECT or module.COMPOSE_DIR != COMPOSE.parent:
+        raise GateError("CONTROLLER_TARGET_CHANGED")
+    environment = module.environment(CURRENT_API, CURRENT_WEB)
+    if (
+        environment.get("GEOPS_STAGE_API_IMAGE_REF") != CURRENT_API
+        or environment.get("GEOPS_STAGE_WEB_IMAGE_REF") != CURRENT_WEB
+        or not environment.get("GEOPS_STAGE_SECRET_GID")
+    ):
+        raise GateError("CONTROLLER_ENVIRONMENT_CHANGED")
+    return module
+
+
+def compose_preflight(controller: object) -> dict:
     if not COMPOSE.is_file() or not BACKUP_SCRIPT.is_file():
         raise GateError("PROTECTED_BUNDLE_MISSING")
-    if not env_file.is_file():
-        raise GateError("COMPOSE_ENV_FILE_MISSING")
-    base = [
-        "compose", "--env-file", str(env_file), "-f", str(COMPOSE),
-        "--project-name", PROJECT, "--profile", "maintenance",
-    ]
-    docker([*base, "config", "--quiet"], "COMPOSE_CONFIG_INVALID", timeout=90)
-    config = json.loads(
-        docker([*base, "config", "--format", "json"], "COMPOSE_CONFIG_UNREADABLE", timeout=90)
-    )
+    try:
+        controller.compose(CURRENT_API, CURRENT_WEB, "config", "--quiet",
+                           maintenance=True, phase="spec05.config.check", timeout=90)
+        config = json.loads(
+            controller.compose(CURRENT_API, CURRENT_WEB, "config", "--format", "json",
+                               maintenance=True, phase="spec05.config.inspect", timeout=90)
+        )
+    except (RuntimeError, ValueError) as error:
+        raise GateError("PROTECTED_COMPOSE_CONFIG_FAILED") from error
     service = config.get("services", {}).get("geops-backup", {})
     if (
         config.get("name") != PROJECT
@@ -336,7 +404,12 @@ def compose_preflight(env_file: Path) -> dict:
         value in text for value in ("umask 077", "pg_dump", "-Fc", "sha256sum", "/geops-backups/")
     ):
         raise GateError("BACKUP_SCRIPT_UNRECOGNIZED")
-    return {"args": base, "bundle_backup_sha256": sha256_file(BACKUP_SCRIPT), "compose_sha256": sha256_file(COMPOSE)}
+    return {
+        "bundle_backup_sha256": sha256_file(BACKUP_SCRIPT),
+        "compose_sha256": sha256_file(COMPOSE),
+        "controller_sha256": sha256_file(CONTROLLER),
+        "configuration_source": "protected_controller.environment_and_compose",
+    }
 
 
 def verify_backup(mount: Path, before: set[str], db_image: str, max_bytes: int) -> dict:
@@ -535,7 +608,6 @@ def self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--compose-env-file", type=Path, help="Existing protected Compose env-file path")
     parser.add_argument(
         "--authorize-isolated-gate-open", action="store_true",
         help="Operator authorizes opening only the quarantined, network-none restore gate",
@@ -545,8 +617,8 @@ def main() -> int:
     if args.self_test:
         self_test()
         return 0
-    if os.geteuid() != 0 or args.compose_env_file is None or not args.compose_env_file.is_absolute():
-        parser.error("Run with sudo and --compose-env-file ABSOLUTE_EXISTING_PATH")
+    if os.geteuid() != 0:
+        parser.error("Run with sudo")
     os.umask(0o077)
     REPORT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     if REPORT_DIR.is_symlink() or REPORT_DIR.stat().st_mode & 0o077:
@@ -593,12 +665,15 @@ def main() -> int:
     signal.signal(signal.SIGTERM, terminate)
     try:
         report["resources_before"] = require_resources(MIN_INITIAL_DISK, "INITIAL_CAPACITY_INSUFFICIENT")
-        compose = compose_preflight(args.compose_env_file)
+        controller = load_protected_controller()
+        compose = compose_preflight(controller)
         controller_status()
         report["controller_read_only_check_before"] = "PASS"
         report["bundle"] = {
             "compose_sha256": compose["compose_sha256"],
             "backup_script_sha256": compose["bundle_backup_sha256"],
+            "controller_sha256": compose["controller_sha256"],
+            "configuration_source": compose["configuration_source"],
             "effective_backup_config": "PASS",
         }
         stage = "ACTIVE_INVENTORY"
@@ -675,12 +750,15 @@ def main() -> int:
         mount = backup_mount()
         before_files = backup_files(mount)
         step_started = time.monotonic()
-        docker(
-            [*compose["args"], "run", "--rm", "--no-deps", "geops-backup"],
-            "PROTECTED_BACKUP_FAILED",
-            timeout=1200,
-        )
+        if Path(controller.BACKUPS).resolve() != mount:
+            raise GateError("CONTROLLER_BACKUP_VOLUME_MISMATCH")
+        try:
+            controller_backup = controller.backup(CURRENT_API, CURRENT_WEB)
+        except (RuntimeError, OSError, ValueError) as error:
+            raise GateError("PROTECTED_BACKUP_FAILED") from error
         backup = verify_backup(mount, before_files, db_image, min(MAX_DUMP_SIZE, 2 * int(info["bytes"])))
+        if controller_backup.get("file") != backup["name"] or controller_backup.get("sha256") != backup["sha256"]:
+            raise GateError("CONTROLLER_BACKUP_RESULT_MISMATCH")
         report["timings_seconds"]["backup_and_verification"] = round(time.monotonic() - step_started, 1)
         report["backup"] = backup
         report["gates"]["STAGING_BACKUP_PASS"] = "PASS"
