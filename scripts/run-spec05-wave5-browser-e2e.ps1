@@ -71,8 +71,8 @@ try {
   New-Item -ItemType Directory -Path $cliDirectory | Out-Null
   Push-Location -LiteralPath $cliDirectory
   $cliPushed = $true
-  & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" open 'http://127.0.0.1:3501/' --browser chrome *> $null
-  if ($LASTEXITCODE -ne 0) { throw 'Playwright CLI could not launch Chrome.' }
+  $launchOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" open 'http://127.0.0.1:3501/' --browser chrome 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "Playwright CLI could not launch Chrome: $launchOutput" }
   $browserStarted = $true
   $testFile = Join-Path $root 'apps/web/test/mdm-workspace.e2e.js'
   $cliTestFile = Join-Path $cliDirectory 'mdm-workspace.e2e.js'
