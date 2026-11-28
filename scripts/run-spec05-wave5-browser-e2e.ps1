@@ -7,6 +7,13 @@ $browser = "spec05-wave5-$PID"
 $database = 'geops_verify_' + (Get-Date -Format 'yyyyMMddHHmmss')
 $url = "postgres://postgres:synthetic-only@127.0.0.1:55447/$database"
 $cliDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "geops-spec05-browser-$PID"
+$cliExecutable = Join-Path $root 'node_modules/.bin/playwright-cli'
+if ($IsWindows) { $cliExecutable += '.cmd' }
+$cliPrefix = @()
+if (-not (Test-Path -LiteralPath $cliExecutable)) {
+  $cliExecutable = 'npx'
+  $cliPrefix = @('--offline','--yes','--package','@playwright/cli@0.1.22','playwright-cli')
+}
 $apiProcess = $null
 $webProcess = $null
 $containerStarted = $false
@@ -71,7 +78,7 @@ try {
   New-Item -ItemType Directory -Path $cliDirectory | Out-Null
   Push-Location -LiteralPath $cliDirectory
   $cliPushed = $true
-  $launchOutput = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" open 'http://127.0.0.1:3501/' --browser chrome 2>&1
+  $launchOutput = & $cliExecutable @cliPrefix "-s=$browser" open 'http://127.0.0.1:3501/' --browser chrome 2>&1
   if ($LASTEXITCODE -ne 0) { throw "Playwright CLI could not launch Chrome: $launchOutput" }
   $browserStarted = $true
   $testFile = Join-Path $root 'apps/web/test/mdm-workspace.e2e.js'
@@ -80,7 +87,7 @@ try {
   Set-Content -LiteralPath $cliTestFile -Value $code -Encoding utf8
   $complete = Join-Path $root 'output/playwright/spec05-wave5-complete.png'
   if (Test-Path -LiteralPath $complete) { Remove-Item -LiteralPath $complete -Force }
-  $output = & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" --raw run-code --filename $cliTestFile 2>&1
+  $output = & $cliExecutable @cliPrefix "-s=$browser" --raw run-code --filename $cliTestFile 2>&1
   if ($LASTEXITCODE -ne 0) { throw "Browser E2E failed: $output" }
   $raw = ($output | Out-String).Trim()
   if ($raw) {
@@ -97,7 +104,7 @@ try {
   }
   Write-Output "SPEC-05 Wave 5 browser E2E PASS: $($result.checks) checks."
 } finally {
-  if ($browserStarted) { & npx --offline --yes --package '@playwright/cli@0.1.22' playwright-cli "-s=$browser" close *> $null }
+  if ($browserStarted) { & $cliExecutable @cliPrefix "-s=$browser" close *> $null }
   if ($cliPushed) { Pop-Location }
   if ($webProcess -and -not $webProcess.HasExited) { Stop-Process -Id $webProcess.Id -Force }
   if ($apiProcess -and -not $apiProcess.HasExited) { Stop-Process -Id $apiProcess.Id -Force }
