@@ -33,3 +33,21 @@ La aprobación parcial de W6-R1 se registra literalmente: `WAVE6_LAB_ENVIRONMENT
 El [bloque único de inventario](WAVE6-R2-OPERATOR-COMMANDS.md) es el siguiente paso para un operador privilegiado. Luego se requiere backup real, restore aislado y ensayo del mecanismo de migración, sin conectar a ManageEngine ni notificar dispositivos. Solo al cerrar esos gates se podrá presentar una solicitud concreta de promoción 0040→0042. La publicación GHCR no autoriza promoción. Se detiene W6-R2 aquí: `main`, staging operativo, producción, políticas, APK, enrolamiento y motor GPS permanecen sin cambios; Wave 7 no se inicia.
 
 Una lectura final de `sudo -n /usr/local/sbin/geops-staging-simple status` tras la publicación confirmó que staging conserva los mismos digests API/Web, 40 migraciones con el mismo hash, gate `open` y tres servicios healthy. El push documental posterior produjo jobs `validate` e `images` **skipped** por el gate de mensaje del workflow; no volvió a publicar imágenes.
+
+## Auditoría de cierre de gates solicitada
+
+Se preservó sin cambios el bloque A de [comandos de operador](WAVE6-R2-OPERATOR-COMMANDS.md) para que lo ejecute una cuenta autorizada. La conexión SSH disponible es `abi`; `sudo -n -l` confirmó que no puede usar Docker/DB sin una contraseña que Codex no posee. El wrapper `geops-staging-simple` es root-only. La copia legible de `backup.sh` y `compose.staging.yaml` en staging coincide byte a byte con el checkout; esto **verifica el procedimiento de código**, no la ejecución de un backup. El runbook histórico identifica `geops-backup` mediante Compose y está incorporado en los comandos existentes.
+
+| Gate | Estado | Resultado faltante |
+| --- | --- | --- |
+| STAGING_REAL_LEDGER_VERIFIED | BLOCKED | 40 filas `version,checksum,applied_at` reales y comparación exacta con el SHA fuente. |
+| STAGING_ACTIVE_OCI_LABELS_VERIFIED | BLOCKED | Labels OCI/IDs/digests de contenedores activos desde Docker privilegiado. |
+| STAGING_BACKUP_PASS | BLOCKED | Dump real nuevo, fecha, bytes, SHA-256, `sha256sum -c`, `pg_restore --list` y custodia. |
+| STAGING_REAL_RESTORE_PASS | BLOCKED | Copia real en DB/volumen/red aislados con conteos, identidades y relaciones verificados. |
+| STAGING_RESTORED_MIGRATION_0042_PASS | BLOCKED | Aplicar 0041/0042 solo a esa copia; ledger 42, objetos SQL y funcionalidad con ambos digests candidatos. |
+| STAGING_OPERATOR_REHEARSAL_PASS | BLOCKED | Interfaz/runbook protegido y ensayo 0040→0042 sobre copia, con gate, backup, health, smoke y recuperación. |
+| STAGING_PROMOTION_READY | BLOCKED | Depende de los seis gates anteriores. |
+| STAGING_PROMOTION_AUTHORIZED | NOT_RUN | La solicitud de autorización se presentará después de `READY=PASS`. |
+| STAGING_DEPLOYED | NOT_RUN | Ninguna promoción operativa ejecutada. |
+
+**Única intervención requerida:** una cuenta de operador Docker/DB ya autorizada ejecuta el bloque A sin cambios y los comandos protegidos de backup/verificación en [WAVE6-R2-OPERATOR-COMMANDS.md](WAVE6-R2-OPERATOR-COMMANDS.md); conserva dump/secretos en infraestructura protegida, ensaya restore y migración solo en entorno aislado, e informa resultados sanitizados y la interfaz real del controlador. [Backup](WAVE6-R2-STAGING-BACKUP.md) y [restore](WAVE6-R2-RESTORE-REHEARSAL.md) definen los criterios. Sin esa evidencia no se puede elevar ninguno de estos gates a PASS.

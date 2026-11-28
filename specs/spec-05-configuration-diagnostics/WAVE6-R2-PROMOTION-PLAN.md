@@ -26,3 +26,9 @@ Con operador existente, bloquear nuevas escrituras mediante gate y drenar ingest
 | MDM | Consulta de dispositivos y permisos según fuente; `UNKNOWN` cuando no hay tenant real; preview/solicitud bajo RBAC; envío operativo responde `mdm_write_disabled`. |
 
 Las pruebas autenticadas requieren cuentas de laboratorio y fixture autorizadas dentro de staging; registrar respuesta, hora UTC y correlación sin tokens/PII. HTTP 401 sin sesión no constituye PASS funcional. ManageEngine real y Moto G06 continúan pendientes independientes; no bloquean preparar imágenes, pero sí la afirmación de causa raíz GPS o producción.
+
+## Solicitud separada de autorización, preparada pero no presentada
+
+**Destino futuro:** promoción staging del proyecto `geops-spec02-staging`, esquema 0040→0042. **Fuente:** `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8`. **CI:** [run 46164447870](https://github.com/Kmena/Geops/actions/runs/46164447870) PASS. **API/Web candidatas:** digests inmutables del [manifiesto](WAVE6-R2-GHCR-RELEASE-MANIFEST.json); imágenes actuales y hash de ledger 0040 también allí. **Backup real:** PENDIENTE. **Restore/migración aislados:** PENDIENTE. **Ledger fila por fila y labels activos:** PENDIENTE. **Comando de operador probado 0040→0042, ventana y tiempos:** PENDIENTE. **Recuperación:** gate cerrado, avance supervisado o restauración del dump validado con decisión explícita sobre escrituras posteriores.
+
+Presentar esta solicitud al usuario **solo** cuando esos campos tengan evidencia y `STAGING_PROMOTION_READY=PASS`. La presente documentación no autoriza `deploy`.

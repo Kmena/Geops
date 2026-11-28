@@ -1,6 +1,6 @@
 # W6-R2 — Ensayo de restauración real
 
-**STAGING_REAL_RESTORE_PASS = BLOCKED; RESTORED_DATABASE_MIGRATION_PASS = BLOCKED.** No hay acceso a un dump real ni a un entorno descartable autorizado con esos datos. El ensayo W6-R1 con fixtures sintéticas sí pasó `pg_dump`/`pg_restore`, preservó tres identidades y el ledger 0040, aplicó 0041/0042 y verificó readiness; [evidencia](WAVE6-R1-BACKUP-RESTORE-EVIDENCE.md). No atribuir ese resultado a datos de staging.
+**STAGING_REAL_RESTORE_PASS = BLOCKED; STAGING_RESTORED_MIGRATION_0042_PASS = BLOCKED.** No hay acceso a un dump real ni a un entorno descartable autorizado con esos datos. El ensayo W6-R1 con fixtures sintéticas sí pasó `pg_dump`/`pg_restore`, preservó tres identidades y el ledger 0040, aplicó 0041/0042 y verificó readiness; [evidencia](WAVE6-R1-BACKUP-RESTORE-EVIDENCE.md). No atribuir ese resultado a datos de staging.
 
 Procedimiento de operador, solo en infraestructura protegida: restaurar una **copia** del dump con checksum validado a un PostgreSQL/PostGIS descartable de versión compatible, en red aislada y volumen nuevo. No apuntar DNS, secrets MDM ni credenciales de dispositivos reales hacia la réplica; bloquear salida a ManageEngine y notificaciones. Comparar antes/después las 40 filas del ledger, hashes, conteos y relaciones de dispositivos, agentes, clientes, geozonas, rutas, posiciones, instalaciones GPS y configuración MDM. Comparar identificadores mediante hashes o conteos, sin exportarlos. Verificar FK con consultas de huérfanos y `PostGIS_Version()`/extensiones.
 

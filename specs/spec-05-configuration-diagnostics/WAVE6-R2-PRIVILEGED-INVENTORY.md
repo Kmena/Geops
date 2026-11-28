@@ -1,6 +1,6 @@
 # W6-R2 — Inventario privilegiado de staging
 
-**Estado: BLOCKED para lectura privilegiada.** La evidencia de W6-R1 ya confirma proyecto `geops-spec02-staging`, gate `open`, API/Web/PostGIS healthy, 40 migraciones y los digests activos. El usuario SSH `abi` solo dispone de `sudo -n geops-staging-simple check/status/deploy/rollback`; el socket Docker directo devuelve `permission denied`. No se alteraron permisos, servicios ni base operativa. Fuente: [inventario W6-R1](WAVE6-R1-STAGING-INVENTORY.md) y `output/spec05-wave6-r1/staging-controller-status.json`.
+**Estado: BLOCKED para lectura privilegiada.** La evidencia de W6-R1 ya confirma proyecto `geops-spec02-staging`, gate `open`, API/Web/PostGIS healthy, 40 migraciones y los digests activos. En el cierre de gates se confirmó por SSH `id -un = abi` y `sudo -n -l`: solo `geops-staging-simple check/status/deploy/rollback` funciona sin contraseña; Docker directo no está autorizado. El wrapper instalado es `root:root -r-x------`, por lo que tampoco se puede leer su interfaz interna con esta cuenta. No se alteraron permisos, servicios ni base operativa. Fuente: [inventario W6-R1](WAVE6-R1-STAGING-INVENTORY.md) y `output/spec05-wave6-r1/staging-controller-status.json`.
 
 | Dato | Evidencia actual | Pendiente |
 | --- | --- | --- |
@@ -11,4 +11,4 @@
 | DB | `postgis/postgis:18-3.6`, healthy | PostgreSQL/PostGIS efectivos, volúmenes, conteos. |
 | Ledger | 40, hash de lista `40da2b60308dc0be781afb7aad45029a8b560ef76e979e8e5c178d2d85f8aeaf` | Las 40 filas con checksum y `applied_at`. |
 
-El [bloque único para operador](WAVE6-R2-OPERATOR-COMMANDS.md) cubre las lecturas restantes. Compartir salida sanitizada; no compartir `docker inspect .Config.Env`, archivos de secretos, dump, tokens, coordenadas ni identificadores personales. Si el operador entrega los resultados, contrastar cada fila del ledger con los archivos del SHA `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8` antes de marcar PASS.
+El [bloque único para operador](WAVE6-R2-OPERATOR-COMMANDS.md) cubre las lecturas restantes; debe ejecutarlo **sin modificaciones** una cuenta ya autorizada para Docker/DB. Compartir salida sanitizada; no compartir `docker inspect .Config.Env`, archivos de secretos, dump, tokens, coordenadas ni identificadores personales. Si el operador entrega los resultados, contrastar cada fila del ledger con los archivos del SHA `809bb0678feaefdbbe8006a1ba05325ccb1ad0a8` antes de marcar PASS. Hasta entonces `STAGING_REAL_LEDGER_VERIFIED` y `STAGING_ACTIVE_OCI_LABELS_VERIFIED` permanecen BLOCKED.
